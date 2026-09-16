@@ -337,6 +337,8 @@ Each should print a version number, not an error.
 
 ### Create the empty repo on Gitea
 
+**Where: Gitea, in your browser.**
+
 1. Gitea -> **"+" -> New Repository**
 2. Name: `ihl-hims-backend`, Visibility: **Private**
 3. **Leave "Initialize Repository" turned OFF** - no README/.gitignore/license.
@@ -345,6 +347,10 @@ Each should print a version number, not an error.
 4. **Create Repository**, copy the clone URL it shows you.
 
 ### Clone it locally and bring CARE's source in with shared history preserved
+
+**Where: your laptop, in PowerShell/Git Bash - NOT the EC2 box, NOT PuTTY.**
+Everything from here until the next "EC2 box" marker happens on your own
+machine.
 
 ```sh
 git clone <your-gitea-repo-url> ihl-hims-backend
@@ -379,7 +385,11 @@ git add -A
 git commit -m "Add deployment config: docker-compose, EC2 setup, backup script, Gitea Actions workflow"
 ```
 
-Now copy the deploy files to the box (still on your laptop, in `ihl-hims-backend`):
+Now copy the deploy files to the box.
+
+**Where: still your laptop** (both options below run from your machine -
+`scp`/WinSCP connect *out* to the box, they're not run *on* it), from
+`ihl-hims-backend`:
 
 **Option A - `scp` (needs OpenSSH, works from PowerShell/Git Bash):**
 ```sh
@@ -403,7 +413,11 @@ in the same step (that's the filename `docker-compose.yml` actually reads).
 7. Drag `deploy/.env.example` over the same way, then on the right pane
    rename it from `.env.example` to `.env` (right-click -> Rename)
 
-SSH back in and edit that `.env` file with real values:
+**Where: the EC2 box - SSH/PuTTY back in from here on** (the two `scp`/WinSCP
+steps above were the only "your laptop" part; everything below in this
+Part happens inside your terminal session on the box).
+
+Edit that `.env` file with real values:
 
 ```sh
 ssh -i /path/to/ihl-hims-key.pem ec2-user@<public-ip>
@@ -444,8 +458,8 @@ again.
 
 ## Part 7 - Wire up Gitea Actions
 
-In `ihl-hims-backend` on Gitea: **Settings -> Actions -> Secrets -> Add secret**,
-add each of these one at a time:
+**Where: Gitea, in your browser.** `ihl-hims-backend` repo -> **Settings ->
+Actions -> Secrets -> Add secret**, add each of these one at a time:
 
 | Secret | Value | Why the pipeline needs it |
 |---|---|---|
@@ -455,7 +469,9 @@ add each of these one at a time:
 | `GITEA_REGISTRY_USER` | Your Gitea username | Logs in to Gitea's container registry to push the built image |
 | `GITEA_REGISTRY_TOKEN` | A Gitea access token, package read/write scope | Same login, as a token instead of your account password |
 
-Then trigger the first deploy:
+Then trigger the first deploy.
+
+**Where: back to your laptop**, in `ihl-hims-backend`:
 ```sh
 git add -A
 git commit -m "Initial deploy"
@@ -465,10 +481,12 @@ git push origin main
 - `git commit -m "..."` - saves those staged changes as one commit with that message
 - `git push origin main` - uploads the commit to Gitea's `main` branch, which is exactly what `.gitea/workflows/deploy.yml`'s `on: push: branches: [main]` is watching for
 
-Watch it run under the repo's **Actions** tab. In order, it: builds the
-image from `docker/prod.Dockerfile`, pushes it to Gitea's registry, then
-SSHes into the box and runs `docker compose pull && docker compose up -d`
-to actually restart the containers with the new image.
+**Where: Gitea, in your browser** - watch it run under the repo's **Actions**
+tab. In order, it: builds the image from `docker/prod.Dockerfile`, pushes
+it to Gitea's registry, then SSHes into the box itself and runs
+`docker compose pull && docker compose up -d` to restart the containers
+with the new image - that part happens automatically, on the box, without
+you needing to open PuTTY for it.
 
 ---
 
@@ -478,13 +496,15 @@ Since Postgres is a container (not managed RDS), nothing backs it up
 automatically - this is cheap insurance against losing everything to a bad
 `docker compose down -v` or a disk failure.
 
-First, copy the backup script to the box the same way as `docker-compose.yml`
-in Part 6 (Option A `scp`, or Option B WinSCP if you're using PuTTY):
+**Where: your laptop**, copy the backup script to the box the same way as
+`docker-compose.yml` in Part 6 (Option A `scp`, or Option B WinSCP if
+you're using PuTTY):
 ```sh
 scp -i /path/to/ihl-hims-key.pem deploy/backup-db.sh ec2-user@<public-ip>:/opt/ihl-hims/deploy/
 ```
 
-SSH in and edit the crontab (the list of scheduled jobs for your user):
+**Where: the EC2 box** - SSH/PuTTY in and edit the crontab (the list of
+scheduled jobs for your user):
 ```sh
 ssh -i /path/to/ihl-hims-key.pem ec2-user@<public-ip>
 crontab -e
@@ -506,6 +526,8 @@ match your real Part 3 bucket name.
 ---
 
 ## Part 9 - Verify it's actually working
+
+**Where: the EC2 box.**
 
 ```sh
 ssh -i /path/to/ihl-hims-key.pem ec2-user@<public-ip>
@@ -529,9 +551,11 @@ CARE's actual built-in health-check endpoint (also what `healthcheck.sh`
 itself checks). A JSON response instead of a connection error means the
 backend is actually listening.
 
-From your own machine/browser, the same URL using the public IP instead of
-`localhost` (`http://<public-ip>:9000/ping/`) should return the same JSON -
-confirming the security group's port 9000 rule from Part 4 is working too.
+**Where: back to your laptop/browser** for the final check - the same URL
+using the public IP instead of `localhost`
+(`http://<public-ip>:9000/ping/`) should return the same JSON from outside
+the box entirely, confirming the security group's port 9000 rule from
+Part 4 is actually working.
 
 ---
 
