@@ -1,0 +1,209 @@
+import datetime
+
+from django.contrib.auth import get_user_model
+from django.utils import timezone
+from pydantic import UUID4, BaseModel
+
+from care.emr.extensions.base import ExtensionResource
+from care.emr.extensions.validator import ExtensionValidator
+from care.emr.models import (
+    Encounter,
+    EncounterOrganization,
+    FacilityLocationEncounter,
+    TokenBooking,
+)
+from care.emr.models.patient import Patient
+from care.emr.resources.base import EMRResource, PeriodSpec, model_from_cache
+from care.emr.resources.encounter.constants import (
+    AdmitSourcesChoices,
+    ClassChoices,
+    DietPreferenceChoices,
+    DischargeDispositionChoices,
+    EncounterPriorityChoices,
+    StatusChoices,
+)
+from care.emr.resources.encounter.valueset import PRACTITIONER_ROLE_VALUESET
+from care.emr.resources.facility.spec import FacilityBareMinimumSpec
+from care.emr.resources.facility_organization.spec import FacilityOrganizationReadSpec
+from care.emr.resources.location.spec import (
+    FacilityLocationEncounterListSpecWithLocation,
+    FacilityLocationMinimalListSpec,
+)
+from care.emr.resources.patient.spec import PatientListSpec, PatientRetrieveSpec
+from care.emr.resources.permissions import EncounterPermissionsMixin
+from care.emr.resources.scheduling.slot.spec import TokenBookingReadSpec
+from care.emr.resources.user.spec import UserSpec
+from care.emr.tagging.base import SingleFacilityTagManager
+from care.emr.utils.valueset_coding_type import ValueSetBoundCoding
+from care.facility.models import Facility
+from care.utils.shortcuts import get_object_or_404
+
+User = get_user_model()
+
+
+class HospitalizationSpec(BaseModel):
+    re_admission: bool | None = None
+    admit_source: AdmitSourcesChoices | None = None
+    discharge_disposition: DischargeDispositionChoices | None = None
+    diet_preference: DietPreferenceChoices | None = None
+
+
+class EncounterSpecBase(EMRResource):
+    __model__ = Encounter
+    ___extension_resource_type__ = ExtensionResource.encounter
+    __exclude__ = [
+        "patient",
+        "organizations",
+        "facility",
+        "appointment",
+        "current_location",
+        "care_team",
+    ]
+
+    id: UUID4 = None
+    status: StatusChoices
+    period: PeriodSpec = {}
+    hospitalization: HospitalizationSpec | None = {}
+    priority: EncounterPriorityChoices
+    external_identifier: str | None = None
+    discharge_summary_advice: str | None = None
+
+
+class EncounterCreateSpec(ExtensionValidator, EncounterSpecBase):
+    patient: UUID4
+    facility: UUID4
+    organizations: list[UUID4] = []
+    appointment: UUID4 | None = None
+    encounter_class: ClassChoices
+
+    def perform_extra_deserialization(self, is_update, obj):
+        if not is_update:
+            obj.patient = get_object_or_404(
+                Patient.objects.all().only("id"), external_id=self.patient
+            )
+            obj.facility = get_object_or_404(
+                Facility.objects.all().only("id"), external_id=self.facility
+            )
+            if self.appointment:
+                obj.appointment = get_object_or_404(
+                    TokenBooking.objects.all().only("id"),
+                    patient=obj.patient,
+                    external_id=self.appointment,
+                    token_slot__resource__facility=obj.facility,
+                )
+            obj._organizations = list(set(self.organizations))  # noqa SLF001
+            obj.status_history = {
+                "history": [{"status": obj.status, "moved_at": str(timezone.now())}]
+            }
+
+
+class EncounterUpdateSpec(ExtensionValidator, EncounterSpecBase):
+    def perform_extra_deserialization(self, is_update, obj):
+        old_instance = Encounter.objects.get(id=obj.id)
+        if old_instance.status != self.status:
+            obj.status_history["history"].append(
+                {"status": self.status, "moved_at": str(timezone.now())}
+            )
+        if self.discharge_summary_advice is None and is_update:
+            obj.discharge_summary_advice = None
+
+
+class EncounterListSpec(EncounterSpecBase):
+    patient: dict
+    facility: dict
+    status_history: dict
+    created_date: datetime.datetime
+    modified_date: datetime.datetime
+    tags: list[dict] = []
+    current_location: dict | None = None
+    care_team: list[dict] = []
+    encounter_class: ClassChoices
+
+    @classmethod
+    def perform_extra_serialization(cls, mapping, obj):
+        mapping["id"] = obj.external_id
+        mapping["patient"] = PatientListSpec.serialize(obj.patient).to_json()
+        mapping["facility"] = FacilityBareMinimumSpec.serialize(obj.facility).to_json()
+        mapping["tags"] = SingleFacilityTagManager().render_tags(obj)
+        mapping["current_location"] = None
+        if obj.current_location:
+            mapping["current_location"] = FacilityLocationMinimalListSpec.serialize(
+                obj.current_location
+            ).to_json()
+        care_team = []
+        user_mapping = {x["user_id"]: x for x in obj.care_team}
+        user_ids = list(user_mapping.keys())
+
+        for user_id in user_ids:
+            care_team.append(
+                {
+                    "member": model_from_cache(UserSpec, id=user_id),
+                    "role": user_mapping[user_id]["role"],
+                }
+            )
+
+        mapping["care_team"] = care_team
+
+
+class EncounterRetrieveSpec(EncounterListSpec, EncounterPermissionsMixin):
+    appointment: dict = {}
+    created_by: dict = {}
+    updated_by: dict = {}
+    organizations: list[dict] = []
+    location_history: list[dict] = []
+    care_team: list[dict] = []
+    extensions: dict
+
+    @classmethod
+    def perform_extra_serialization(cls, mapping, obj):
+        mapping["id"] = obj.external_id
+        mapping["patient"] = PatientRetrieveSpec.serialize(
+            obj.patient, facility=obj.facility
+        ).to_json()
+        mapping["facility"] = FacilityBareMinimumSpec.serialize(obj.facility).to_json()
+        mapping["tags"] = SingleFacilityTagManager().render_tags(obj)
+        if obj.appointment:
+            mapping["appointment"] = TokenBookingReadSpec.serialize(
+                obj.appointment
+            ).to_json()
+        organizations = EncounterOrganization.objects.filter(encounter=obj)
+        mapping["organizations"] = [
+            FacilityOrganizationReadSpec.serialize(encounter_org.organization).to_json()
+            for encounter_org in organizations
+        ]
+        mapping["location_history"] = [
+            FacilityLocationEncounterListSpecWithLocation.serialize(i)
+            for i in FacilityLocationEncounter.objects.filter(encounter=obj).order_by(
+                "-created_date"
+            )
+        ]
+        mapping["current_location"] = None
+        if obj.current_location:
+            mapping["current_location"] = FacilityLocationMinimalListSpec.serialize(
+                obj.current_location
+            ).to_json()
+
+        care_team = []
+        user_mapping = {x["user_id"]: x for x in obj.care_team}
+        user_ids = list(user_mapping.keys())
+
+        for user_id in user_ids:
+            care_team.append(
+                {
+                    "member": model_from_cache(UserSpec, id=user_id),
+                    "role": user_mapping[user_id]["role"],
+                }
+            )
+
+        mapping["care_team"] = care_team
+
+        cls.serialize_audit_users(mapping, obj)
+
+
+class EncounterCareTeamMemberSpec(BaseModel):
+    user_id: UUID4
+    role: ValueSetBoundCoding[PRACTITIONER_ROLE_VALUESET.slug]
+
+
+class EncounterCareTeamMemberWriteSpec(BaseModel):
+    members: list[EncounterCareTeamMemberSpec]

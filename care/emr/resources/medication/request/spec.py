@@ -1,0 +1,343 @@
+from datetime import datetime
+from decimal import Decimal
+from enum import Enum
+
+from pydantic import UUID4, BaseModel, Field, field_validator, model_validator
+from rest_framework.exceptions import ValidationError
+
+from care.emr.models.encounter import Encounter
+from care.emr.models.medication_request import (
+    MedicationRequest,
+    MedicationRequestPrescription,
+)
+from care.emr.models.product_knowledge import ProductKnowledge
+from care.emr.resources.base import EMRResource, PeriodSpec, model_from_cache
+from care.emr.resources.common.coding import Coding
+from care.emr.resources.inventory.product_knowledge.spec import ProductKnowledgeReadSpec
+from care.emr.resources.medication.request_prescription.spec import (
+    MedicationRequestPrescriptionReadSpec,
+    MedicationRequestPrescriptionStatus,
+)
+from care.emr.resources.medication.valueset.additional_instruction import (
+    CARE_ADDITIONAL_INSTRUCTION_VALUESET,
+)
+from care.emr.resources.medication.valueset.administration_method import (
+    CARE_ADMINISTRATION_METHOD_VALUESET,
+)
+from care.emr.resources.medication.valueset.as_needed_reason import (
+    CARE_AS_NEEDED_REASON_VALUESET,
+)
+from care.emr.resources.medication.valueset.body_site import CARE_BODY_SITE_VALUESET
+from care.emr.resources.medication.valueset.medication import CARE_MEDICATION_VALUESET
+from care.emr.resources.medication.valueset.route import CARE_ROUTE_VALUESET
+from care.emr.resources.user.spec import UserSpec
+from care.emr.utils.valueset_coding_type import ValueSetBoundCoding
+from care.users.models import User
+from care.utils.shortcuts import get_object_or_404
+
+
+class MedicationRequestStatus(str, Enum):
+    active = "active"
+    on_hold = "on_hold"
+    ended = "ended"
+    stopped = "stopped"
+    completed = "completed"
+    cancelled = "cancelled"
+    entered_in_error = "entered_in_error"
+    draft = "draft"
+    unknown = "unknown"
+
+
+class StatusReason(str, Enum):
+    alt_choice = "altchoice"
+    clarif = "clarif"
+    drughigh = "drughigh"
+    hospadm = "hospadm"
+    labint = "labint"
+    non_avail = "non_avail"
+    preg = "preg"
+    salg = "salg"
+    sddi = "sddi"
+    sdupther = "sdupther"
+    sintol = "sintol"
+    surg = "surg"
+    washout = "washout"
+
+
+class MedicationRequestIntent(str, Enum):
+    proposal = "proposal"
+    plan = "plan"
+    order = "order"
+    original_order = "original_order"
+    reflex_order = "reflex_order"
+    filler_order = "filler_order"
+    instance_order = "instance_order"
+
+
+class MedicationRequestPriority(str, Enum):
+    routine = "routine"
+    urgent = "urgent"
+    asap = "asap"
+    stat = "stat"
+
+
+class MedicationRequestCategory(str, Enum):
+    inpatient = "inpatient"
+    outpatient = "outpatient"
+    community = "community"
+    discharge = "discharge"
+
+
+class MedicationRequestDispenseStatus(str, Enum):
+    complete = "complete"
+    partial = "partial"
+    incomplete = "incomplete"
+    declined = "declined"
+
+
+class TimingUnit(str, Enum):
+    s = "s"
+    min = "min"
+    h = "h"
+    d = "d"
+    wk = "wk"
+    mo = "mo"
+    a = "a"
+
+
+class DoseType(str, Enum):
+    ordered = "ordered"
+    calculated = "calculated"
+
+
+class DosageQuantity(BaseModel):
+    value: Decimal = Field(max_digits=20, decimal_places=6)
+    unit: Coding
+
+
+class TimingQuantity(BaseModel):
+    value: Decimal = Field(max_digits=20, decimal_places=0)
+    unit: TimingUnit
+
+
+class TimingRange(BaseModel):
+    low: TimingQuantity
+    high: TimingQuantity
+
+
+class DoseRange(BaseModel):
+    low: DosageQuantity
+    high: DosageQuantity
+
+
+class DoseAndRate(BaseModel):
+    type: DoseType
+    dose_range: DoseRange | None = None
+    dose_quantity: DosageQuantity | None = None
+
+
+class TimingRepeat(BaseModel):
+    frequency: int
+    period: Decimal = Field(max_digits=20, decimal_places=0)
+    period_unit: TimingUnit
+    bounds_duration: TimingQuantity | None = None
+    bounds_range: TimingRange | None = None
+    bounds_period: PeriodSpec | None = None
+
+    @model_validator(mode="after")
+    def validate_bounds(self):
+        if (
+            not self.bounds_duration
+            and not self.bounds_range
+            and not self.bounds_period
+        ):
+            raise ValueError(
+                "At least one of bounds_duration, bounds_range, or bounds_period is required"
+            )
+        return self
+
+
+class Timing(BaseModel):
+    repeat: TimingRepeat
+    code: Coding | None = None
+
+
+class DosageInstruction(BaseModel):
+    sequence: int | None = None
+    text: str | None = None
+    additional_instruction: (
+        list[ValueSetBoundCoding[CARE_ADDITIONAL_INSTRUCTION_VALUESET.slug]] | None
+    ) = None
+    patient_instruction: str | None = None
+    timing: Timing | None = None
+    as_needed_boolean: bool
+    as_needed_for: ValueSetBoundCoding[CARE_AS_NEEDED_REASON_VALUESET.slug] | None = (
+        None
+    )
+    site: ValueSetBoundCoding[CARE_BODY_SITE_VALUESET.slug] | None = None
+    route: ValueSetBoundCoding[CARE_ROUTE_VALUESET.slug] | None = None
+    method: ValueSetBoundCoding[CARE_ADMINISTRATION_METHOD_VALUESET.slug] | None = None
+    dose_and_rate: DoseAndRate | None = None
+    max_dose_per_period: DoseRange | None = None
+
+
+class MedicationRequestResource(EMRResource):
+    __model__ = MedicationRequest
+    __exclude__ = [
+        "patient",
+        "encounter",
+        "requester",
+        "requested_product",
+        "prescription",
+    ]
+
+
+class MedicationRequestAbstractSpec(BaseModel):
+    status: MedicationRequestStatus
+
+    status_reason: StatusReason | None = None
+
+    intent: MedicationRequestIntent
+
+    category: MedicationRequestCategory
+    priority: MedicationRequestPriority
+
+    do_not_perform: bool
+
+    medication: ValueSetBoundCoding[CARE_MEDICATION_VALUESET.slug] | None = None
+
+    dosage_instruction: list[DosageInstruction]
+    authored_on: datetime
+
+    note: str | None = Field(None)
+
+    dispense_status: MedicationRequestDispenseStatus | None = None
+
+
+class BaseMedicationRequestSpec(
+    MedicationRequestResource, MedicationRequestAbstractSpec
+):
+    id: UUID4 = None
+
+
+class CreatePrescription(BaseModel):
+    name: str | None = None
+    note: str | None = None
+    alternate_identifier: str
+
+
+class MedicationRequestSpec(BaseMedicationRequestSpec):
+    requester: UUID4 | None = None
+    requested_product: UUID4 | None = None
+    prescription: UUID4 | None = None
+    create_prescription: CreatePrescription | None = None
+    encounter: UUID4
+
+    @model_validator(mode="after")
+    def validate_prescription(self):
+        if self.create_prescription and self.prescription:
+            raise ValueError("Cannot have both prescription and create_prescription")
+        return self
+
+    @model_validator(mode="after")
+    def validate_request_code(self):
+        if self.requested_product and self.medication:
+            raise ValueError("Cannot have both medication and requested product")
+        if not self.requested_product and not self.medication:
+            raise ValueError("Either medication or requested product is required")
+        return self
+
+    @field_validator("encounter")
+    @classmethod
+    def validate_encounter_exists(cls, encounter):
+        if not Encounter.objects.filter(external_id=encounter).exists():
+            err = "Encounter not found"
+            raise ValueError(err)
+        return encounter
+
+    def perform_extra_deserialization(self, is_update, obj):
+        obj.encounter = Encounter.objects.get(external_id=self.encounter)
+        obj.patient = obj.encounter.patient
+        if self.requester:
+            obj.requester = get_object_or_404(User, external_id=self.requester)
+        if self.requested_product:
+            obj.requested_product = get_object_or_404(
+                ProductKnowledge,
+                external_id=self.requested_product,
+            )
+            if (
+                obj.requested_product.facility
+                and obj.requested_product.facility != obj.encounter.facility
+            ):
+                raise ValidationError(
+                    {"requested_product": "Product not found in facility"}
+                )
+
+        if self.prescription:
+            obj.prescription = get_object_or_404(
+                MedicationRequestPrescription.objects.only("id"),
+                external_id=self.prescription,
+                encounter=obj.encounter,
+            )
+        if self.create_prescription:
+            prescription_obj = MedicationRequestPrescription.objects.filter(
+                alternate_identifier=self.create_prescription.alternate_identifier,
+                encounter=obj.encounter,
+            ).first()
+            if (
+                prescription_obj
+                and prescription_obj.status
+                != MedicationRequestPrescriptionStatus.active
+            ):
+                raise ValidationError("Prescription is not active")
+            if not prescription_obj:
+                prescription_obj = MedicationRequestPrescription.objects.create(
+                    status=MedicationRequestPrescriptionStatus.active,
+                    alternate_identifier=self.create_prescription.alternate_identifier,
+                    encounter=obj.encounter,
+                    patient=obj.patient,
+                    name=self.create_prescription.name,
+                    note=self.create_prescription.note,
+                    prescribed_by=obj.requester,
+                )
+            obj.prescription = prescription_obj
+
+
+class MedicationRequestUpdateSpec(MedicationRequestResource):
+    status: MedicationRequestStatus
+    note: str | None = None
+    dispense_status: MedicationRequestDispenseStatus | None = None
+
+
+class MedicationRequestReadWithoutPrescriptionSpec(BaseMedicationRequestSpec):
+    created_by: UserSpec = {}
+    updated_by: UserSpec = {}
+    created_date: datetime
+    modified_date: datetime
+    requested_product: dict | None = None
+    requester: UserSpec | None = None
+
+    @classmethod
+    def perform_extra_serialization(cls, mapping, obj):
+        mapping["id"] = obj.external_id
+        if obj.requested_product:
+            mapping["requested_product"] = ProductKnowledgeReadSpec.serialize(
+                obj.requested_product
+            ).to_json()
+        if obj.requester_id:
+            mapping["requester"] = model_from_cache(UserSpec, id=obj.requester_id)
+        cls.serialize_audit_users(mapping, obj)
+
+
+class MedicationRequestReadSpec(MedicationRequestReadWithoutPrescriptionSpec):
+    prescription: dict | None = None
+    encounter: UUID4
+
+    @classmethod
+    def perform_extra_serialization(cls, mapping, obj):
+        super().perform_extra_serialization(mapping, obj)
+        if obj.prescription:
+            mapping["prescription"] = MedicationRequestPrescriptionReadSpec.serialize(
+                obj.prescription
+            ).to_json()
+        mapping["encounter"] = obj.encounter.external_id
