@@ -6,7 +6,7 @@ on:
 
 env:
   # Your self-hosted Gitea host - built-in container registry, no GHCR/ECR needed.
-  REGISTRY: gitea.example.com
+  REGISTRY: server1.indiahealthlink.com
   IMAGE: ${{ github.repository }}
 
 jobs:
