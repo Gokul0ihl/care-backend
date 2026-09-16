@@ -21,6 +21,21 @@ guide): `ihl-hims-dev-frontend` (public, serves the built React app) and
 name is already taken by someone else on AWS globally, append your account
 ID from Part 2.
 
+## Progress checklist
+
+Update this as you go - it's the fastest way to see where you actually are:
+
+- [x] Part 1 - CI/CD IAM user created
+- [x] Part 2 - AWS CLI configured locally
+- [x] Part 3 - `ihl-hims-dev-uploads` bucket created (`ihl-hims-dev-frontend` still pending - comes with the frontend repo setup)
+- [x] Part 4 - EC2 instance running, public IP noted, instance role attached
+- [x] Part 5 - Docker + Compose installed and verified on the box
+- [x] Part 6 - Repo created on Gitea, CARE source + `deploy/` files committed locally, `docker-compose.yml`/`.env` copied to the box with real values
+- [ ] Part 6 (cont.) - `docker login` run on the box against your Gitea registry
+- [ ] Part 7 - 5 Gitea repo secrets added, then `git push`
+- [ ] Part 8 - backup cron job installed
+- [ ] Part 9 - verified working end to end (`/ping/` returns JSON)
+
 ---
 
 ## Part 1 - Create the CI/CD IAM user (console)
@@ -230,6 +245,19 @@ ssh -i /path/to/ihl-hims-key.pem ec2-user@<your-public-ip>
 SSH; under Connection -> SSH -> Auth -> Credentials, browse to your key
 file. Open, and log in as `ec2-user` when prompted.
 
+**Windows permissions gotcha (affects both options):** OpenSSH refuses to
+use a private key file if Windows' default permissions on it are too broad
+(typically an inherited "Authenticated Users" grant from being downloaded
+via a browser). If you get `UNPROTECTED PRIVATE KEY FILE!` or `Permission
+denied (publickey)` even with the right key, fix it once in PowerShell:
+```powershell
+icacls "C:\path\to\ihl-hims-key.pem" /inheritance:r
+icacls "C:\path\to\ihl-hims-key.pem" /grant:r "$($env:USERNAME):(R)"
+icacls "C:\path\to\ihl-hims-key.pem" /remove:g "NT AUTHORITY\Authenticated Users" "BUILTIN\Users"
+```
+This strips every permission except your own user, Administrators, and
+SYSTEM.
+
 **From here on, every command shown as a code block is typed inside this
 same terminal session, regardless of which option you used to connect** -
 PuTTY and native `ssh` both just give you a Linux shell, so there's no
@@ -260,7 +288,7 @@ commands without typing `sudo` every time.
 
 ```sh
 sudo mkdir -p /usr/local/lib/docker/cli-plugins
-``
+```
 Docker Compose (v2) is installed as a *plugin*, not a separate program -
 this is the folder Docker looks in for plugins.
 
@@ -278,11 +306,16 @@ Marks the downloaded file as executable - without this, Docker can see the
 file but refuses to run it.
 
 ```sh
-mkdir -p /opt/ihl-hims/deploy
+sudo mkdir -p /opt/ihl-hims/deploy
+sudo chown -R ec2-user:ec2-user /opt/ihl-hims
 ```
 Creates the folder where `docker-compose.yml` and `.env` will live on this
 box (matches the paths used throughout the rest of this guide and in
-`.gitea/workflows/deploy.yml`).
+`.gitea/workflows/deploy.yml`). **The `chown` matters** - `/opt` is owned
+by `root` by default, so a plain `mkdir` here (without `sudo`) fails, and
+even with `sudo` the new folder is still `root`-owned - meaning neither you
+nor Gitea's SSH deploy step (which connects as `ec2-user`) can write to it
+until you hand ownership back to `ec2-user` explicitly, as done above.
 
 Now log out and back in so the group change from `usermod` actually applies
 to your session:
@@ -300,41 +333,53 @@ Each should print a version number, not an error.
 
 ---
 
-## Part 6 - Get CARE's source into `backend-repo` and deploy the config
+## Part 6 - Get CARE's source into your Gitea repo and deploy the config
 
-On your laptop, if you haven't already brought CARE's source into this repo:
+### Create the empty repo on Gitea
 
-```sh
-cd backend-repo
-```
-Move into the local copy of your Gitea repo.
+1. Gitea -> **"+" -> New Repository**
+2. Name: `ihl-hims-backend`, Visibility: **Private**
+3. **Leave "Initialize Repository" turned OFF** - no README/.gitignore/license.
+   The repo must be completely empty, otherwise Gitea's own first commit
+   collides with CARE's history when you merge it in below.
+4. **Create Repository**, copy the clone URL it shows you.
 
-```sh
-git clone https://github.com/ohcnetwork/care.git .
-```
-Pulls CARE's entire upstream source code into the current directory (the
-trailing `.` means "here", not a new subfolder).
+### Clone it locally and bring CARE's source in with shared history preserved
 
 ```sh
-git remote rename origin upstream
+git clone <your-gitea-repo-url> ihl-hims-backend
+cd ihl-hims-backend
 ```
-Renames the link to the original CARE GitHub repo from `origin` to
-`upstream` - freeing up the name `origin` for your own repo, and keeping a
-clear way to pull future CARE updates later (`git pull upstream develop`).
+This empty folder is now your permanent working copy for everything below.
 
 ```sh
-git remote add origin <this repo's Gitea URL>
+git remote add upstream https://github.com/ohcnetwork/care.git
+git fetch upstream
 ```
-Points `origin` at your own Gitea repo instead.
+Adds CARE's real GitHub repo as a second remote named `upstream` (separate
+from `origin`, your own Gitea repo), and downloads its history without
+touching your working files yet.
 
 ```sh
-git push -u origin develop:main
+git merge upstream/develop --allow-unrelated-histories
 ```
-Pushes CARE's `develop` branch content to your Gitea repo's `main` branch,
-and `-u` remembers this mapping so future plain `git push`/`git pull` know
-where to go.
+Merges CARE's entire `develop` branch - full history included - into your
+currently-empty repo. `--allow-unrelated-histories` is required because
+your repo and CARE's don't share a common ancestor commit; since your repo
+has nothing in it yet, there's nothing to conflict with, so this completes
+cleanly. You now have CARE's real `docker/prod.Dockerfile`, `Pipfile`,
+`scripts/*.sh`, and the actual Django app, with full commit history intact
+and `git fetch upstream` still working for future updates.
 
-Now copy the deploy files to the box (still on your laptop, in `backend-repo`):
+Now copy this repo's `deploy/` folder and `.gitea/workflows/deploy.yml`
+(the files this guide has been building) into that same working copy,
+alongside CARE's source, then commit:
+```sh
+git add -A
+git commit -m "Add deployment config: docker-compose, EC2 setup, backup script, Gitea Actions workflow"
+```
+
+Now copy the deploy files to the box (still on your laptop, in `ihl-hims-backend`):
 
 **Option A - `scp` (needs OpenSSH, works from PowerShell/Git Bash):**
 ```sh
@@ -399,7 +444,7 @@ again.
 
 ## Part 7 - Wire up Gitea Actions
 
-In `backend-repo` on Gitea: **Settings -> Actions -> Secrets -> Add secret**,
+In `ihl-hims-backend` on Gitea: **Settings -> Actions -> Secrets -> Add secret**,
 add each of these one at a time:
 
 | Secret | Value | Why the pipeline needs it |
@@ -477,14 +522,16 @@ Shows the last 50 log lines from the `backend` container - useful for
 spotting startup errors (bad `.env` values, DB connection failures, etc).
 
 ```sh
-curl http://localhost:9000/api/docs/
+curl http://localhost:9000/ping/
 ```
-Makes a request to the API from *inside* the box itself - if this returns
-HTML/JSON instead of a connection error, the backend is actually listening.
+Makes a request to the API from *inside* the box itself - `/ping/` is
+CARE's actual built-in health-check endpoint (also what `healthcheck.sh`
+itself checks). A JSON response instead of a connection error means the
+backend is actually listening.
 
 From your own machine/browser, the same URL using the public IP instead of
-`localhost` (`http://<public-ip>:9000/api/docs/`) should load the API docs
-- confirming the security group's port 9000 rule from Part 4 is working too.
+`localhost` (`http://<public-ip>:9000/ping/`) should return the same JSON -
+confirming the security group's port 9000 rule from Part 4 is working too.
 
 ---
 
