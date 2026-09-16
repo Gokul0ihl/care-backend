@@ -447,7 +447,7 @@ Fields to actually fill in, and why each one matters:
 Log in to Gitea's container registry so `docker compose pull` can
 authenticate later:
 ```sh
-docker login gitea.example.com
+docker login server1.indiahealthlink.com
 ```
 Prompts for your Gitea username and a Gitea access token (Gitea -> Settings
 -> Applications -> Generate New Token, with package read/write scope) -
@@ -466,8 +466,8 @@ Actions -> Secrets -> Add secret**, add each of these one at a time:
 | `EC2_HOST` | Your public IP | Tells the `ssh` step in `deploy.yml` where to connect |
 | `EC2_USER` | `ec2-user` | The SSH login username |
 | `EC2_SSH_KEY` | The full contents of `ihl-hims-key.pem` | Authenticates that SSH connection - never commit this file itself to the repo |
-| `GITEA_REGISTRY_USER` | Your Gitea username | Logs in to Gitea's container registry to push the built image |
-| `GITEA_REGISTRY_TOKEN` | A Gitea access token, package read/write scope | Same login, as a token instead of your account password |
+| `REGISTRY_USER` | Your Gitea username | Logs in to Gitea's container registry to push the built image |
+| `REGISTRY_TOKEN` | A Gitea access token, package read/write scope | Same login, as a token instead of your account password. Note: Gitea reserves secret names starting with `GITEA_`/`GITHUB_` for its own internal use, so these can't use that prefix. |
 
 Then trigger the first deploy.
 
