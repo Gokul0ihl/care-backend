@@ -39,3 +39,11 @@ ReportTypeRegistry.register(
     authorizer_class=EncounterReportAuthorizer,
     description="Encounter report generated for an encounter",
 )
+
+ReportTypeRegistry.register(
+    key="encounter_notes_report",
+    display_name="Encounter Notes Report",
+    associating_model=Encounter,
+    authorizer_class=EncounterReportAuthorizer,
+    description="Encounter notes report generated for an encounter",
+)
