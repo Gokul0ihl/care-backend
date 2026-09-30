@@ -843,6 +843,8 @@ class TestPatientViewSet(CareAPITestBase):
             "patient_type": "international",
             "identity_card_type": "passport",
             "identity_number_last4": "1234",
+            "abha_number": "91000000001234",
+            "udid": "MH0000000000001234",
             "identity_storage_consent": True,
             "first_name": "Alex",
             "middle_name": "Robin",
@@ -876,12 +878,14 @@ class TestPatientViewSet(CareAPITestBase):
         self.assertEqual(retrieved.status_code, status.HTTP_200_OK)
         for key, value in registration.items():
             self.assertEqual(retrieved.data["registration"][key], value)
-        registration["patient_type"] = "domestic"
+        registration["patient_type"] = "vip"
+        registration["identity_verified_physically"] = True
         registration["promotions_consent"] = True
         updated = self.client.patch(url, {"registration": registration}, format="json")
         self.assertEqual(updated.status_code, status.HTTP_200_OK, updated.data)
         patient.refresh_from_db()
-        self.assertEqual(patient.meta["registration"]["patient_type"], "domestic")
+        self.assertEqual(patient.meta["registration"]["patient_type"], "vip")
+        self.assertTrue(patient.meta["registration"]["identity_verified_physically"])
         self.assertTrue(patient.meta["registration"]["promotions_consent"])
 
     def test_registration_rejects_invalid_fields(self):
@@ -893,6 +897,10 @@ class TestPatientViewSet(CareAPITestBase):
             {"identity_number_last4": "123456789012"},
             {"identity_number_last4": "1234", "identity_storage_consent": True},
             {"identity_card_type": "aadhaar", "identity_number_last4": "1234"},
+            {"abha_number": "91000000001234"},
+            {"udid": "MH0000000000001234"},
+            {"abha_number": "1234", "identity_storage_consent": True},
+            {"udid": "x" * 101, "identity_storage_consent": True},
             {"patient_type": "invalid"},
             {"email": "invalid-email"},
             {"alternate_phone_number": "123"},

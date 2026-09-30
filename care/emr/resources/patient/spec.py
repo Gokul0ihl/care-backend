@@ -57,7 +57,7 @@ class GenderChoices(str, Enum):
 class RegistrationDetails(BaseModel):
     """Intake data persisted by EMRResource in Patient.meta["registration"]."""
 
-    patient_type: Literal["domestic", "international"] = "domestic"
+    patient_type: Literal["domestic", "international", "vip", "newborn"] = "domestic"
     prefix: str = Field(default="", max_length=20)
     first_name: str = Field(default="", max_length=75)
     middle_name: str = Field(default="", max_length=75)
@@ -85,9 +85,15 @@ class RegistrationDetails(BaseModel):
     lead_source: str = Field(default="", max_length=100)
     referral_type: str = Field(default="", max_length=100)
     referred_by: str = Field(default="", max_length=200)
-    identity_card_type: Literal["", "aadhaar", "pan", "driving_license", "passport", "voter_id", "other"] = ""
+    # "other" is no longer offered but stays valid for patients registered before it was removed.
+    identity_card_type: Literal[
+        "", "aadhaar", "abha", "voter_id", "driving_license", "pan", "ration_card", "passport", "other"
+    ] = ""
     identity_number_last4: str = Field(default="", pattern=r"^(?:[A-Za-z0-9]{4})?$")
+    abha_number: str = Field(default="", pattern=r"^(?:\d{14})?$")
+    udid: str = Field(default="", max_length=100)
     identity_storage_consent: bool = False
+    identity_verified_physically: bool = False
     terms_accepted: bool = False
     promotions_consent: bool = False
 
@@ -95,7 +101,12 @@ class RegistrationDetails(BaseModel):
     def validate_identity_summary(self):
         if self.identity_number_last4 and not self.identity_card_type:
             raise ValueError("Choose the government ID type")
-        if (self.identity_card_type or self.identity_number_last4) and not self.identity_storage_consent:
+        if (
+            self.identity_card_type
+            or self.identity_number_last4
+            or self.abha_number
+            or self.udid
+        ) and not self.identity_storage_consent:
             raise ValueError("Consent is required to store the identity summary")
         return self
 
