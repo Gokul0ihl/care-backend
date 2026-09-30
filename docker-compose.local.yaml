@@ -8,8 +8,12 @@ services:
         ADDITIONAL_PLUGS: ${ADDITIONAL_PLUGS:-}
     env_file:
       - ./docker/.local.env
+    environment:
+      # Local checkout of the care_emergency plug (see plug_config.py)
+      PYTHONPATH: /plugs/care_emergency
     volumes:
       - .:/app
+      - ../../IHL/care_emergency:/plugs/care_emergency
     entrypoint: ["bash", "scripts/start-dev.sh"]
     ports:
       - "9000:9000"
@@ -32,5 +36,8 @@ services:
     depends_on:
       - db
       - redis
+    environment:
+      PYTHONPATH: /plugs/care_emergency
     volumes:
       - .:/app
+      - ../../IHL/care_emergency:/plugs/care_emergency
