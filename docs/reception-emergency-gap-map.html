@@ -1,0 +1,367 @@
+<title>Emergency Flow Gap Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,600&display=swap">
+<style>
+/* Layout: one reading column; each reception screen is a section with a status strip, CARE references and a field table. */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --ink: #16202e;
+  --muted: #5b6676;
+  --line: #dde2e9;
+  --accent: #2f5aa8;
+  --accent-soft: #e6edf8;
+  --ok: #1f7a4d;   --ok-bg: #e3f3ea;
+  --warn: #8a5a00; --warn-bg: #fbf0d6;
+  --miss: #b3261e; --miss-bg: #fbe4e2;
+  --code-bg: #eef1f5;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11151c; --surface: #181e27; --ink: #e6eaf0; --muted: #9aa5b4; --line: #2a3340;
+    --accent: #8fb0ea; --accent-soft: #1f2b3f;
+    --ok: #6fcf9c; --ok-bg: #16301f; --warn: #f0c35c; --warn-bg: #33290f; --miss: #f28b82; --miss-bg: #3a1a18;
+    --code-bg: #212a36; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11151c; --surface: #181e27; --ink: #e6eaf0; --muted: #9aa5b4; --line: #2a3340;
+  --accent: #8fb0ea; --accent-soft: #1f2b3f;
+  --ok: #6fcf9c; --ok-bg: #16301f; --warn: #f0c35c; --warn-bg: #33290f; --miss: #f28b82; --miss-bg: #3a1a18;
+  --code-bg: #212a36; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+  padding: 0 16px; padding-block: 32px 64px;
+}
+.wrap { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 32px; }
+h1, h2 { font-family: var(--font-display); font-weight: 600; text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(28px, 4vw, 38px); line-height: 1.15; }
+h2 { font-size: 22px; line-height: 1.25; }
+h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0; font-weight: 600; }
+p { margin: 0; max-width: 72ch; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+a { color: var(--accent); }
+
+header.intro { display: flex; flex-direction: column; gap: 12px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { color: var(--muted); font-size: 16px; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; color: var(--muted); }
+
+/* status pills */
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill.ok { color: var(--ok); background: var(--ok-bg); }
+.pill.warn { color: var(--warn); background: var(--warn-bg); }
+.pill.miss { color: var(--miss); background: var(--miss-bg); }
+
+/* overview table */
+.overview { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; background: var(--bg); position: sticky; top: 0; }
+tr:last-child td { border-bottom: 0; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; }
+.count-bar { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 10px; border-bottom: 1px solid var(--line); }
+.controls button { font: inherit; font-size: 13px; font-weight: 500; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 5px 14px; cursor: pointer; }
+.controls button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.controls button:focus-visible, .controls input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.controls input { font: inherit; font-size: 14px; flex: 1 1 220px; min-width: 0; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 8px; padding: 6px 12px; }
+.controls .result { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* screen sections */
+section.screen { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 20px; scroll-margin-top: 72px; }
+.screen-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: baseline; }
+.screen-head .step { font-family: var(--font-mono); font-size: 13px; color: var(--muted); margin-right: 10px; }
+.screen-head p { color: var(--muted); font-size: 14px; flex-basis: 100%; }
+.refs { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.ref { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ref ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.ref li { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 14px; }
+.ref li .k { font-weight: 500; }
+.ref li .v { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.fields { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+.fields td:first-child { font-weight: 500; }
+.fields td.where { color: var(--muted); font-size: 13px; }
+.fields td.where strong { color: var(--ink); font-weight: 500; }
+.note { background: var(--warn-bg); color: var(--ink); border-radius: 8px; padding: 12px 14px; font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
+.note ul { margin: 0; padding-left: 18px; }
+.empty { display: none; color: var(--muted); font-size: 14px; }
+
+/* schema + build list */
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+details > summary { cursor: pointer; padding: 14px 18px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+details > summary::-webkit-details-marker { display: none; }
+details > summary::after { content: "+"; font-family: var(--font-mono); color: var(--muted); }
+details[open] > summary::after { content: "−"; }
+details .body { padding: 0 18px 18px; display: flex; flex-direction: column; gap: 10px; overflow-x: auto; }
+.cols { display: flex; flex-wrap: wrap; gap: 6px; }
+.cols code { font-size: 12px; }
+.cols code.used { background: var(--accent-soft); color: var(--accent); }
+.build ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; }
+.build li { padding-left: 4px; }
+footer { color: var(--muted); font-size: 13px; }
+@media (max-width: 560px) { section.screen { padding: 18px; } th, td { padding: 8px 10px; } }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+
+<div class="wrap">
+  <header class="intro">
+    <span class="eyebrow">Reception · Emergency registration</span>
+    <h1>Emergency Flow Gap Map</h1>
+    <p class="lede">For every field on the reception emergency screens: whether CARE already stores it, which CARE page and route to study, which table and column it lives in, and where to add anything that is missing.</p>
+    <div class="meta">
+      <span>Tables checked in local Postgres <code>care</code></span>
+      <span>Routes from <code>src/Routers/routes/*.tsx</code></span>
+      <span>App base URL <code>http://localhost:4000</code></span>
+    </div>
+    <div class="count-bar" aria-label="Legend">
+      <span class="pill ok">Present</span>
+      <span class="pill warn">Partial – exists, needs a workaround</span>
+      <span class="pill miss">Missing – must be built</span>
+    </div>
+  </header>
+
+  <div class="overview" role="region" aria-label="Summary by screen">
+    <table>
+      <thead><tr><th>Our screen</th><th>Our route</th><th class="num">Present</th><th class="num">Partial</th><th class="num">Missing</th><th>Biggest gap</th></tr></thead>
+      <tbody id="summary"></tbody>
+    </table>
+  </div>
+
+  <div class="controls" role="toolbar" aria-label="Filter fields">
+    <button type="button" data-filter="all" aria-pressed="true">All</button>
+    <button type="button" data-filter="ok" aria-pressed="false">Present</button>
+    <button type="button" data-filter="warn" aria-pressed="false">Partial</button>
+    <button type="button" data-filter="miss" aria-pressed="false">Missing</button>
+    <input id="q" type="search" placeholder="Search a field, table or column…" aria-label="Search fields">
+    <span class="result" id="result"></span>
+  </div>
+
+  <div id="screens" style="display:flex;flex-direction:column;gap:24px"></div>
+
+  <details class="build" open>
+    <summary>What to build (in order)</summary>
+    <div class="body">
+      <ol>
+        <li><strong>New table <code>reception_emergencyregistration</code></strong> (one-to-one with <code>emr_encounter</code>): distinguishing marks, police station informed, triage level, medico-legal case number, accompanying person (title, first / middle / last name, country code, phone, relationship), same-as-WhatsApp flag.</li>
+        <li><strong>MLC number generator</strong>: <code>MC-&lt;year&gt;-&lt;sequence&gt;</code>, unique per facility, created on registration and copied to <code>emr_encounter.external_identifier</code>.</li>
+        <li><strong>UHID identifier config</strong>: one row in <code>emr_patientidentifierconfig</code> (display "UHID", unique) so patients can be searched by UHID.</li>
+        <li><strong>One "Register &amp; Print" API</strong>: creates <code>emr_patient</code> + <code>emr_encounter</code> (<code>encounter_class='emer'</code>) + the new row in a single transaction, filling CARE's required fields for unknown patients.</li>
+        <li><strong>Dashboard summary API</strong>: the four KPI numbers with the change versus last month.</li>
+        <li><strong>Waiting time</strong>: record when a token is called/served (not in <code>emr_token</code> today) so an average can be computed.</li>
+      </ol>
+    </div>
+  </details>
+
+  <details>
+    <summary>Existing table schemas (local <code>care</code> database)</summary>
+    <div class="body" id="schemas"></div>
+  </details>
+
+  <footer>API field names come from the frontend <code>src/types/**/*Api.ts</code> definitions; table and column names were read from the local <code>care</code> database. Replace <code>&lt;facilityId&gt;</code> in URLs with the id shown in the address bar after choosing a facility in CARE.</footer>
+</div>
+
+<script>
+const BASE = "http://localhost:4000";
+const screens = [
+  {
+    id: "dashboard", step: "1", name: "Dashboard", ours: "/reception",
+    desc: "Four KPI cards (Total Patients, Total Bookings, Active Cases, Avg Waiting Time) and the patient search box.",
+    gap: "No dashboard/stats API; waiting time cannot be calculated",
+    care: [
+      { k: "Facility overview (CARE's dashboard)", url: "/facility/<facilityId>/overview", route: "FacilityRoutes.tsx:34", file: "src/pages/Facility/overview.tsx" },
+      { k: "Patient search", url: "/facility/<facilityId>/patients", route: "PatientRoutes.tsx:17", file: "src/components/Patient/PatientIndex.tsx" },
+      { k: "Encounters list (active cases)", url: "/facility/<facilityId>/encounters/patients/emer", route: "PatientRoutes.tsx:37", file: "src/pages/Encounters/EncountersOverview.tsx" },
+      { k: "Appointments (bookings)", url: "/facility/<facilityId>/appointments", route: "ScheduleRoutes.tsx:13", file: "src/pages/Appointments/" },
+      { k: "Queues / tokens (waiting)", url: "/facility/<facilityId>/queues", route: "ScheduleRoutes.tsx:28", file: "src/pages/Facility/queues/QueuesIndex.tsx" },
+    ],
+    tables: ["emr_patient", "emr_tokenbooking", "emr_encounter", "emr_token", "emr_tokenqueue"],
+    fields: [
+      ["Total Patients", "warn", "count of emr_patient", "GET /api/v1/patient/ → count", "Read <strong>count</strong> from the list API, or return it from the new dashboard API"],
+      ["Total Patients % vs last month", "miss", "emr_patient.created_date", "—", "<strong>New dashboard API</strong> compares this month with last month"],
+      ["Total Bookings", "warn", "emr_tokenbooking.booked_on", "GET /api/v1/facility/{id}/appointments/?date_after=&date_before= → count", "Count via list API, or the new dashboard API"],
+      ["Active Cases", "warn", "emr_encounter.status = 'in_progress', encounter_class = 'emer'", "GET /api/v1/encounter/?status=in_progress → count", "New dashboard API (an encounter_class filter was not seen in the frontend)"],
+      ["Avg Waiting Time", "miss", "emr_token (only created_date / modified_date)", "—", "<strong>Add called/served time</strong> to tokens, then compute in the dashboard API"],
+      ["Search by name", "ok", "emr_patient.name", "GET /api/v1/patient/?name=", "Use as is"],
+      ["Search by mobile", "ok", "emr_patient.phone_number", "POST /api/v1/patient/search/ {phone_number}", "Use as is"],
+      ["Search by UHID", "miss", "emr_patientidentifier.value", "POST /api/v1/patient/search/ {config, value}", "<strong>Create a UHID identifier config</strong> first"],
+    ],
+  },
+  {
+    id: "mobile", step: "2", name: "Add patient – mobile number", ours: "/reception/add-patient",
+    desc: "Country code, mobile number, 'Same as WhatsApp' checkbox, Continue and Register to Emergency.",
+    gap: "Only the WhatsApp flag",
+    care: [
+      { k: "Patient registration form", url: "/facility/<facilityId>/patient/create", route: "PatientRoutes.tsx:86", file: "src/components/Patient/PatientRegistration.tsx" },
+      { k: "Search patient by phone", url: "/facility/<facilityId>/patients", route: "PatientRoutes.tsx:17", file: "src/components/Patient/PatientIndex.tsx" },
+    ],
+    tables: ["emr_patient"],
+    fields: [
+      ["Country code + Mobile Number", "ok", "emr_patient.phone_number (varchar, not null, e.g. +919876543210)", "POST /api/v1/patient/ phone_number", "Use as is"],
+      ["Members on this number", "ok", "emr_patient.phone_number", "POST /api/v1/patient/search/ {phone_number}", "Use as is (may return partial records)"],
+      ["Same as WhatsApp Number", "miss", "—", "—", "Add to <strong>reception_emergencyregistration</strong> (or emr_patient.extensions)"],
+    ],
+  },
+  {
+    id: "details", step: "3", name: "Emergency patient details", ours: "/reception/add-patient/details",
+    desc: "Gender, Estimate Age, Distinguishing marks, auto medico-legal case number, Police Station Informed and triage colour.",
+    gap: "Distinguishing marks, police station, triage colour, MLC number generation",
+    care: [
+      { k: "Patient registration form", url: "/facility/<facilityId>/patient/create", route: "PatientRoutes.tsx:86", file: "src/components/Patient/PatientRegistration.tsx" },
+      { k: "Patient page (start a visit here)", url: "/facility/<facilityId>/patients/home", route: "PatientRoutes.tsx:78", file: "src/pages/Patient/PatientHome.tsx" },
+      { k: "Create encounter dialog (class Emergency + priority)", url: "Opened from the patient page – no route of its own", route: "—", file: "src/components/Encounter/CreateEncounterForm.tsx" },
+      { k: "Emergency encounters list", url: "/facility/<facilityId>/encounters/patients/emer", route: "PatientRoutes.tsx:37", file: "src/pages/Encounters/EncountersOverview.tsx" },
+    ],
+    tables: ["emr_patient", "emr_encounter", "emr_patientidentifier", "emr_patientidentifierconfig"],
+    fields: [
+      ["Gender", "ok", "emr_patient.gender — male · female · non_binary · transgender", "POST /api/v1/patient/ gender", "Use as is"],
+      ["Estimate Age", "ok", "emr_patient.year_of_birth", "POST /api/v1/patient/ age", "Send <code>age</code>; CARE stores year of birth"],
+      ["Emergency visit", "ok", "emr_encounter.encounter_class = 'emer'", "POST /api/v1/encounter/ encounter_class", "Use as is (2 such rows already in local data)"],
+      ["Triage Red / Yellow / Green", "warn", "emr_encounter.priority", "POST /api/v1/encounter/ priority", "Map Red→emergency, Yellow→urgent, Green→routine; store the colour in <strong>reception_emergencyregistration.triage</strong>"],
+      ["MC-2026-… (medico-legal case no.)", "warn", "emr_encounter.external_identifier (varchar)", "POST /api/v1/encounter/ external_identifier", "Column exists; <strong>add a generator</strong> for MC-&lt;year&gt;-&lt;seq&gt;"],
+      ["Distinguishing marks", "miss", "—", "—", "Add to <strong>reception_emergencyregistration</strong>"],
+      ["Police Station Informed", "miss", "—", "—", "Add to <strong>reception_emergencyregistration</strong>"],
+    ],
+    note: {
+      title: "CARE requires these, but the emergency screen does not ask for them",
+      items: [
+        "<code>emr_patient.name</code> (not null) – use a placeholder such as “Unknown Male”",
+        "<code>emr_patient.geo_organization_id</code> (required by the API) – default to the facility's region",
+        "<code>emr_patient.address</code>, <code>permanent_address</code> (not null) – empty string, or turn on quick registration",
+      ],
+    },
+  },
+  {
+    id: "accompanying", step: "4", name: "Accompanying person details", ours: "/reception/add-patient/accompanying",
+    desc: "Title, first / middle / last name, country code + phone and relationship of the person who brought the patient in.",
+    gap: "Everything except a phone number",
+    care: [
+      { k: "Emergency contact number (closest existing field)", url: "/facility/<facilityId>/patient/create", route: "PatientRoutes.tsx:86", file: "src/components/Patient/PatientRegistration.tsx" },
+      { k: "Where the emergency contact is shown", url: "Patient page → Demography tab", route: "PatientRoutes.tsx:78", file: "src/components/Patient/PatientDetailsTab/Demography.tsx" },
+    ],
+    tables: ["emr_patient (no related-person table exists)"],
+    fields: [
+      ["Title", "miss", "—", "—", "Add to <strong>reception_emergencyregistration</strong>"],
+      ["First Name", "miss", "—", "—", "Add to <strong>reception_emergencyregistration</strong>"],
+      ["Middle Name", "miss", "—", "—", "Add to <strong>reception_emergencyregistration</strong>"],
+      ["Last Name", "miss", "—", "—", "Add to <strong>reception_emergencyregistration</strong>"],
+      ["Country code + Phone", "warn", "emr_patient.emergency_phone_number (number only)", "POST /api/v1/patient/ emergency_phone_number", "Also save it here; store the full contact in <strong>reception_emergencyregistration</strong>"],
+      ["Relationship", "miss", "—", "—", "Add to <strong>reception_emergencyregistration</strong>"],
+    ],
+  },
+  {
+    id: "register", step: "5", name: "Register & Print", ours: "/reception/add-patient/success",
+    desc: "Saves everything and prints the registration slip.",
+    gap: "One API that saves everything together",
+    care: [
+      { k: "Patient create (after save CARE opens the patient page)", url: "/facility/<facilityId>/patient/create", route: "PatientRoutes.tsx:86", file: "src/components/Patient/PatientRegistration.tsx" },
+    ],
+    tables: ["emr_patient", "emr_encounter", "reception_emergencyregistration (new)"],
+    fields: [
+      ["Create patient", "ok", "emr_patient", "POST /api/v1/patient/", "Use as is"],
+      ["Create emergency visit", "ok", "emr_encounter", "POST /api/v1/encounter/", "Use as is"],
+      ["Save emergency + accompanying details", "miss", "—", "—", "New table + API"],
+      ["All in one call (all-or-nothing)", "miss", "—", "—", "<strong>New endpoint</strong>: POST …/reception/emergency-registrations/"],
+      ["Print slip", "miss", "—", "—", "Frontend only"],
+    ],
+  },
+];
+
+const schemas = {
+  emr_patient: { cols: "id external_id name gender phone_number emergency_phone_number address permanent_address pincode date_of_birth year_of_birth deceased_datetime blood_group geo_organization_id instance_identifiers facility_identifiers instance_tags facility_tags extensions meta history organization_cache users_cache created_by_id updated_by_id created_date modified_date deleted", used: "name gender phone_number emergency_phone_number year_of_birth geo_organization_id address permanent_address created_date" },
+  emr_encounter: { cols: "id external_id patient_id facility_id encounter_class priority status status_history period hospitalization external_identifier appointment_id current_location_id care_team care_team_users tags extensions discharge_summary_advice facility_organization_cache meta history created_by_id updated_by_id created_date modified_date deleted", used: "patient_id facility_id encounter_class priority status external_identifier hospitalization period" },
+  emr_patientidentifierconfig: { cols: "id external_id status config facility_id meta history created_by_id updated_by_id created_date modified_date deleted", used: "config status" },
+  emr_patientidentifier: { cols: "id external_id patient_id config_id facility_id value meta history created_by_id updated_by_id created_date modified_date deleted", used: "value config_id" },
+  emr_token: { cols: "id external_id number status is_next note patient_id queue_id sub_queue_id category_id booking_id facility_id meta history created_by_id updated_by_id created_date modified_date deleted", used: "status created_date" },
+  emr_tokenqueue: { cols: "id external_id name date is_primary system_generated resource_id facility_id meta history created_by_id updated_by_id created_date modified_date deleted", used: "" },
+  emr_tokenbooking: { cols: "id external_id booked_on status note patient_id token_slot_id token_id associated_encounter_id charge_item_id tags booked_by_id meta history created_by_id updated_by_id created_date modified_date deleted", used: "booked_on status" },
+};
+
+const LABEL = { ok: "Present", warn: "Partial", miss: "Missing" };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// Summary table
+document.getElementById("summary").innerHTML = screens.map((s) => {
+  const n = (st) => s.fields.filter((f) => f[1] === st).length;
+  return `<tr><td><a href="#${s.id}">${s.step}. ${esc(s.name)}</a></td><td><code>${esc(s.ours)}</code></td>
+    <td class="num">${n("ok")}</td><td class="num">${n("warn")}</td><td class="num">${n("miss")}</td><td>${esc(s.gap)}</td></tr>`;
+}).join("");
+
+// Screen sections
+document.getElementById("screens").innerHTML = screens.map((s) => `
+  <section class="screen" id="${s.id}">
+    <div class="screen-head">
+      <h2><span class="step">${s.step}</span>${esc(s.name)}</h2>
+      <code>${esc(BASE + s.ours)}</code>
+      <p>${esc(s.desc)}</p>
+    </div>
+    <div class="refs">
+      <div class="ref">
+        <h3>See it in CARE</h3>
+        <ul>${s.care.map((c) => `<li><span class="k">${esc(c.k)}</span>
+          <span class="v">URL <code>${esc(c.url.startsWith("/") ? BASE + c.url : c.url)}</code></span>
+          <span class="v">Route <code>${esc(c.route === "—" ? "—" : "src/Routers/routes/" + c.route)}</code></span>
+          <span class="v">Page <code>${esc(c.file)}</code></span></li>`).join("")}</ul>
+      </div>
+      <div class="ref">
+        <h3>Tables</h3>
+        <ul>${s.tables.map((t) => `<li><code>${esc(t)}</code></li>`).join("")}</ul>
+      </div>
+    </div>
+    <div class="fields">
+      <table>
+        <thead><tr><th>Our field</th><th>Status</th><th>Table.column</th><th>Existing API</th><th>Where to add / what to do</th></tr></thead>
+        <tbody>${s.fields.map(([f, st, col, api, where]) => `
+          <tr data-status="${st}" data-text="${esc((f + " " + col + " " + api).toLowerCase())}">
+            <td>${esc(f)}</td><td><span class="pill ${st}">${LABEL[st]}</span></td>
+            <td><code>${esc(col)}</code></td><td><code>${esc(api)}</code></td><td class="where">${where}</td></tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+    <p class="empty">No fields on this screen match the filter.</p>
+    ${s.note ? `<div class="note"><strong>${esc(s.note.title)}</strong><ul>${s.note.items.map((i) => `<li>${i}</li>`).join("")}</ul></div>` : ""}
+  </section>`).join("");
+
+// Schemas
+document.getElementById("schemas").innerHTML = Object.entries(schemas).map(([t, { cols, used }]) => {
+  const u = new Set(used.split(" "));
+  return `<h3><code>${t}</code></h3><div class="cols">${cols.split(" ").map((c) => `<code class="${u.has(c) ? "used" : ""}">${c}</code>`).join("")}</div>`;
+}).join("") + `<p style="color:var(--muted);font-size:13px">Highlighted columns are the ones the emergency flow uses.</p>`;
+
+// Filter + search
+let filter = "all";
+const q = document.getElementById("q");
+function apply() {
+  const term = q.value.trim().toLowerCase();
+  let shown = 0, total = 0;
+  document.querySelectorAll("section.screen").forEach((sec) => {
+    let visible = 0;
+    sec.querySelectorAll("tbody tr").forEach((tr) => {
+      total++;
+      const ok = (filter === "all" || tr.dataset.status === filter) && (!term || tr.dataset.text.includes(term));
+      tr.hidden = !ok;
+      if (ok) { visible++; shown++; }
+    });
+    sec.querySelector(".fields").hidden = visible === 0;
+    sec.querySelector(".empty").style.display = visible === 0 ? "block" : "none";
+  });
+  document.getElementById("result").textContent = `${shown} of ${total} fields`;
+}
+document.querySelectorAll("[data-filter]").forEach((b) => b.addEventListener("click", () => {
+  filter = b.dataset.filter;
+  document.querySelectorAll("[data-filter]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  apply();
+}));
+q.addEventListener("input", apply);
+apply();
+</script>
