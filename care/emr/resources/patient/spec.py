@@ -2,10 +2,18 @@ import datetime
 import re
 import uuid
 from enum import Enum
+from typing import Literal
 
 from django.conf import settings
 from django.utils import timezone
-from pydantic import UUID4, BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    UUID4,
+    BaseModel,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from care.emr.extensions.base import ExtensionResource
 from care.emr.extensions.validator import (
@@ -46,6 +54,59 @@ class GenderChoices(str, Enum):
     transgender = "transgender"
 
 
+class RegistrationDetails(BaseModel):
+    """Intake data persisted by EMRResource in Patient.meta["registration"]."""
+
+    patient_type: Literal["domestic", "international"] = "domestic"
+    prefix: str = Field(default="", max_length=20)
+    first_name: str = Field(default="", max_length=75)
+    middle_name: str = Field(default="", max_length=75)
+    last_name: str = Field(default="", max_length=75)
+    email: str = Field(default="", max_length=254)
+    alternate_phone_number: PhoneNumber | None = None
+    whatsapp_number: PhoneNumber | None = None
+    marital_status: Literal[
+        "", "single", "married", "divorced", "widowed", "separated"
+    ] = ""
+    father_name: str = Field(default="", max_length=100)
+    mother_name: str = Field(default="", max_length=100)
+    occupation: str = Field(default="", max_length=100)
+    country: str = Field(default="", max_length=100)
+    state: str = Field(default="", max_length=100)
+    locality: str = Field(default="", max_length=100)
+    district: str = Field(default="", max_length=100)
+    emergency_prefix: str = Field(default="", max_length=20)
+    emergency_first_name: str = Field(default="", max_length=75)
+    emergency_middle_name: str = Field(default="", max_length=75)
+    emergency_last_name: str = Field(default="", max_length=75)
+    emergency_relationship: str = Field(default="", max_length=50)
+    company: str = Field(default="", max_length=200)
+    payer: str = Field(default="", max_length=200)
+    lead_source: str = Field(default="", max_length=100)
+    referral_type: str = Field(default="", max_length=100)
+    referred_by: str = Field(default="", max_length=200)
+    identity_card_type: Literal["", "aadhaar", "pan", "driving_license", "passport", "voter_id", "other"] = ""
+    identity_number_last4: str = Field(default="", pattern=r"^(?:[A-Za-z0-9]{4})?$")
+    identity_storage_consent: bool = False
+    terms_accepted: bool = False
+    promotions_consent: bool = False
+
+    @model_validator(mode="after")
+    def validate_identity_summary(self):
+        if self.identity_number_last4 and not self.identity_card_type:
+            raise ValueError("Choose the government ID type")
+        if (self.identity_card_type or self.identity_number_last4) and not self.identity_storage_consent:
+            raise ValueError("Consent is required to store the identity summary")
+        return self
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value):
+        if value and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value):
+            raise ValueError("Enter a valid email address")
+        return value
+
+
 class PatientBaseSpec(EMRResource):
     __model__ = Patient
     ___extension_resource_type__ = ExtensionResource.patient
@@ -67,7 +128,15 @@ class PatientBaseSpec(EMRResource):
     permanent_address: str | None = None
     pincode: int | None = None
     deceased_datetime: StrictTZAwareDateTime | None = None
+    registration: RegistrationDetails | None = None
     blood_group: BloodGroupChoices | None = None
+
+    @field_serializer("registration")
+    def serialize_registration(self, value):
+        # Preserve explicit false consent values and empty intake fields.
+        if isinstance(value, RegistrationDetails):
+            return value.model_dump(mode="json")
+        return value
 
     @field_validator("deceased_datetime")
     @classmethod
@@ -103,7 +172,8 @@ class PatientIdentifierConfigRequest(BaseModel):
 
 class PatientCreateSpec(ExtensionValidator, PatientBaseSpec):
     name: str = Field(max_length=settings.PATIENT_NAME_MAX_LENGTH)
-    geo_organization: UUID4
+    # Optional: intake records the district as free text in registration.district.
+    geo_organization: UUID4 | None = None
     date_of_birth: datetime.date | None = None
 
     age: int | None = None
@@ -115,6 +185,8 @@ class PatientCreateSpec(ExtensionValidator, PatientBaseSpec):
     @field_validator("geo_organization")
     @classmethod
     def validate_geo_organization(cls, geo_organization):
+        if geo_organization is None:
+            return None
         if not Organization.objects.filter(
             org_type="govt", external_id=geo_organization
         ).exists():
@@ -135,9 +207,10 @@ class PatientCreateSpec(ExtensionValidator, PatientBaseSpec):
         return self
 
     def perform_extra_deserialization(self, is_update, obj):
-        obj.geo_organization = Organization.objects.get(
-            external_id=self.geo_organization
-        )
+        if self.geo_organization:
+            obj.geo_organization = Organization.objects.get(
+                external_id=self.geo_organization
+            )
         if self.age:
             # override dob if user chooses to update age
             obj.date_of_birth = None

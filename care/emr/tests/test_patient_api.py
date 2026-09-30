@@ -91,6 +91,21 @@ class TestPatientViewSet(CareAPITestBase):
         response = self.client.post(self.base_url, patient_data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_create_patient_without_geo_organization(self):
+        """Test patient creation when the district is recorded only as text"""
+        user = self.create_user()
+        patient_data = self.generate_patient_data(geo_organization=None)
+        organization = self.create_organization(org_type="govt")
+        role = self.create_role_with_permissions(
+            permissions=[PatientPermissions.can_create_patient.name]
+        )
+        self.attach_role_organization_user(organization, user, role)
+        self.client.force_authenticate(user=user)
+        PatientCreateLock().release()
+        response = self.client.post(self.base_url, patient_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["geo_organization"], {})
+
     def test_create_patient_unauthorization(self):
         """Test patient creation with proper authorization"""
         user = self.create_user()
@@ -817,3 +832,81 @@ class TestPatientViewSet(CareAPITestBase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["facility_tags"], [])
+
+    def test_registration_metadata_round_trip(self):
+        from care.emr.models.patient import Patient
+
+        user = self.create_user(is_superuser=True)
+        self.client.force_authenticate(user=user)
+        area = self.create_organization(org_type="govt")
+        registration = {
+            "patient_type": "international",
+            "identity_card_type": "passport",
+            "identity_number_last4": "1234",
+            "identity_storage_consent": True,
+            "first_name": "Alex",
+            "middle_name": "Robin",
+            "last_name": "Smith",
+            "email": "alex@example.com",
+            "alternate_phone_number": "+919876543210",
+            "marital_status": "married",
+            "father_name": "Taylor Smith",
+            "mother_name": "Morgan Smith",
+            "occupation": "Employed",
+            "company": "Example company",
+            "payer": "Example insurer",
+            "lead_source": "Referral",
+            "referral_type": "Doctor",
+            "referred_by": "Dr Example",
+            "terms_accepted": True,
+            "promotions_consent": False,
+        }
+        PatientCreateLock().release()
+        response = self.client.post(
+            self.base_url,
+            self.generate_patient_data(area.external_id, registration=registration),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        patient = Patient.objects.get(external_id=response.data["id"])
+        for key, value in registration.items():
+            self.assertEqual(patient.meta["registration"][key], value)
+        url = reverse("patient-detail", kwargs={"external_id": patient.external_id})
+        retrieved = self.client.get(url)
+        self.assertEqual(retrieved.status_code, status.HTTP_200_OK)
+        for key, value in registration.items():
+            self.assertEqual(retrieved.data["registration"][key], value)
+        registration["patient_type"] = "domestic"
+        registration["promotions_consent"] = True
+        updated = self.client.patch(url, {"registration": registration}, format="json")
+        self.assertEqual(updated.status_code, status.HTTP_200_OK, updated.data)
+        patient.refresh_from_db()
+        self.assertEqual(patient.meta["registration"]["patient_type"], "domestic")
+        self.assertTrue(patient.meta["registration"]["promotions_consent"])
+
+    def test_registration_rejects_invalid_fields(self):
+        user = self.create_user(is_superuser=True)
+        self.client.force_authenticate(user=user)
+        area = self.create_organization(org_type="govt")
+        for registration in (
+            {"identity_card_type": "invalid"},
+            {"identity_number_last4": "123456789012"},
+            {"identity_number_last4": "1234", "identity_storage_consent": True},
+            {"identity_card_type": "aadhaar", "identity_number_last4": "1234"},
+            {"patient_type": "invalid"},
+            {"email": "invalid-email"},
+            {"alternate_phone_number": "123"},
+            {"father_name": "x" * 101},
+            {"mother_name": "x" * 101},
+            {"occupation": "x" * 101},
+            {"company": "x" * 201},
+        ):
+            with self.subTest(registration=registration):
+                response = self.client.post(
+                    self.base_url,
+                    self.generate_patient_data(
+                        area.external_id, registration=registration
+                    ),
+                    format="json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
