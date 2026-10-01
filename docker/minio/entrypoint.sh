@@ -1,7 +1,9 @@
 #!/bin/sh
 
 # Start MinIO in the background
-minio server /data --console-address ":9001" &
+# pgsty/silo ships the server as `silo`; upstream minio images ship `minio`
+MINIO_BIN=$(command -v minio || command -v silo)
+"$MINIO_BIN" server /data --console-address ":9001" &
 
 # Wait for MinIO to be ready before running the initialization script
 TIMEOUT=300  # 5 minutes
