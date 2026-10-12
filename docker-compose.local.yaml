@@ -9,11 +9,12 @@ services:
     env_file:
       - ./docker/.local.env
     environment:
-      # Local checkout of the care_emergency plug (see plug_config.py)
+      # Local checkout of the care_emergency plug (see plug_config.py); set
+      # CARE_EMERGENCY_PATH in .env if it is not at ../../IHL/care_emergency
       PYTHONPATH: /plugs/care_emergency
     volumes:
       - .:/app
-      - ../../IHL/care_emergency:/plugs/care_emergency
+      - ${CARE_EMERGENCY_PATH:-../../IHL/care_emergency}:/plugs/care_emergency
     entrypoint: ["bash", "scripts/start-dev.sh"]
     ports:
       - "9000:9000"
@@ -40,4 +41,4 @@ services:
       PYTHONPATH: /plugs/care_emergency
     volumes:
       - .:/app
-      - ../../IHL/care_emergency:/plugs/care_emergency
+      - ${CARE_EMERGENCY_PATH:-../../IHL/care_emergency}:/plugs/care_emergency

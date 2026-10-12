@@ -117,7 +117,29 @@ class PatientViewSet(EMRModelViewSet):
             "get_filtered_patients", qs, self.request.user
         )
 
+    def stamp_vip_flagged_by(self, instance):
+        """Record who flagged a VIP/confidential patient; a value sent by the client is ignored."""
+        registration = (instance.meta or {}).get("registration")
+        if not registration:
+            return
+        if registration.get("patient_type") != "vip":
+            registration["vip_flagged_by"] = ""
+            return
+        flagged_by = ""
+        if instance.pk:
+            stored = (
+                Patient.objects.filter(pk=instance.pk)
+                .values_list("meta", flat=True)
+                .first()
+                or {}
+            ).get("registration") or {}
+            # The original flagger is kept while the patient stays confidential.
+            if stored.get("patient_type") == "vip":
+                flagged_by = stored.get("vip_flagged_by", "")
+        registration["vip_flagged_by"] = flagged_by or self.request.user.username
+
     def perform_create(self, instance):
+        self.stamp_vip_flagged_by(instance)
         identifiers = instance._identifiers  # noqa: SLF001
         lock = PatientCreateLock()
         try:
@@ -159,6 +181,7 @@ class PatientViewSet(EMRModelViewSet):
             raise
 
     def perform_update(self, instance):
+        self.stamp_vip_flagged_by(instance)
         identifiers = instance._identifiers  # noqa: SLF001
         with transaction.atomic():
             super().perform_update(instance)

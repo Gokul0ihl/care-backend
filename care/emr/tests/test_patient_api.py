@@ -410,8 +410,9 @@ class TestPatientViewSet(CareAPITestBase):
         self.client.force_authenticate(user=user)
         patient_data = self.generate_patient_data(
             geo_organization=geo_organization.external_id,
-            deceased_datetime=care_now() - datetime.timedelta(days=2),
-            date_of_birth=(care_now() + datetime.timedelta(days=5)).date().isoformat(),
+            # Past, so the v12.1 "not in the future" rule doesn't answer first.
+            deceased_datetime=care_now() - datetime.timedelta(days=5),
+            date_of_birth=(care_now() - datetime.timedelta(days=2)).date().isoformat(),
         )
         response = self.client.post(self.base_url, patient_data, format="json")
         data = response.json()
@@ -862,6 +863,37 @@ class TestPatientViewSet(CareAPITestBase):
             "referred_by": "Dr Example",
             "terms_accepted": True,
             "promotions_consent": False,
+            "nationality": "Kenyan",
+            "nationality_category": "Foreign",
+            "passport_number": "A1234567",
+            "passport_expiry": "2099-01-31",
+            "visa_type": "Medical",
+            "visa_expiry": "2099-01-31",
+            "religion": "Other",
+            "preferred_language": "English",
+            "interpreter_required": True,
+            "mobile_owner": "Self",
+            "house_number": "12B",
+            "landmark": "Near the clock tower",
+            "abha_status": "has",
+            "allergy_status": "has",
+            "allergies": [
+                {"substance": "Penicillin", "reaction": "Rash", "severity": "moderate"}
+            ],
+            "assistance_needs": ["Wheelchair"],
+            "pregnancy_status": "not_pregnant",
+            "payer_member_id": "EMP/001-A",
+            "policy_number": "POL-123/45",
+            "policy_valid_till": "2099-12-31",
+            "policy_holder_relationship": "Self",
+            "referrer_registration_number": "HPR-123",
+            "referrer_organisation": "Example clinic",
+            "data_processing_consent": True,
+            "tariff_consent": True,
+            "consent_language": "English",
+            "consent_method": "Thumb impression",
+            "consent_witness": "Sam Example",
+            "communication_channels": ["SMS", "WhatsApp"],
         }
         PatientCreateLock().release()
         response = self.client.post(
@@ -879,6 +911,7 @@ class TestPatientViewSet(CareAPITestBase):
         for key, value in registration.items():
             self.assertEqual(retrieved.data["registration"][key], value)
         registration["patient_type"] = "vip"
+        registration["vip_flagged_by"] = "someone-else"
         registration["identity_verified_physically"] = True
         registration["promotions_consent"] = True
         updated = self.client.patch(url, {"registration": registration}, format="json")
@@ -887,6 +920,15 @@ class TestPatientViewSet(CareAPITestBase):
         self.assertEqual(patient.meta["registration"]["patient_type"], "vip")
         self.assertTrue(patient.meta["registration"]["identity_verified_physically"])
         self.assertTrue(patient.meta["registration"]["promotions_consent"])
+        # The flagger is the requesting user, not the value the client sent, and is kept on later edits.
+        self.assertEqual(patient.meta["registration"]["vip_flagged_by"], user.username)
+        other = self.create_user(is_superuser=True)
+        self.client.force_authenticate(user=other)
+        registration["vip_note"] = "Updated note"
+        updated = self.client.patch(url, {"registration": registration}, format="json")
+        self.assertEqual(updated.status_code, status.HTTP_200_OK, updated.data)
+        patient.refresh_from_db()
+        self.assertEqual(patient.meta["registration"]["vip_flagged_by"], user.username)
 
     def test_registration_rejects_invalid_fields(self):
         user = self.create_user(is_superuser=True)
@@ -908,6 +950,35 @@ class TestPatientViewSet(CareAPITestBase):
             {"mother_name": "x" * 101},
             {"occupation": "x" * 101},
             {"company": "x" * 201},
+            {"first_name": "K. Ramesh"},
+            {"last_name": "x" * 41},
+            {"last_name": "K"},
+            {"father_name": "Ram 2"},
+            {"marital_status": "unknown"},
+            {"guardian_phone_number": "123"},
+            {"payer_member_id": "emp 001"},
+            {"policy_number": "X" * 25},
+            {"policy_valid_till": "2000-01-01"},
+            {"patient_type": "international"},
+            {"nationality_category": "Foreign national"},
+            {"patient_type": "international", "nationality_category": "Foreign"},
+            {"patient_type": "international", "nationality_category": "NRI"},
+            {"passport_number": "A1"},
+            {"passport_expiry": "2000-01-01"},
+            {"visa_type": "Transit"},
+            {"abha_status": "maybe"},
+            {"allergy_status": "has"},
+            {"allergies": [{"substance": "Dust"}]},
+            {"allergy_status": "has", "allergies": [{"substance": " "}]},
+            {"assistance_needs": ["Helicopter"]},
+            {"pregnancy_status": "yes"},
+            {"consent_method": "Thumb impression"},
+            {"consent_method": "OTP"},
+            {"communication_channels": ["Fax"]},
+            {"delivery_type": "forceps"},
+            {"birth_weight_kg": 9},
+            {"birth_weight_kg": 0.25},
+            {"apgar_score": 11},
         ):
             with self.subTest(registration=registration):
                 response = self.client.post(
@@ -915,6 +986,26 @@ class TestPatientViewSet(CareAPITestBase):
                     self.generate_patient_data(
                         area.external_id, registration=registration
                     ),
+                    format="json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_registration_rejects_v12_1_patient_rules(self):
+        user = self.create_user(is_superuser=True)
+        self.client.force_authenticate(user=user)
+        area = self.create_organization(org_type="govt")
+        phone = generate_random_valid_phone_number()
+        for extra in (
+            {"age": 121},
+            {"age": -1},
+            {"date_of_birth": "1899-12-31"},
+            {"date_of_birth": "2999-01-01"},
+            {"phone_number": phone, "registration": {"alternate_phone_number": phone}},
+        ):
+            with self.subTest(extra=extra):
+                response = self.client.post(
+                    self.base_url,
+                    self.generate_patient_data(area.external_id, **extra),
                     format="json",
                 )
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

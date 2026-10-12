@@ -54,6 +54,26 @@ class GenderChoices(str, Enum):
     transgender = "transgender"
 
 
+# Patient name parts and payer IDs follow the POH front-office v12.1 formats (V-name, V-emp).
+NAME_PART_PATTERN = r"(?=.{2,40}\Z)[A-Za-z]+( [A-Za-z]+)*"
+FULL_NAME_PATTERN = r"[A-Za-z]+( [A-Za-z]+)*"
+PAYER_ID_PATTERN = r"[A-Z0-9/-]{1,24}"
+PASSPORT_PATTERN = r"[A-Z0-9]{6,15}"
+
+
+class RegistrationAllergy(BaseModel):
+    substance: str = Field(min_length=1, max_length=100)
+    reaction: str = Field(default="", max_length=100)
+    severity: Literal["", "mild", "moderate", "severe"] = ""
+
+    @field_validator("substance")
+    @classmethod
+    def validate_substance(cls, value):
+        if not value.strip():
+            raise ValueError("Enter the allergy's substance")
+        return value
+
+
 class RegistrationDetails(BaseModel):
     """Intake data persisted by EMRResource in Patient.meta["registration"]."""
 
@@ -65,37 +85,127 @@ class RegistrationDetails(BaseModel):
     email: str = Field(default="", max_length=254)
     alternate_phone_number: PhoneNumber | None = None
     whatsapp_number: PhoneNumber | None = None
+    mobile_owner: str = Field(default="", max_length=50)
     marital_status: Literal[
-        "", "single", "married", "divorced", "widowed", "separated"
+        "",
+        "single",
+        "married",
+        "divorced",
+        "widowed",
+        "separated",
+        "prefer not to say",
     ] = ""
     father_name: str = Field(default="", max_length=100)
     mother_name: str = Field(default="", max_length=100)
     occupation: str = Field(default="", max_length=100)
+    religion: str = Field(default="", max_length=50)
+    preferred_language: str = Field(default="", max_length=50)
+    interpreter_required: bool = False
+    # Collected for patients under 18 until a RelatedPerson model exists (v12.1 D09).
+    guardian_name: str = Field(default="", max_length=75)
+    guardian_relationship: str = Field(default="", max_length=50)
+    guardian_phone_number: PhoneNumber | None = None
     country: str = Field(default="", max_length=100)
     state: str = Field(default="", max_length=100)
     locality: str = Field(default="", max_length=100)
     district: str = Field(default="", max_length=100)
+    house_number: str = Field(default="", max_length=50)
+    landmark: str = Field(default="", max_length=100)
     emergency_prefix: str = Field(default="", max_length=20)
     emergency_first_name: str = Field(default="", max_length=75)
     emergency_middle_name: str = Field(default="", max_length=75)
     emergency_last_name: str = Field(default="", max_length=75)
     emergency_relationship: str = Field(default="", max_length=50)
+    emergency_same_as_alternate: bool = False
+    alternate_contact_name: str = Field(default="", max_length=75)
+    alternate_contact_relationship: str = Field(default="", max_length=50)
+    # Payer type (payer) and payer name (company); free text so payers saved before the list stay valid.
     company: str = Field(default="", max_length=200)
     payer: str = Field(default="", max_length=200)
+    payer_member_id: str = Field(default="", pattern=rf"^(?:{PAYER_ID_PATTERN})?$")
+    policy_number: str = Field(default="", pattern=rf"^(?:{PAYER_ID_PATTERN})?$")
+    policy_valid_till: datetime.date | None = None
+    policy_holder_relationship: str = Field(default="", max_length=50)
     lead_source: str = Field(default="", max_length=100)
+    camp_name: str = Field(default="", max_length=100)
+    camp_patient_id: str = Field(default="", max_length=30)
     referral_type: str = Field(default="", max_length=100)
     referred_by: str = Field(default="", max_length=200)
+    referrer_registration_number: str = Field(default="", max_length=30)
+    referrer_organisation: str = Field(default="", max_length=200)
+    # International patients only.
+    nationality: str = Field(default="", max_length=100)
+    # Domestic patients are Indian; international ones pick another v12.1 category (D21).
+    nationality_category: Literal["", "NRI", "OCI-PIO", "Foreign", "Refugee"] = ""
+    passport_number: str = Field(default="", pattern=rf"^(?:{PASSPORT_PATTERN})?$")
+    passport_expiry: datetime.date | None = None
+    visa_type: Literal[
+        "",
+        "Medical",
+        "Medical attendant",
+        "e-Medical",
+        "Tourist",
+        "Business",
+        "Employment",
+        "Student",
+        "Other",
+        "Not required",
+    ] = ""
+    visa_expiry: datetime.date | None = None
     # "other" is no longer offered but stays valid for patients registered before it was removed.
     identity_card_type: Literal[
-        "", "aadhaar", "abha", "voter_id", "driving_license", "pan", "ration_card", "passport", "other"
+        "",
+        "aadhaar",
+        "abha",
+        "voter_id",
+        "driving_license",
+        "pan",
+        "ration_card",
+        "passport",
+        "nrega",
+        "birth_certificate",
+        "oci_card",
+        "unhcr_card",
+        "other",
     ] = ""
     identity_number_last4: str = Field(default="", pattern=r"^(?:[A-Za-z0-9]{4})?$")
     abha_number: str = Field(default="", pattern=r"^(?:\d{14})?$")
+    abha_status: Literal["", "has", "declined", "not_now"] = ""
     udid: str = Field(default="", max_length=100)
+    allergy_status: Literal["", "nka", "has", "unable"] = ""
+    allergies: list[RegistrationAllergy] = Field(default=[], max_length=20)
+    assistance_needs: list[
+        Literal[
+            "Wheelchair",
+            "Stretcher",
+            "Hearing impairment",
+            "Visual impairment",
+            "Speech impairment",
+            "Attendant required",
+        ]
+    ] = []
+    pregnancy_status: Literal["", "not_pregnant", "pregnant", "unknown"] = ""
+    # VIP patients only (D29); vip_flagged_by is set by the patient viewset. Statutory flags (D30) are EHR-only.
+    vip_note: str = Field(default="", max_length=200)
+    vip_flagged_by: str = Field(default="", max_length=150)
     identity_storage_consent: bool = False
     identity_verified_physically: bool = False
     terms_accepted: bool = False
+    data_processing_consent: bool = False
+    tariff_consent: bool = False
+    consent_language: str = Field(default="", max_length=50)
+    consent_method: Literal["", "Signature", "Scanned form", "Thumb impression"] = ""
+    consent_witness: str = Field(default="", max_length=75)
+    communication_channels: list[Literal["SMS", "WhatsApp", "Email", "Phone call"]] = []
     promotions_consent: bool = False
+    # Newborn patients only.
+    birth_time: datetime.time | None = None
+    delivery_type: Literal["", "normal", "assisted", "caesarean"] = ""
+    birth_weight_kg: float | None = Field(default=None, ge=0.3, le=6)
+    birth_length_cm: float | None = Field(default=None, ge=20, le=70)
+    head_circumference_cm: float | None = Field(default=None, ge=15, le=50)
+    apgar_score: int | None = Field(default=None, ge=0, le=10)
+    inherit_mother_details: bool = False
 
     @model_validator(mode="after")
     def validate_identity_summary(self):
@@ -108,6 +218,67 @@ class RegistrationDetails(BaseModel):
             or self.udid
         ) and not self.identity_storage_consent:
             raise ValueError("Consent is required to store the identity summary")
+        return self
+
+    @model_validator(mode="after")
+    def validate_name_parts(self):
+        # Emergency, VIP and newborn patients are registered without their own name.
+        if self.patient_type not in ("domestic", "international"):
+            return self
+        for label, value in (
+            ("first name", self.first_name),
+            ("middle name", self.middle_name),
+            ("last name", self.last_name),
+        ):
+            if value and not re.fullmatch(NAME_PART_PATTERN, value):
+                err = f"The {label} must be 2-40 letters with single spaces"
+                raise ValueError(err)
+        for label, value in (
+            ("father's name", self.father_name),
+            ("mother's name", self.mother_name),
+        ):
+            if value and not re.fullmatch(FULL_NAME_PATTERN, value):
+                err = f"The {label} can only have letters and single spaces"
+                raise ValueError(err)
+        return self
+
+    @model_validator(mode="after")
+    def validate_travel_documents(self):
+        today = timezone.localdate()
+        if self.patient_type == "international" and not self.nationality_category:
+            raise ValueError("Choose the patient's nationality category")
+        if self.nationality_category == "NRI" and not self.passport_number:
+            raise ValueError("Enter the passport number for an NRI patient")
+        if self.nationality_category == "Foreign":
+            if not self.passport_number or not self.passport_expiry:
+                raise ValueError(
+                    "Enter the passport number and expiry date for a foreign national"
+                )
+            if not self.visa_type:
+                raise ValueError("Choose the visa type for a foreign national")
+            if self.visa_type != "Not required" and not self.visa_expiry:
+                raise ValueError("Enter the visa expiry date")
+        if self.passport_expiry and self.passport_expiry < today:
+            raise ValueError("The passport has expired")
+        if self.visa_expiry and self.visa_expiry < today:
+            raise ValueError("The visa has expired")
+        if self.policy_valid_till and self.policy_valid_till < today:
+            raise ValueError("The payer card or policy has expired")
+        return self
+
+    @model_validator(mode="after")
+    def validate_flags(self):
+        if self.allergy_status == "has" and not self.allergies:
+            raise ValueError("List at least one allergy")
+        if self.allergies and self.allergy_status != "has":
+            raise ValueError(
+                "Allergies can only be listed when the patient has allergies"
+            )
+        if (
+            self.consent_method == "Thumb impression"
+            and not self.consent_witness.strip()
+        ):
+            raise ValueError("Enter the witness for a thumb-impression consent")
         return self
 
     @field_validator("email")
@@ -149,6 +320,19 @@ class PatientBaseSpec(EMRResource):
             return value.model_dump(mode="json")
         return value
 
+    @model_validator(mode="after")
+    def validate_alternate_phone(self):
+        # v12.1 D14: the alternate number must differ from the main one.
+        if (
+            self.registration
+            and self.registration.alternate_phone_number
+            and self.registration.alternate_phone_number == self.phone_number
+        ):
+            raise ValueError(
+                "The alternate mobile number must differ from the main number"
+            )
+        return self
+
     @field_validator("deceased_datetime")
     @classmethod
     def validate_deceased_datetime(cls, deceased_datetime):
@@ -176,6 +360,13 @@ def validate_identifier_config(config, value, obj=None):
             raise ValueError(err)
 
 
+def validate_date_of_birth(value):
+    # v12.1 D04: 1 Jan 1900 <= date of birth <= today.
+    if value and not (datetime.date(1900, 1, 1) <= value <= timezone.localdate()):
+        raise ValueError("Date of birth must be between 1 Jan 1900 and today")
+    return value
+
+
 class PatientIdentifierConfigRequest(BaseModel):
     config: UUID4
     value: str
@@ -187,11 +378,14 @@ class PatientCreateSpec(ExtensionValidator, PatientBaseSpec):
     geo_organization: UUID4 | None = None
     date_of_birth: datetime.date | None = None
 
-    age: int | None = None
+    # v12.1 D05: age 0-120 when the date of birth is unknown.
+    age: int | None = Field(default=None, ge=0, le=120)
 
     identifiers: list[PatientIdentifierConfigRequest] = []
 
     tags: list[UUID4] = []
+
+    _validate_date_of_birth = field_validator("date_of_birth")(validate_date_of_birth)
 
     @field_validator("geo_organization")
     @classmethod
@@ -244,10 +438,12 @@ class PatientUpdateSpec(ExtensionValidator, PatientBaseSpec):
     pincode: int | None = None
     blood_group: BloodGroupChoices | None = None
     date_of_birth: datetime.date | None = None
-    age: int | None = None
+    age: int | None = Field(default=None, ge=0, le=120)
     geo_organization: UUID4 | None = None
 
     identifiers: list[PatientIdentifierConfigRequest] = []
+
+    _validate_date_of_birth = field_validator("date_of_birth")(validate_date_of_birth)
 
     @field_validator("geo_organization")
     @classmethod
