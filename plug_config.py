@@ -4,7 +4,7 @@ from plugs.plug import Plug
 care_emergency = Plug(
     name="care_emergency",
     package_name="git+https://github.com/anupamkris-ihl/care_emergency.git",
-    version="@v0.1.1",
+    version="@v0.2.0",
     configs={},
 )
 
