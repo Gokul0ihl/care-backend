@@ -3,6 +3,7 @@ from rest_framework.permissions import BasePermission
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
+from care.emr.resources.patient.hooks import patient_phone_allowed
 from config.patient_otp_token import PatientToken
 
 
@@ -67,6 +68,8 @@ class JWTTokenPatientAuthentication(CustomJWTAuthentication):
         Returns a stateless user object which is backed by the given validated
         token.
         """
+        if not patient_phone_allowed(validated_token["phone_number"]):
+            raise InvalidToken("A shared desk number cannot be used for patient login")
         obj = PatientOtpObject()
         obj.phone_number = validated_token["phone_number"]
         return obj

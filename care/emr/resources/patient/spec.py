@@ -28,6 +28,7 @@ from care.emr.models.patient import (
     PatientIdentifierConfigCache,
 )
 from care.emr.resources.base import EMRResource, PhoneNumber
+from care.emr.resources.patient.hooks import run_patient_serialization_hooks
 from care.emr.resources.patient_identifier.spec import PatientIdentifierListSpec
 from care.emr.resources.permissions import PatientPermissionsMixin
 from care.emr.tagging.base import PatientFacilityTagManager, PatientInstanceTagManager
@@ -507,6 +508,7 @@ class PatientListSpec(ExtensionListRenderer, PatientBaseSpec):
                 kwargs["facility"]
             ).render_tags(obj)
         super().perform_extra_serialization(mapping, obj, *args, **kwargs)
+        run_patient_serialization_hooks(mapping, obj)
 
 
 class PatientPartialSpec(EMRResource):
@@ -522,6 +524,7 @@ class PatientPartialSpec(EMRResource):
     def perform_extra_serialization(cls, mapping, obj):
         mapping["partial_id"] = str(obj.external_id)[:5]
         mapping["id"] = str(uuid.uuid4())
+        run_patient_serialization_hooks(mapping, obj)
 
 
 class PatientIdentifierResponse(BaseModel):

@@ -13,6 +13,7 @@ from rest_framework.response import Response
 
 from care.emr.api.viewsets.base import EMRBaseViewSet
 from care.emr.locks.otp import OTPSendLock, OTPVerifyLock
+from care.emr.resources.patient.hooks import patient_phone_allowed
 from care.facility.models.patient import MobileOTP
 from care.utils import sms
 from care.utils.models.validators import mobile_validator
@@ -65,6 +66,10 @@ class OTPRequestBaseSpec(BaseModel):
         except Exception as e:
             msg = "Invalid phone number"
             raise ValueError(msg) from e
+        if not patient_phone_allowed(value):
+            raise ValueError(
+                "A shared desk number cannot be used for patient OTP login"
+            )
         return value
 
 

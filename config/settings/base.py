@@ -204,6 +204,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "maintenance_mode.middleware.MaintenanceModeMiddleware",
     "care.audit_log.middleware.AuditLogMiddleware",
+    "care.emr.resources.patient.hooks.CurrentRequestMiddleware",
 ]
 
 # add RequestTimeLoggingMiddleware based on the environment variable
