@@ -3,6 +3,7 @@ from secrets import choice
 
 import phonenumbers
 from django.urls import reverse
+from django.utils import timezone
 from phonenumbers import PhoneNumberFormat, PhoneNumberType
 from rest_framework import status
 
@@ -144,6 +145,39 @@ class TestPatientViewSet(CareAPITestBase):
             response = self.client.post(self.base_url, patient_data, format="json")
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_create_patient_rejects_bad_indian_mobile_and_pin(self):
+        user = self.create_user()
+        geo_organization = self.create_organization(org_type="govt")
+        organization = self.create_organization(org_type="govt")
+        role = self.create_role_with_permissions(
+            permissions=[PatientPermissions.can_create_patient.name]
+        )
+        self.attach_role_organization_user(organization, user, role)
+        self.client.force_authenticate(user=user)
+        for field, value, message in (
+            ("phone_number", "+915123456789", "starting 6-9"),
+            ("emergency_phone_number", "+915123456789", "starting 6-9"),
+            ("pincode", 12345, "PIN must"),
+            ("pincode", 1100245, "PIN must"),
+        ):
+            with self.subTest(field=field, value=value):
+                patient_data = self.generate_patient_data(
+                    geo_organization=geo_organization.external_id, **{field: value}
+                )
+                PatientCreateLock().release()
+                response = self.client.post(self.base_url, patient_data, format="json")
+                self.assertContains(
+                    response, message, status_code=status.HTTP_400_BAD_REQUEST
+                )
+        patient_data = self.generate_patient_data(
+            geo_organization=geo_organization.external_id,
+            phone_number="+919876543210",
+            pincode=110024,
+        )
+        PatientCreateLock().release()
+        response = self.client.post(self.base_url, patient_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_create_patient_with_valid_phone_number(self):
         user = self.create_user()
         geo_organization = self.create_organization(org_type="govt")
@@ -190,17 +224,36 @@ class TestPatientViewSet(CareAPITestBase):
         patient_data["age"] = 33
         response = self.client.put(reverse_url, patient_data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["date_of_birth"], None)
-        self.assertEqual(
-            response.data["year_of_birth"],
-            datetime.datetime.now(datetime.UTC).year - 33,
-        )
+        # An age is stored as an approximate 1 July date of birth (D05).
+        today = timezone.localdate()
+        born = today.year - 33 - (1 if (today.month, today.day) < (7, 1) else 0)
+        self.assertEqual(response.data["date_of_birth"], f"{born}-07-01")
+        self.assertEqual(response.data["year_of_birth"], born)
+        self.assertTrue(response.data["date_of_birth_approximate"])
         patient_data["date_of_birth"] = datetime.date(1992, 1, 10)
         del patient_data["age"]
         response = self.client.put(reverse_url, patient_data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["date_of_birth"], "1992-01-10")
         self.assertEqual(response.data["year_of_birth"], 1992)
+        self.assertFalse(response.data["date_of_birth_approximate"])
+
+    def test_create_patient_with_age_zero(self):
+        user = self.create_user()
+        geo_organization = self.create_organization(org_type="govt")
+        role = self.create_role_with_permissions(
+            permissions=[PatientPermissions.can_create_patient.name]
+        )
+        self.attach_role_organization_user(geo_organization, user, role)
+        self.client.force_authenticate(user=user)
+        patient_data = self.generate_patient_data(
+            geo_organization=geo_organization.external_id, age=0
+        )
+        PatientCreateLock().release()
+        response = self.client.post(self.base_url, patient_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual(response.data["date_of_birth"], str(timezone.localdate()))
+        self.assertTrue(response.data["date_of_birth_approximate"])
 
     def test_invalid_date_of_birth_and_death_date(self):
         user = self.create_user()

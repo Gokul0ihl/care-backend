@@ -334,6 +334,27 @@ class PatientBaseSpec(EMRResource):
             )
         return self
 
+    @model_validator(mode="after")
+    def validate_indian_contact(self):
+        # v12.1 VAL-02: an Indian mobile is 10 digits starting 6-9; numbers
+        # from other countries keep libphonenumber's check.
+        registration = self.registration
+        for label, phone in (
+            ("mobile", self.phone_number),
+            ("emergency mobile", self.emergency_phone_number),
+            ("alternate mobile", registration and registration.alternate_phone_number),
+            ("WhatsApp mobile", registration and registration.whatsapp_number),
+            ("guardian's mobile", registration and registration.guardian_phone_number),
+        ):
+            phone = str(phone or "")
+            if phone.startswith("+91") and not re.fullmatch(r"\+91[6-9]\d{9}", phone):
+                err = f"The {label} must have 10 Indian digits starting 6-9"
+                raise ValueError(err)
+        # v12.1 VAL-03: a PIN is 6 digits and cannot start with 0.
+        if self.pincode and not 100000 <= self.pincode <= 999999:  # noqa: PLR2004
+            raise ValueError("PIN must be 6 digits and start with 1-9")
+        return self
+
     @field_validator("deceased_datetime")
     @classmethod
     def validate_deceased_datetime(cls, deceased_datetime):
@@ -368,6 +389,26 @@ def validate_date_of_birth(value):
     return value
 
 
+def approximate_date_of_birth(age):
+    # v12.1 D05: an age without a date of birth is stored as 1 July, in the
+    # year that gives that age today. Patient.meta["date_of_birth_approximate"]
+    # marks it as an estimate.
+    today = timezone.localdate()
+    year = today.year - age - (1 if (today.month, today.day) < (7, 1) else 0)
+    return datetime.date(year, 7, 1)
+
+
+def set_date_of_birth(obj, date_of_birth, age):
+    obj.meta.pop("age", None)
+    if age is not None:
+        obj.date_of_birth = approximate_date_of_birth(age)
+        obj.meta["date_of_birth_approximate"] = True
+    else:
+        obj.date_of_birth = date_of_birth
+        obj.meta.pop("date_of_birth_approximate", None)
+    obj.year_of_birth = obj.date_of_birth.year
+
+
 class PatientIdentifierConfigRequest(BaseModel):
     config: UUID4
     value: str
@@ -400,6 +441,12 @@ class PatientCreateSpec(ExtensionValidator, PatientBaseSpec):
         return geo_organization
 
     @model_validator(mode="after")
+    def validate_birth(self):
+        if self.date_of_birth is None and self.age is None:
+            raise ValueError("Enter the date of birth or the age")
+        return self
+
+    @model_validator(mode="after")
     def validate_identifiers(self):
         instance_identifier_configs = PatientIdentifierConfigCache.get_instance_config()
         configs = {str(x.config): x for x in self.identifiers}
@@ -417,12 +464,7 @@ class PatientCreateSpec(ExtensionValidator, PatientBaseSpec):
             obj.geo_organization = Organization.objects.get(
                 external_id=self.geo_organization
             )
-        if self.age:
-            # override dob if user chooses to update age
-            obj.date_of_birth = None
-            obj.year_of_birth = timezone.now().date().year - self.age
-        else:
-            obj.year_of_birth = self.date_of_birth.year
+        set_date_of_birth(obj, self.date_of_birth, self.age)
         obj._identifiers = self.identifiers  # noqa: SLF001
         obj._tags = self.tags  # noqa: SLF001
         if not self.pincode:
@@ -464,11 +506,8 @@ class PatientUpdateSpec(ExtensionValidator, PatientBaseSpec):
                 obj.geo_organization = Organization.objects.get(
                     external_id=self.geo_organization
                 )
-            if self.age is not None:
-                obj.date_of_birth = None
-                obj.year_of_birth = timezone.now().year - self.age
-            elif self.date_of_birth:
-                obj.year_of_birth = self.date_of_birth.year
+            if self.age is not None or self.date_of_birth:
+                set_date_of_birth(obj, self.date_of_birth, self.age)
         if not self.pincode:
             obj.pincode = None
 
@@ -492,6 +531,8 @@ class PatientUpdateSpec(ExtensionValidator, PatientBaseSpec):
 class PatientListSpec(ExtensionListRenderer, PatientBaseSpec):
     date_of_birth: datetime.date | None = None
     year_of_birth: datetime.date | None = None
+    # Read from Patient.meta; set by set_date_of_birth, never by the client.
+    date_of_birth_approximate: bool = False
 
     created_date: datetime.datetime
     modified_date: datetime.datetime

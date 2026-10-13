@@ -1,6 +1,5 @@
 import datetime
 
-from django.utils import timezone
 from pydantic import UUID4, field_validator, model_validator
 
 from care.emr.extensions.base import ExtensionResource
@@ -8,7 +7,11 @@ from care.emr.extensions.validator import ExtensionValidator
 from care.emr.models import Organization
 from care.emr.models.patient import Patient
 from care.emr.resources.base import EMRResource
-from care.emr.resources.patient.spec import BloodGroupChoices, GenderChoices
+from care.emr.resources.patient.spec import (
+    BloodGroupChoices,
+    GenderChoices,
+    set_date_of_birth,
+)
 
 
 class PatientOTPBaseSpec(EMRResource):
@@ -68,7 +71,4 @@ class PatientOTPWriteSpec(ExtensionValidator, PatientOTPBaseSpec):
             obj.geo_organization = Organization.objects.get(
                 external_id=self.geo_organization
             )
-            if self.age:
-                obj.year_of_birth = timezone.now().date().year - self.age
-            else:
-                obj.year_of_birth = self.date_of_birth.year
+            set_date_of_birth(obj, self.date_of_birth, self.age or None)
