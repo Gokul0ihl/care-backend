@@ -1,33 +1,37 @@
-
-networks:
-  default:
-    name: care
+# Production stack for the single EC2 box. Mirrors CARE's own
+# docker-compose.pre-built.yaml, but pulls our own image (built by
+# .gitea/workflows/deploy.yml) from Gitea's container registry instead of
+# ghcr.io, and adds Postgres as a container instead of using a managed DB.
+#
+# Deployed to /opt/ihl-hims/deploy on the box. CI updates it with:
+#   docker compose pull && docker compose up -d
 
 services:
   db:
     image: postgres:17-alpine
     restart: unless-stopped
-    env_file:
-      - ./docker/.prebuilt.env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-ihl_hims}
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ${BACKUP_DIR:-./care-backups}:/backups
-    ports:
-      - "5433:5432"
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-postgres}"]
       interval: 10s
       retries: 5
       start_period: 10s
       timeout: 10s
+    # Published on the EC2 host's loopback only (not public) - reach it via an
+    # SSH tunnel (e.g. pgAdmin's SSH Tunnel tab), never via the security group.
+    ports:
+      - "127.0.0.1:5432:5432"
 
   redis:
     image: redis:8-alpine
     restart: unless-stopped
     volumes:
       - redis-data:/data
-    ports:
-      - "6380:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -35,27 +39,42 @@ services:
       start_period: 10s
       timeout: 10s
 
-  minio:
-    image: pgsty/silo:latest  # minio/minio is no longer published on Docker Hub; Silo is a drop-in fork
+  backend:
+    image: ${BACKEND_IMAGE}
+    env_file: .env
+    entrypoint: ["bash", "start.sh"]
     restart: unless-stopped
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
-      AWS_DEFAULT_REGION: ap-south-1  # To maintain compatibility with existing apps
-    volumes:
-      - "./care/media/minio:/data"
-      - "./docker/minio/init-script.sh:/init-script.sh:ro"  # Mount the init script
-      - "./docker/minio/entrypoint.sh:/entrypoint.sh:ro"  # Mount the entrypoint script
     ports:
-      - "9100:9000"  # S3 API
-      - "9001:9001"  # Web Console
-    entrypoint: ["/entrypoint.sh"]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
-      interval: 10s
-      retries: 5
-      start_period: 10s
-      timeout: 10s
+      - "9000:9000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      celery-beat:
+        condition: service_healthy
+
+  celery-worker:
+    image: ${BACKEND_IMAGE}
+    env_file: .env
+    entrypoint: ["bash", "celery_worker.sh"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-beat:
+    image: ${BACKEND_IMAGE}
+    env_file: .env
+    entrypoint: ["bash", "celery_beat.sh"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   postgres-data:
