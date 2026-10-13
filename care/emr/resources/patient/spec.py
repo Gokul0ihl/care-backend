@@ -53,6 +53,7 @@ class GenderChoices(str, Enum):
     female = "female"
     non_binary = "non_binary"
     transgender = "transgender"
+    other = "other"
 
 
 # Patient name parts and payer IDs follow the POH front-office v12.1 formats (V-name, V-emp).

@@ -14,6 +14,7 @@ GENDER_CHOICES = {
     "female": "Female",
     "non_binary": "Non binary",
     "transgender": "Transgender",
+    "other": "Other",
 }
 
 IDENTIFIER_USE_OPTIONS = {
