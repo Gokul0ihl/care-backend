@@ -12,6 +12,9 @@ services:
       # Local checkout of the care_emergency plug (see plug_config.py); set
       # CARE_EMERGENCY_PATH in .env if it is not at ../../IHL/care_emergency
       PYTHONPATH: /plugs/care_emergency
+      # data.gov.in key for the plug's monthly India Post PIN directory refresh;
+      # set it in .env. Without it the frontend uses a live PIN lookup.
+      DATA_GOV_IN_API_KEY: ${DATA_GOV_IN_API_KEY:-}
     volumes:
       - .:/app
       - ${CARE_EMERGENCY_PATH:-../../IHL/care_emergency}:/plugs/care_emergency
@@ -39,6 +42,7 @@ services:
       - redis
     environment:
       PYTHONPATH: /plugs/care_emergency
+      DATA_GOV_IN_API_KEY: ${DATA_GOV_IN_API_KEY:-}
     volumes:
       - .:/app
       - ${CARE_EMERGENCY_PATH:-../../IHL/care_emergency}:/plugs/care_emergency
