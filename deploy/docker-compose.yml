@@ -22,7 +22,10 @@ services:
       retries: 5
       start_period: 10s
       timeout: 10s
-    # Not published to the host - reach it via an SSH tunnel, not a public port.
+    # Published on the EC2 host's loopback only (not public) - reach it via an
+    # SSH tunnel (e.g. pgAdmin's SSH Tunnel tab), never via the security group.
+    ports:
+      - "127.0.0.1:5432:5432"
 
   redis:
     image: redis:8-alpine
