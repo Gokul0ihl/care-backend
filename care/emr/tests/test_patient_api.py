@@ -428,6 +428,23 @@ class TestPatientViewSet(CareAPITestBase):
         response = self.client.delete(delete_url)
         self.assertIn(response.status_code, [204, 200])
 
+    def test_delete_patient_with_visits_is_refused(self):
+        superuser = self.create_super_user()
+        self.client.force_authenticate(user=superuser)
+        patient = self.create_patient()
+        facility = self.create_facility(user=superuser)
+        self.create_encounter(
+            patient, facility, self.create_facility_organization(facility=facility)
+        )
+        delete_url = reverse(
+            "patient-detail", kwargs={"external_id": patient.external_id}
+        )
+        response = self.client.delete(delete_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Merge it into the correct record", str(response.data))
+        patient.refresh_from_db()
+        self.assertFalse(patient.deleted)
+
     def test_delete_patient_as_non_superuser(self):
         user = self.create_user()
         geo_organization = self.create_organization(org_type="govt")

@@ -13,7 +13,14 @@ from rest_framework.response import Response
 
 from care.emr.api.viewsets.base import EMRModelViewSet
 from care.emr.locks.billing import PatientCreateLock
-from care.emr.models import Organization, PatientUser, TokenBooking
+from care.emr.models import (
+    Account,
+    Encounter,
+    Invoice,
+    Organization,
+    PatientUser,
+    TokenBooking,
+)
 from care.emr.models.patient import Patient, PatientIdentifier, PatientIdentifierConfig
 from care.emr.models.scheduling.token import Token
 from care.emr.resources.patient.spec import (
@@ -69,6 +76,18 @@ class PatientViewSet(EMRModelViewSet):
     def authorize_destroy(self, instance):
         if not self.request.user.is_superuser:
             raise PermissionDenied("Cannot delete patient")
+
+    def validate_destroy(self, instance):
+        # A duplicate with history is merged (care_emergency), not deleted, so
+        # its visits and bills stay with the patient.
+        if any(
+            model.objects.filter(patient=instance).exists()
+            for model in (Encounter, TokenBooking, Invoice, Account)
+        ):
+            raise ValidationError(
+                "This patient has visits or billing records. Merge it into the "
+                "correct record instead of deleting it."
+            )
 
     def validate_data(self, instance, model_obj=None):
         dob = instance.date_of_birth or (model_obj and model_obj.date_of_birth)
