@@ -1,0 +1,100 @@
+name: Deploy backend to EC2
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or full commit SHA to deploy
+        required: true
+        default: main
+
+permissions:
+  contents: read
+  id-token: write # GitHub OIDC -> AWS_DEPLOY_ROLE_ARN
+
+concurrency:
+  group: deploy-ec2
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy on EC2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # Has required reviewers: the job waits here for approval.
+    environment: development
+    env:
+      DEPLOY_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
+      REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+      INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+
+      # No SSH: SSM Run Command runs the deploy through the SSM agent on the
+      # box, which only makes outbound connections. Port 22 stays closed to CI.
+      - name: Send deploy command over SSM
+        id: send
+        run: |
+          case "$DEPLOY_REF" in
+            ""|-*|*[!A-Za-z0-9._/-]*) echo "Refusing to deploy ref '$DEPLOY_REF'" >&2; exit 1 ;;
+          esac
+          # SSM runs commands as root; the deploy runs as ec2-user, who owns
+          # /opt/ihl-hims. The full log stays on the box and only its tail comes
+          # back here (SSM returns at most 24,000 characters of output).
+          script="$(cat <<EOF
+          set -euo pipefail
+          sudo -iu ec2-user bash -s -- '$DEPLOY_REF' '$REPO_URL' <<'DEPLOY'
+          set -uo pipefail
+          ref="\$1"; repo="\$2"
+          log=/opt/ihl-hims/deploy/last-deploy.log
+          (
+            set -euo pipefail
+            src=/opt/ihl-hims/source
+            [ -d "\$src/.git" ] || git clone "\$repo" "\$src"
+            cd "\$src"
+            git fetch --force --tags origin "\$ref"
+            git checkout --force --detach FETCH_HEAD
+            echo "Deploying \$(git log -1 --format='%H %s')"
+            bash deploy/deploy.sh
+          ) > "\$log" 2>&1
+          rc=\$?
+          tail -c 20000 "\$log"
+          exit \$rc
+          DEPLOY
+          EOF
+          )"
+          params="$(jq -n --arg s "$script" '{commands: [$s], executionTimeout: ["2400"]}')"
+          command_id="$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "deploy $DEPLOY_REF (run ${{ github.run_id }})" \
+            --parameters "$params" \
+            --query Command.CommandId --output text)"
+          echo "SSM command $command_id"
+          echo "command_id=$command_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for the deploy to finish
+        env:
+          COMMAND_ID: ${{ steps.send.outputs.command_id }}
+        run: |
+          while :; do
+            status="$(aws ssm get-command-invocation --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)"
+            case "$status" in
+              Pending|InProgress|Delayed|Cancelling) sleep 15 ;;
+              *) break ;;
+            esac
+          done
+          aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+            --query StandardOutputContent --output text
+          echo "SSM status: $status"
+          [ "$status" = Success ]

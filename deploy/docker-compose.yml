@@ -1,10 +1,11 @@
-# Production stack for the single EC2 box. Mirrors CARE's own
-# docker-compose.pre-built.yaml, but pulls our own image (built by
-# .gitea/workflows/deploy.yml) from Gitea's container registry instead of
-# ghcr.io, and adds Postgres as a container instead of using a managed DB.
+# Stack for the single EC2 box. Mirrors CARE's own
+# docker-compose.pre-built.yaml, but runs our own image, built on the box by
+# deploy/deploy.sh (no registry), and adds Postgres as a container instead of
+# using a managed DB.
 #
-# Deployed to /opt/ihl-hims/deploy on the box. CI updates it with:
-#   docker compose pull && docker compose up -d
+# Lives in /opt/ihl-hims/deploy on the box. deploy.sh copies this file there
+# when it changes, sets BACKEND_IMAGE in .env and runs docker compose up -d.
+# Never run `docker compose pull` there: the backend image only exists locally.
 
 services:
   db:
