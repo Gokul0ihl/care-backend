@@ -56,6 +56,13 @@ set_image() {
 # as a plug migration needing a core migration this build doesn't have, fails
 # here, before anything running is touched.
 log "Checking migrations for $image"
+# BACKEND_IMAGE from the environment must win over the old value in .env, or
+# the check below would test the running code instead of the new build.
+images="$(BACKEND_IMAGE="$image" docker compose config --images)"
+if ! grep -qxF "$image" <<< "$images"; then
+  echo "!! docker compose would not use $image for the migration check; nothing was changed" >&2
+  exit 1
+fi
 if ! plan="$(BACKEND_IMAGE="$image" docker compose run --rm --no-deps -T --entrypoint "" \
     backend python manage.py migrate --plan 2>&1)"; then
   printf '%s\n' "$plan" >&2
