@@ -15,7 +15,7 @@ from care.emr.api.viewsets.scheduling.schedule import get_schedulable_resource
 from care.emr.models import AvailabilityException, Schedule, TokenBooking
 from care.emr.models.patient import Patient
 from care.emr.models.scheduling.booking import TokenSlot
-from care.emr.models.scheduling.schedule import Availability
+from care.emr.models.scheduling.schedule import Availability, SchedulableResource
 from care.emr.resources.charge_item.apply_charge_item_definition import (
     apply_charge_item_definition,
 )
@@ -251,38 +251,46 @@ class SlotViewSet(EMRRetrieveMixin, EMRBaseViewSet):
         slots = convert_availability_and_exceptions_to_slots(
             calculated_dow_availabilities, exceptions, request_data.day
         )
-        # Fetch all existing slots in that day
-        created_slots = TokenSlot.objects.filter(
-            start_datetime__date=request_data.day,
-            end_datetime__date=request_data.day,
-            resource=resource,
-        )
-        if is_public is True:
-            created_slots = created_slots.filter(availability__schedule__is_public=True)
-        for slot in created_slots:
-            slot_key = f"{slot.availability.id}-{timezone.make_naive(slot.start_datetime).time()}-{timezone.make_naive(slot.end_datetime).time()}"
-            if (
-                slot_key in slots
-                and slots[slot_key]["availability_id"] == slot.availability.id
-            ):
-                slots.pop(slot_key)
-
-        # Create everything else
-        for _, slot in slots.items():
-            end_datetime = datetime.datetime.combine(
-                request_data.day, slot["end_time"], tzinfo=None
-            )
-            # Skip creating slots in the past
-            if end_datetime < timezone.make_naive(timezone.now()):
-                continue
-            TokenSlot.objects.create(
+        # Two requests for the same day (e.g. two desks opening one doctor)
+        # would otherwise both see no slots and both create the full set.
+        # Locking the resource row makes the second wait for the first and
+        # then find its slots already there.
+        with transaction.atomic():
+            SchedulableResource.objects.select_for_update().get(id=resource.id)
+            # Fetch all existing slots in that day
+            created_slots = TokenSlot.objects.filter(
+                start_datetime__date=request_data.day,
+                end_datetime__date=request_data.day,
                 resource=resource,
-                start_datetime=datetime.datetime.combine(
-                    request_data.day, slot["start_time"], tzinfo=None
-                ),
-                end_datetime=end_datetime,
-                availability_id=slot["availability_id"],
             )
+            if is_public is True:
+                created_slots = created_slots.filter(
+                    availability__schedule__is_public=True
+                )
+            for slot in created_slots:
+                slot_key = f"{slot.availability.id}-{timezone.make_naive(slot.start_datetime).time()}-{timezone.make_naive(slot.end_datetime).time()}"
+                if (
+                    slot_key in slots
+                    and slots[slot_key]["availability_id"] == slot.availability.id
+                ):
+                    slots.pop(slot_key)
+
+            # Create everything else
+            for _, slot in slots.items():
+                end_datetime = datetime.datetime.combine(
+                    request_data.day, slot["end_time"], tzinfo=None
+                )
+                # Skip creating slots in the past
+                if end_datetime < timezone.make_naive(timezone.now()):
+                    continue
+                TokenSlot.objects.create(
+                    resource=resource,
+                    start_datetime=datetime.datetime.combine(
+                        request_data.day, slot["start_time"], tzinfo=None
+                    ),
+                    end_datetime=end_datetime,
+                    availability_id=slot["availability_id"],
+                )
         # Compare and figure out what needs to be created
         slots = TokenSlot.objects.filter(
             start_datetime__date=request_data.day,
