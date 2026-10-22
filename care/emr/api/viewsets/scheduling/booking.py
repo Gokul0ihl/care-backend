@@ -21,7 +21,7 @@ from care.emr.api.viewsets.base import (
 )
 from care.emr.api.viewsets.scheduling import lock_create_appointment
 from care.emr.api.viewsets.scheduling.schedule import get_schedulable_resource
-from care.emr.models import TokenSlot
+from care.emr.models import PatientUser, TokenSlot
 from care.emr.models.organization import (
     FacilityOrganization,
     FacilityOrganizationUser,
@@ -151,6 +151,15 @@ class TokenBookingViewSet(
             )
             .order_by("-modified_date")
         )
+        if self.request.user.is_service_account:
+            # A service account (the patient app's server, care_emergency)
+            # books for the patients linked to it and sees only theirs, so
+            # the staff list rules (by doctor or department) don't apply.
+            return queryset.filter(
+                patient__in=PatientUser.objects.filter(user=self.request.user).values(
+                    "patient_id"
+                )
+            )
         if self.action == "list":
             if "resource_type" not in self.request.query_params:
                 raise ValidationError("Resource Type is required")
