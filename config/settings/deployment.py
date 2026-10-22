@@ -86,10 +86,11 @@ LOGGING = {
             "formatter": "verbose",
         }
     },
-    "root": {"level": "INFO", "handlers": ["console"]},
+    "root": {"level": env("DJANGO_LOG_LEVEL", default="INFO"), "handlers": ["console"]},
     "loggers": {
+        # SQL is only logged at DEBUG, and only while DJANGO_DEBUG is on.
         "django.db.backends": {
-            "level": "ERROR",
+            "level": env("DJANGO_DB_LOG_LEVEL", default="ERROR"),
             "handlers": ["console"],
             "propagate": False,
         },

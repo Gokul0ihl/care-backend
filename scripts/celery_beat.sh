@@ -23,4 +23,4 @@ python manage.py sync_valueset
 
 touch /tmp/healthy
 
-celery --app=config.celery_app beat --loglevel=info
+celery --app=config.celery_app beat --loglevel=${CELERY_LOG_LEVEL:-info}

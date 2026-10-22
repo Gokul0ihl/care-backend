@@ -17,6 +17,7 @@ GUNICORN_LOG_FORMAT="${GUNICORN_LOG_FORMAT:="%(h)s %(l)s %(t)s \"%(r)s\" %(s)s %
 GUNICORN_ACCESS_LOGFILE="${GUNICORN_ACCESS_LOGFILE:="-"}"
 GUNICORN_ERROR_LOGFILE="${GUNICORN_ERROR_LOGFILE:="-"}"
 GUNICORN_WORKERS="${GUNICORN_WORKERS:="2"}"
+GUNICORN_LOG_LEVEL="${GUNICORN_LOG_LEVEL:="info"}"
 
 ./wait_for_db.sh
 ./wait_for_redis.sh
@@ -26,4 +27,5 @@ python manage.py compilemessages -v 0
 
 
 gunicorn --config python:config.gunicorn config.wsgi:application --bind 0.0.0.0:9000 --chdir=/app --workers $GUNICORN_WORKERS \
-  --access-logformat "$GUNICORN_LOG_FORMAT" --access-logfile $GUNICORN_ACCESS_LOGFILE --error-logfile $GUNICORN_ERROR_LOGFILE
+  --access-logformat "$GUNICORN_LOG_FORMAT" --access-logfile $GUNICORN_ACCESS_LOGFILE --error-logfile $GUNICORN_ERROR_LOGFILE \
+  --log-level $GUNICORN_LOG_LEVEL

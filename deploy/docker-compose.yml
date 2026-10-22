@@ -7,6 +7,19 @@
 # when it changes, sets BACKEND_IMAGE in .env and runs docker compose up -d.
 # Never run `docker compose pull` there: the backend image only exists locally.
 
+# Full debug mode for the dev box: Django DEBUG (tracebacks in error
+# responses), DEBUG logging including every SQL query, request timings, and
+# debug-level gunicorn and celery logs. These override .env. Turn it off by
+# deleting the `environment: *debug` lines below. Never keep it on a box with
+# real patient data: error pages and logs then include request data and settings.
+x-debug: &debug
+  DJANGO_DEBUG: "True"
+  DJANGO_LOG_LEVEL: DEBUG
+  DJANGO_DB_LOG_LEVEL: DEBUG
+  ENABLE_REQUEST_TIME_LOGGING: "True"
+  GUNICORN_LOG_LEVEL: debug
+  CELERY_LOG_LEVEL: debug
+
 services:
   db:
     image: postgres:17-alpine
@@ -43,6 +56,7 @@ services:
   backend:
     image: ${BACKEND_IMAGE}
     env_file: .env
+    environment: *debug
     entrypoint: ["bash", "start.sh"]
     restart: unless-stopped
     ports:
@@ -58,6 +72,7 @@ services:
   celery-worker:
     image: ${BACKEND_IMAGE}
     env_file: .env
+    environment: *debug
     entrypoint: ["bash", "celery_worker.sh"]
     restart: unless-stopped
     depends_on:
@@ -69,6 +84,7 @@ services:
   celery-beat:
     image: ${BACKEND_IMAGE}
     env_file: .env
+    environment: *debug
     entrypoint: ["bash", "celery_beat.sh"]
     restart: unless-stopped
     depends_on:

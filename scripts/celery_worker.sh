@@ -18,4 +18,4 @@ fi
 python manage.py collectstatic --noinput
 python manage.py compilemessages -v 0
 
-celery --app=config.celery_app worker --max-tasks-per-child=6 --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-1}
+celery --app=config.celery_app worker --max-tasks-per-child=6 --loglevel=${CELERY_LOG_LEVEL:-info} --concurrency=${CELERY_WORKER_CONCURRENCY:-1}
