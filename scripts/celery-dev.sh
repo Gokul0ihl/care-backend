@@ -9,6 +9,7 @@ set -euo pipefail
 python manage.py migrate --noinput
 python manage.py compilemessages -v 0
 python manage.py sync_permissions_roles
+python manage.py setup_app_server
 python manage.py sync_valueset
 
 watchmedo \
