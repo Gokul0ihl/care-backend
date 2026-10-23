@@ -63,6 +63,9 @@ urlpatterns = [
         name="change_password_view",
     ),
     path("api/v1/", include(api_router.urlpatterns)),
+    # Emergency, registration and front-desk endpoints (formerly the
+    # care_emergency plug; the frontend still calls these paths).
+    path("api/care_emergency/", include("care_emergency.urls")),
     *static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT),
 ]
 

@@ -66,17 +66,13 @@ services:
     env_file:
       - ./docker/.local.env
     environment:
-      # Local checkout of the care_emergency plug (see plug_config.py); set
-      # CARE_EMERGENCY_PATH in .env if it is not at ../../IHL/care_emergency
-      PYTHONPATH: /plugs/care_emergency
-      # data.gov.in key for the plug's monthly India Post PIN directory refresh;
+      # data.gov.in key for care_emergency's monthly India Post PIN directory refresh;
       # set it in .env. Without it the frontend uses a live PIN lookup.
       DATA_GOV_IN_API_KEY: ${DATA_GOV_IN_API_KEY:-}
       # Frontend origin for the registration form texted at Quick Register.
       REGISTRATION_FORM_BASE_URL: ${REGISTRATION_FORM_BASE_URL:-http://localhost:3000}
     volumes:
       - .:/app
-      - ${CARE_EMERGENCY_PATH:-../../IHL/care_emergency}:/plugs/care_emergency
     entrypoint: ["bash", "scripts/start-dev.sh"]
     ports:
       - "9000:9000"
@@ -100,11 +96,9 @@ services:
       - db
       - redis
     environment:
-      PYTHONPATH: /plugs/care_emergency
       DATA_GOV_IN_API_KEY: ${DATA_GOV_IN_API_KEY:-}
     volumes:
       - .:/app
-      - ${CARE_EMERGENCY_PATH:-../../IHL/care_emergency}:/plugs/care_emergency
 
 volumes:
   postgres-data:

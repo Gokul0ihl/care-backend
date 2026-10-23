@@ -1,0 +1,253 @@
+from care.emr.locks.billing import PatientCreateLock
+from care.emr.models import Encounter, Patient
+from care.utils.tests.base import CareAPITestBase
+from django.urls import reverse
+from django.utils import timezone
+from rest_framework import status
+
+from care_emergency.models import EmergencyDesk, EmergencyEncounter, FacilityUnit
+
+DESK_NUMBER = "+919876543210"
+REAL_NUMBER = "+919812345678"
+COMPANION_NUMBER = "+919898989898"
+
+
+class EmergencyAPITests(CareAPITestBase):
+    def setUp(self):
+        super().setUp()
+        self.user = self.create_super_user()
+        self.facility = self.create_facility(user=self.user)
+        FacilityUnit.objects.create(facility=self.facility, code="LN")
+        self.client.force_authenticate(user=self.user)
+        PatientCreateLock().release()
+
+    def set_desk(self):
+        return EmergencyDesk.objects.create(
+            facility=self.facility, phone_number=DESK_NUMBER
+        )
+
+    def register_data(self, **kwargs):
+        data = {
+            "facility": str(self.facility.external_id),
+            "patient": {"name": "Unknown Male", "gender": "male", "age": 35},
+            "triage": "red",
+            "is_medico_legal": True,
+            "mlc_nature": "Road accident",
+            "police_station": "Central",
+            "distinguishing_marks": "Scar on left arm",
+            "brought_by": {
+                "name": "Ravi",
+                "phone_number": COMPANION_NUMBER,
+                "relationship": "Other",
+            },
+        }
+        data.update(kwargs)
+        return data
+
+    def register(self, **kwargs):
+        # Care releases its create locks on commit; run those callbacks here.
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(
+                reverse("emergency-register"),
+                self.register_data(**kwargs),
+                format="json",
+            )
+
+    def test_register_requires_desk_number(self):
+        response = self.register()
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Patient.objects.exists())
+
+    def test_register_creates_patient_encounter_and_mlc_number(self):
+        self.set_desk()
+        response = self.register()
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        emergency = response.data["emergency"]
+        self.assertRegex(emergency["mlc_number"], r"^MLC-\d{4}-0001$")
+        self.assertEqual(emergency["brought_by"]["phone_number"], COMPANION_NUMBER)
+
+        patient = Patient.objects.get(external_id=response.data["patient"]["id"])
+        self.assertEqual(patient.phone_number, DESK_NUMBER)
+        encounter = Encounter.objects.get(external_id=response.data["encounter"]["id"])
+        self.assertEqual(encounter.encounter_class, "emer")
+        self.assertEqual(encounter.priority, "emergency")
+        self.assertEqual(encounter.hospitalization["admit_source"], "emd")
+
+    def test_mlc_numbers_are_sequential(self):
+        self.set_desk()
+        first = self.register().data["emergency"]["mlc_number"]
+        response = self.register()
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        second = response.data["emergency"]["mlc_number"]
+        self.assertTrue(first.endswith("0001"))
+        self.assertTrue(second.endswith("0002"))
+
+    def test_non_medico_legal_gets_no_mlc_number(self):
+        self.set_desk()
+        response = self.register(
+            is_medico_legal=False, mlc_nature="Assault", police_station="X"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertIsNone(response.data["emergency"]["mlc_number"])
+        self.assertEqual(response.data["emergency"]["mlc_nature"], "")
+
+    def test_medico_legal_requires_nature_and_police_station(self):
+        self.set_desk()
+        response = self.register(mlc_nature="", police_station="")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_age_zero_is_accepted(self):
+        self.set_desk()
+        response = self.register(
+            patient={"name": "Unknown Female", "gender": "female", "age": 0}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        patient = Patient.objects.get()
+        self.assertLessEqual(patient.date_of_birth, timezone.localdate())
+        self.assertTrue(patient.meta["date_of_birth_approximate"])
+
+    def test_age_over_120_is_rejected(self):
+        self.set_desk()
+        response = self.register(
+            patient={"name": "Unknown Female", "gender": "female", "age": 121}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Patient.objects.exists())
+
+    def test_medico_legal_defaults_to_no(self):
+        self.set_desk()
+        data = self.register_data()
+        for field in ("is_medico_legal", "mlc_nature", "police_station"):
+            del data[field]
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                reverse("emergency-register"), data, format="json"
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertFalse(response.data["emergency"]["is_medico_legal"])
+        self.assertIsNone(response.data["emergency"]["mlc_number"])
+
+    def test_quick_registration_needs_chief_complaint(self):
+        self.set_desk()
+        patient = {"name": "Arun Kumar", "gender": "male", "age": 40}
+        response = self.register(patient=patient, is_unidentified=False)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Patient.objects.exists())
+
+        response = self.register(
+            patient=patient,
+            is_unidentified=False,
+            chief_complaint="Chest pain",
+            mode_of_arrival="108 ambulance",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        emergency = response.data["emergency"]
+        self.assertEqual(emergency["chief_complaint"], "Chest pain")
+        self.assertEqual(emergency["mode_of_arrival"], "108 ambulance")
+        self.assertFalse(emergency["is_unidentified"])
+        self.assertEqual(Patient.objects.get().name, "Arun Kumar")
+
+    def test_unknown_options_are_rejected(self):
+        self.set_desk()
+        self.assertEqual(
+            self.register(chief_complaint="Headache").status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(
+            self.register(mode_of_arrival="Helicopter").status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertFalse(Patient.objects.exists())
+
+    def test_brought_by_needs_name_or_phone(self):
+        self.set_desk()
+        response = self.register(brought_by={"phone_number": COMPANION_NUMBER})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["emergency"]["brought_by"]["name"], "")
+        response = self.register(brought_by={"name": " "})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_update_chief_complaint_and_arrival(self):
+        self.set_desk()
+        encounter_id = self.register().data["encounter"]["id"]
+        url = reverse(
+            "emergency-encounter-detail", kwargs={"external_id": encounter_id}
+        )
+        response = self.client.patch(
+            url,
+            {"chief_complaint": "Seizure", "mode_of_arrival": "Police"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["chief_complaint"], "Seizure")
+        self.assertEqual(response.data["mode_of_arrival"], "Police")
+        response = self.client.patch(url, {"chief_complaint": "Cough"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_register_without_permission(self):
+        self.set_desk()
+        self.client.force_authenticate(user=self.create_user())
+        response = self.register()
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_update_can_clear_medico_legal(self):
+        self.set_desk()
+        encounter_id = self.register().data["encounter"]["id"]
+        url = reverse(
+            "emergency-encounter-detail", kwargs={"external_id": encounter_id}
+        )
+        response = self.client.patch(url, {"is_medico_legal": False}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertFalse(response.data["is_medico_legal"])
+        # The issued number is kept so it is never reused.
+        self.assertIsNotNone(response.data["mlc_number"])
+
+    def test_list_filters(self):
+        self.set_desk()
+        self.register()
+        self.register(is_medico_legal=False, triage="green", chief_complaint="Burns")
+        url = reverse("emergency-encounter-list")
+        facility = str(self.facility.external_id)
+        response = self.client.get(url, {"facility": facility, "is_medico_legal": "true"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        response = self.client.get(url, {"facility": facility, "chief_complaint": "Burns"})
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["triage"], "green")
+
+    def test_convert_to_normal_patient(self):
+        self.set_desk()
+        patient_id = self.register().data["patient"]["id"]
+        url = reverse("emergency-convert", kwargs={"patient_id": patient_id})
+        response = self.client.post(
+            url, {"name": "Arun Kumar", "phone_number": REAL_NUMBER}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        patient = Patient.objects.get(external_id=patient_id)
+        self.assertEqual(patient.phone_number, REAL_NUMBER)
+        self.assertEqual(patient.name, "Arun Kumar")
+        record = EmergencyEncounter.objects.get(patient=patient)
+        self.assertIsNotNone(record.converted_at)
+        self.assertFalse(record.is_unidentified)
+
+    def test_convert_rejects_desk_number(self):
+        self.set_desk()
+        patient_id = self.register().data["patient"]["id"]
+        url = reverse("emergency-convert", kwargs={"patient_id": patient_id})
+        response = self.client.post(url, {"phone_number": DESK_NUMBER}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIsNone(
+            EmergencyEncounter.objects.get(patient__external_id=patient_id).converted_at
+        )
+
+    def test_desk_number_admin_only(self):
+        url = reverse("emergency-desk")
+        body = {"facility": str(self.facility.external_id), "phone_number": DESK_NUMBER}
+        self.assertEqual(
+            self.client.put(url, body, format="json").status_code, status.HTTP_200_OK
+        )
+        self.client.force_authenticate(user=self.create_user())
+        self.assertEqual(
+            self.client.put(url, body, format="json").status_code,
+            status.HTTP_403_FORBIDDEN,
+        )

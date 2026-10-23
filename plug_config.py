@@ -1,13 +1,7 @@
 from plugs.manager import PlugManager
-from plugs.plug import Plug
 
-care_emergency = Plug(
-    name="care_emergency",
-    package_name="git+https://github.com/anupamkris-ihl/care_emergency.git",
-    version="@v0.13.0",
-    configs={},
-)
-
-plugs = [care_emergency]
+# care_emergency now lives in this repo (top-level care_emergency/, in
+# LOCAL_APPS). Add any future plugs here.
+plugs = []
 
 manager = PlugManager(plugs)
