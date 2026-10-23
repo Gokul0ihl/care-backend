@@ -59,7 +59,6 @@ from care_emergency.models import (
     PatientDocument,
     PostOffice,
     RegistrationAllergy,
-    RestrictedPatient,
     StatutoryFlag,
 )
 from care_emergency.billing import sync_billing_tags
@@ -86,7 +85,7 @@ from care_emergency.merge import (
 from care_emergency.newborn import baby_name, baby_registration, serialize_birth
 from care_emergency.pincodes import lookup as lookup_pincode
 from care_emergency.pincodes import plug_setting
-from care_emergency.restricted import can_see_identity, new_alias, restriction_of
+from care_emergency.restricted import can_see_identity, is_restricted, new_alias
 from care_emergency.serializers import (
     serialize_desk,
     serialize_document,
@@ -657,7 +656,7 @@ class NewbornRegistrationView(EmergencyAPIView):
         mother = get_object_or_404(Patient, external_id=spec.mother)
         if not can("can_view_patient_obj", request.user, mother):
             raise PermissionDenied("You do not have permission to view the mother")
-        if restriction_of(mother) and not can_see_identity(request.user, mother):
+        if is_restricted(mother) and not can_see_identity(request.user, mother):
             # The baby's name would carry the mother's masked identity.
             raise PermissionDenied(
                 "The mother's record is restricted. Ask her clinician to register the baby"
@@ -752,9 +751,8 @@ class PatientRegistrationView(EmergencyAPIView):
         if patient.registered_at is None:
             # The frontend reads 404 as "not registered at the desk".
             raise Http404("This patient has no desk registration")
-        restriction = restriction_of(patient)
-        if restriction and not can_see_identity(request.user, patient):
-            return Response(serialize_restricted_registration(patient, restriction))
+        if is_restricted(patient) and not can_see_identity(request.user, patient):
+            return Response(serialize_restricted_registration(patient))
         return Response(serialize_registration(patient))
 
     def put(self, request, patient_id):
@@ -764,7 +762,7 @@ class PatientRegistrationView(EmergencyAPIView):
         patient = get_object_or_404(Patient, external_id=patient_id)
         if not can("can_write_patient_obj", request.user, patient):
             raise PermissionDenied("You do not have permission to edit this patient")
-        if restriction_of(patient) and not can_see_identity(request.user, patient):
+        if is_restricted(patient) and not can_see_identity(request.user, patient):
             raise PermissionDenied("This patient's record is restricted")
         if EmergencyEncounter.objects.filter(
             patient=patient, converted_at__isnull=True
@@ -1187,8 +1185,7 @@ class PatientContactView(EmergencyAPIView):
         patient = get_object_or_404(Patient, external_id=patient_id)
         if not can("can_write_patient_obj", request.user, patient):
             raise PermissionDenied("Cannot update this patient")
-        restriction = restriction_of(patient)
-        if restriction and not can_see_identity(request.user, patient):
+        if is_restricted(patient) and not can_see_identity(request.user, patient):
             raise PermissionDenied("Identity access is required to update a contact")
         if is_desk_phone(spec.phone_number):
             raise ValidationError("Enter a real contact number, not the desk number")
@@ -1253,7 +1250,7 @@ class DocumentView(EmergencyAPIView):
             Patient, external_id=request.query_params.get("patient")
         )
         file_authorizer(request.user, "patient", str(patient.external_id), "read")
-        if restriction_of(patient) and not can_see_identity(request.user, patient):
+        if is_restricted(patient) and not can_see_identity(request.user, patient):
             raise PermissionDenied("This patient's documents are restricted")
         documents = PatientDocument.objects.filter(patient=patient).select_related(
             "file", "created_by"
@@ -1322,9 +1319,8 @@ class RestrictionView(EmergencyAPIView):
         patient = get_object_or_404(Patient, external_id=patient_id)
         if not can("can_view_patient_obj", request.user, patient):
             raise PermissionDenied("You do not have permission to view this patient")
-        restriction = restriction_of(patient)
-        visible = restriction is not None and can_see_identity(request.user, patient)
-        return Response(serialize_restriction(restriction, request.user, visible))
+        visible = is_restricted(patient) and can_see_identity(request.user, patient)
+        return Response(serialize_restriction(patient, request.user, visible))
 
 
 class StatutoryFlagView(EmergencyAPIView):
@@ -1369,18 +1365,18 @@ class StatutoryFlagView(EmergencyAPIView):
         if encounter.status in [*COMPLETED_CHOICES, "discharged"]:
             raise ValidationError("Statutory flags require an open encounter")
         with transaction.atomic():
-            restriction = (
-                RestrictedPatient.objects.select_for_update()
-                .filter(patient=patient)
-                .first()
-            ) or RestrictedPatient.objects.create(patient=patient, alias=new_alias())
+            patient = Patient.objects.select_for_update().get(id=patient.id)
+            if not is_restricted(patient):
+                patient.restricted_alias = new_alias()
+                patient.restricted_at = timezone.now()
+                patient.save(update_fields=["restricted_alias", "restricted_at"])
             StatutoryFlag.objects.get_or_create(
                 patient=patient,
                 encounter=encounter,
                 category=spec.category,
                 defaults={"created_by": request.user, "updated_by": request.user},
             )
-        return Response(serialize_restriction(restriction, request.user, visible=True))
+        return Response(serialize_restriction(patient, request.user, visible=True))
 
 
 class BreakGlassView(EmergencyAPIView):
@@ -1393,8 +1389,7 @@ class BreakGlassView(EmergencyAPIView):
         patient = get_object_or_404(Patient, external_id=patient_id)
         if not can("can_view_patient_obj", request.user, patient):
             raise PermissionDenied("You do not have permission to view this patient")
-        restriction = restriction_of(patient)
-        if restriction is None:
+        if not is_restricted(patient):
             raise ValidationError("This patient is not restricted")
         BreakGlassAccess.objects.create(
             patient=patient,
@@ -1402,7 +1397,7 @@ class BreakGlassView(EmergencyAPIView):
             reason=spec.reason.strip(),
             expires_at=timezone.now() + datetime.timedelta(hours=BREAK_GLASS_HOURS),
         )
-        return Response(serialize_restriction(restriction, request.user, visible=True))
+        return Response(serialize_restriction(patient, request.user, visible=True))
 
 
 def pincode_response(pincode):

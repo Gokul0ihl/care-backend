@@ -214,21 +214,6 @@ class NewbornBirth(EMRBaseModel):
     apgar_5_min = models.PositiveSmallIntegerField(null=True, blank=True)
 
 
-class RestrictedPatient(models.Model):
-    """A patient under statutory confidentiality (D30). Created with the first
-    flag; from then on the patient's identity is masked behind the alias for
-    everyone except the flagging clinicians and break-glass access."""
-
-    patient = models.OneToOneField(
-        "emr.Patient", on_delete=models.PROTECT, related_name="restriction"
-    )
-    alias = models.CharField(max_length=9, unique=True)
-    created_date = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return self.alias
-
-
 class StatutoryFlag(EMRBaseModel):
     """One statutory flag, raised by a clinician in an encounter. The category
     is never shown to the front desk."""

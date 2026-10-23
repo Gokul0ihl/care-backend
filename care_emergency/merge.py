@@ -46,8 +46,8 @@ from care_emergency.models import (
     NewbornBirth,
     PatientMerge,
     RegistrationAllergy,
-    RestrictedPatient,
 )
+from care_emergency.restricted import is_restricted
 from care_emergency.serializers import REGISTRATION_FIELDS
 from care_emergency.services import display_numbers
 
@@ -543,7 +543,6 @@ SPECIAL_RELATIONS = {
     (RegistrationAllergy, "patient"),
     (ArtCouple, "woman"),
     (ArtCouple, "partner"),
-    (RestrictedPatient, "patient"),
     (PatientMerge, "source"),
     (PatientMerge, "target"),
 }
@@ -692,7 +691,7 @@ def merge_blockers(source, target):  # noqa: C901
     if source.id == target.id:
         return ["Choose two different records"]
     blockers = []
-    if RestrictedPatient.objects.filter(patient__in=[source, target]).exists():
+    if is_restricted(source) or is_restricted(target):
         blockers.append("Restricted records are merged by a privileged process")
     for patient, role in ((source, "duplicate"), (target, "kept")):
         if is_unconverted_emergency(patient):
@@ -805,7 +804,7 @@ def merge_preview(source, target):
     numbers = display_numbers(ids)
     visits = last_visits(ids)
     blockers = merge_blockers(source, target)
-    restricted = RestrictedPatient.objects.filter(patient__in=ids).exists()
+    restricted = is_restricted(source) or is_restricted(target)
     fields = []
     if source.id != target.id and not restricted:
         fields = [

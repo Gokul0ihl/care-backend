@@ -11,7 +11,6 @@ from care_emergency.constants import PatientNumberSeries
 from care_emergency.models import (
     FacilityUnit,
     PatientMerge,
-    RestrictedPatient,
 )
 from care_emergency.services import patient_number
 from care_emergency.tests.test_registration import PHONE, registration_details
@@ -346,7 +345,8 @@ class PatientMergeTests(CareAPITestBase):
         )
 
     def test_restricted_records_are_blocked(self):
-        RestrictedPatient.objects.create(patient=self.source, alias="R-TEST01")
+        Patient.objects.filter(id=self.source.id).update(restricted_alias="R-TEST01")
+        self.source.refresh_from_db()
         response = self.preview()
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertIn(

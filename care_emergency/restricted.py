@@ -1,8 +1,8 @@
 """Statutory confidentiality (v12.1 D30, Zones sheet "Alias").
 
 Once a clinician raises a statutory flag, the patient is shown as their alias
-(PT-K7M3QA) in every Care response that carries the patient, through Care's
-patient serialization hook. Only the clinicians who raised a flag and users
+(PT-K7M3QA, Patient.restricted_alias) in every Care response that carries the
+patient, through Care's patient serialization hook. Only the clinicians who raised a flag and users
 with an unexpired break-glass access see the identity.
 """
 
@@ -10,8 +10,9 @@ import secrets
 
 from django.utils import timezone
 
+from care.emr.models import Patient
 from care_emergency.constants import ALIAS_ALPHABET
-from care_emergency.models import BreakGlassAccess, RestrictedPatient, StatutoryFlag
+from care_emergency.models import BreakGlassAccess, StatutoryFlag
 
 MASKED = "Restricted"
 
@@ -31,12 +32,15 @@ MASKED_PATIENT_FIELDS = {
 def new_alias():
     while True:
         alias = "PT-" + "".join(secrets.choice(ALIAS_ALPHABET) for _ in range(6))
-        if not RestrictedPatient.objects.filter(alias=alias).exists():
+        # Soft-deleted patients included: the column is unique across all rows.
+        if not Patient._base_manager.filter(  # noqa: SLF001
+            restricted_alias=alias
+        ).exists():
             return alias
 
 
-def restriction_of(patient):
-    return RestrictedPatient.objects.filter(patient=patient).first()
+def is_restricted(patient):
+    return patient.restricted_alias is not None
 
 
 def can_see_identity(user, patient):
@@ -51,7 +55,8 @@ def can_see_identity(user, patient):
 
 
 def _request_cache():
-    """Per-request memo so a patient list costs one query, not one per row."""
+    """Per-request memo of can_see_identity, so a patient list checks each
+    restricted patient once."""
     from care.emr.resources.patient.hooks import current_request
 
     request = current_request()
@@ -67,15 +72,11 @@ def mask_patient(mapping, patient, user):
     nothing is masked, so reminders and exports keep working."""
     if user is None:
         return
-    cache = _request_cache()
-    if "aliases" not in cache:
-        cache["aliases"] = dict(
-            RestrictedPatient.objects.values_list("patient_id", "alias")
-        )
-        cache["visible"] = {}
-    alias = cache["aliases"].get(patient.id)
+    alias = patient.restricted_alias
     if alias is None:
         return
+    cache = _request_cache()
+    cache.setdefault("visible", {})
     if patient.id not in cache["visible"]:
         cache["visible"][patient.id] = can_see_identity(user, patient)
     if cache["visible"][patient.id]:

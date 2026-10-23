@@ -232,6 +232,14 @@ class Patient(EMRBaseModel):
     quick_form_submitted_at = models.DateTimeField(null=True, blank=True)
     quick_form_details = models.JSONField(default=dict, blank=True)
 
+    # Statutory confidentiality (care_emergency restricted.py, D30): set with
+    # the first statutory flag, and from then on the patient is shown as the
+    # alias. Null for everyone else.
+    restricted_alias = models.CharField(
+        max_length=9, unique=True, null=True, blank=True
+    )
+    restricted_at = models.DateTimeField(null=True, blank=True)
+
     def get_age(self) -> str:
         start = self.date_of_birth or date(self.year_of_birth, 1, 1)
         end = (self.deceased_datetime or timezone.now()).date()

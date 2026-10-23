@@ -176,7 +176,7 @@ def serialize_registration(patient):
     }
 
 
-def serialize_restricted_registration(patient, restriction):
+def serialize_restricted_registration(patient):
     """What the desk sees of a restricted patient (D30): the alias, never the
     identity, contact or the reason."""
     facility = patient.registration_facility
@@ -186,7 +186,7 @@ def serialize_restricted_registration(patient, restriction):
         "facility": str(facility.external_id) if facility else None,
         "registration_type": patient.registration_type,
         "restricted": True,
-        "alias": restriction.alias,
+        "alias": patient.restricted_alias,
         "created_date": patient.registered_at,
     }
 
@@ -239,14 +239,17 @@ def serialize_document(document):
     }
 
 
-def serialize_restriction(restriction, user, visible):
+def serialize_restriction(patient, user, visible):
     """visible: the user may see the identity, so the alias, categories and
     their own break-glass expiry are shown too."""
-    if restriction is None:
+    if patient.restricted_alias is None:
         return {"restricted": False}
-    data = {"restricted": True, "alias": restriction.alias, "can_see_identity": visible}
+    data = {
+        "restricted": True,
+        "alias": patient.restricted_alias,
+        "can_see_identity": visible,
+    }
     if visible:
-        patient = restriction.patient
         data["categories"] = sorted(
             set(patient.statutory_flags.values_list("category", flat=True))
         )

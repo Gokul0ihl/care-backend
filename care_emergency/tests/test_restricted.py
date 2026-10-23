@@ -5,7 +5,7 @@ from care.utils.tests.base import CareAPITestBase
 from django.urls import reverse
 from rest_framework import status
 
-from care_emergency.models import BreakGlassAccess, RestrictedPatient, StatutoryFlag
+from care_emergency.models import BreakGlassAccess, StatutoryFlag
 
 ALIAS = re.compile(r"^PT-[2-9A-HJ-NP-Z]{6}$")
 
@@ -77,7 +77,9 @@ class RestrictedPatientTests(CareAPITestBase):
 
     def test_front_desk_cannot_raise_a_flag(self):
         self.assertEqual(self.flag(self.desk).status_code, status.HTTP_403_FORBIDDEN)
-        self.assertFalse(RestrictedPatient.objects.exists())
+        self.assertFalse(
+            Patient.objects.filter(restricted_alias__isnull=False).exists()
+        )
 
     def test_flag_masks_the_patient_for_everyone_but_the_clinician(self):
         self.assertEqual(self.patient_as(self.desk)["name"], "Meera Iyer")
@@ -86,8 +88,14 @@ class RestrictedPatientTests(CareAPITestBase):
         alias = response.data["alias"]
         self.assertRegex(alias, ALIAS)
         self.assertEqual(response.data["categories"], ["mtp"])
-        # A second flag keeps the alias.
+        self.patient.refresh_from_db()
+        self.assertEqual(self.patient.restricted_alias, alias)
+        restricted_at = self.patient.restricted_at
+        self.assertIsNotNone(restricted_at)
+        # A second flag keeps the alias and the date it was restricted.
         self.assertEqual(self.flag(self.doctor, "hiv").data["alias"], alias)
+        self.patient.refresh_from_db()
+        self.assertEqual(self.patient.restricted_at, restricted_at)
         self.assertEqual(StatutoryFlag.objects.count(), 2)
 
         masked = self.patient_as(self.desk)
@@ -105,6 +113,34 @@ class RestrictedPatientTests(CareAPITestBase):
         )
         # The record itself is unchanged.
         self.assertEqual(Patient.objects.get().name, "Meera Iyer")
+
+    def test_desk_registration_shows_only_the_alias(self):
+        Patient.objects.filter(id=self.patient.id).update(
+            registered_at=self.patient.created_date,
+            registration_facility=self.facility,
+            registration_type="domestic",
+            first_name="Meera",
+            last_name="Iyer",
+        )
+        alias = self.flag(self.doctor).data["alias"]
+        url = reverse("desk-registration-detail", args=[self.patient.external_id])
+        self.client.force_authenticate(user=self.desk)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(
+            response.data,
+            {
+                "id": str(self.patient.external_id),
+                "patient": str(self.patient.external_id),
+                "facility": str(self.facility.external_id),
+                "registration_type": "domestic",
+                "restricted": True,
+                "alias": alias,
+                "created_date": self.patient.created_date,
+            },
+        )
+        self.client.force_authenticate(user=self.doctor)
+        self.assertEqual(self.client.get(url).data["first_name"], "Meera")
 
     def test_break_glass_unmasks_for_an_hour_with_a_reason(self):
         self.flag(self.doctor)
@@ -164,4 +200,6 @@ class RestrictedPatientTests(CareAPITestBase):
                 self.assertIn(self.flag(self.doctor).status_code, [400, 403])
                 self.client.force_authenticate(user=self.admin)
                 self.assertEqual(self.client.get(url).data, [])
-        self.assertFalse(RestrictedPatient.objects.exists())
+        self.assertFalse(
+            Patient.objects.filter(restricted_alias__isnull=False).exists()
+        )

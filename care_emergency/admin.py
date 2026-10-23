@@ -12,7 +12,6 @@ from care_emergency.models import (
     PatientDocument,
     PatientNumberSequence,
     RegistrationAllergy,
-    RestrictedPatient,
     StatutoryFlag,
 )
 
@@ -97,15 +96,6 @@ class ArtCoupleAdmin(admin.ModelAdmin):
 class NewbornBirthAdmin(admin.ModelAdmin):
     list_display = ("baby", "mother", "born_at", "birth_order", "created_date")
     raw_id_fields = ("baby", "mother", "facility", "created_by", "updated_by")
-
-
-@admin.register(RestrictedPatient)
-class RestrictedPatientAdmin(admin.ModelAdmin):
-    """The alias only; the patient's name would defeat the masking."""
-
-    list_display = ("alias", "created_date")
-    search_fields = ("alias",)
-    raw_id_fields = ("patient",)
 
 
 @admin.register(StatutoryFlag)
