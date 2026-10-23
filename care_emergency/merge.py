@@ -10,6 +10,11 @@ FIELDS is the one list of mergeable demographics, shared by the preview and
 the merge. Each entry is a group of columns that must stay consistent (the
 name and its parts, a phone number and whose it is), so a choice applies to
 the whole group.
+
+Every column is on Patient. Care's own columns (P) always count. The desk
+registration columns (D, fold run 2b) and the desk allergies count only for a
+patient registered at the desk (registered_at set); for anyone else they read
+as empty, so their defaults never show in the preview or overwrite a value.
 """
 
 import datetime
@@ -56,21 +61,25 @@ TARGET = "target"
 
 @dataclass(frozen=True)
 class Column:
-    # "patient" (a Patient column), "meta" (a Patient.meta key),
-    # "registration" (a desk registration column of Patient) or "allergies"
-    # (its RegistrationAllergy rows).
+    # "patient" (a Care Patient column), "meta" (a Patient.meta key), "desk"
+    # (a desk registration column of Patient) or "allergies" (the patient's
+    # RegistrationAllergy rows).
     kind: str
     name: str
     # Shown before the value, or alone for a true boolean.
     label: str = ""
+
+    @property
+    def is_desk(self):
+        return self.kind in ("desk", "allergies")
 
 
 def P(name, label=""):  # noqa: N802
     return Column("patient", name, label)
 
 
-def R(name, label=""):  # noqa: N802
-    return Column("registration", name, label)
+def D(name, label=""):  # noqa: N802
+    return Column("desk", name, label)
 
 
 @dataclass(frozen=True)
@@ -80,17 +89,17 @@ class MergeField:
     columns: tuple[Column, ...]
     # values (column -> value) -> display string; the default joins them all.
     display: Callable | None = None
-    # (patient, registration) -> None. Makes the registration columns agree
-    # with the patient columns when they come from different records.
+    # patient -> None. Makes the desk columns agree with Care's columns when
+    # the two come from different records.
     derive: Callable | None = None
 
     @property
-    def patient_columns(self):
-        return [c for c in self.columns if c.kind in ("patient", "meta")]
+    def care_columns(self):
+        return [c for c in self.columns if not c.is_desk]
 
     @property
-    def registration_columns(self):
-        return [c for c in self.columns if c.kind in ("registration", "allergies")]
+    def desk_columns(self):
+        return [c for c in self.columns if c.is_desk]
 
 
 def is_empty(value):
@@ -166,34 +175,34 @@ def show_allergies(values):
     )
 
 
-def split_name(patient, registration):
+def split_name(patient):
     parts = patient.name.split()
-    registration.first_name = parts[0][:40] if parts else ""
-    registration.middle_name = " ".join(parts[1:-1])[:40]
-    registration.last_name = parts[-1][:40] if len(parts) > 1 else ""
+    patient.first_name = parts[0][:40] if parts else ""
+    patient.middle_name = " ".join(parts[1:-1])[:40]
+    patient.last_name = parts[-1][:40] if len(parts) > 1 else ""
 
 
-def phone_owner(patient, registration):
+def phone_owner(patient):
     if EmergencyDesk.objects.filter(phone_number=patient.phone_number).exists():
-        registration.mobile_owner = "No phone"
-    elif registration.mobile_owner == "No phone":
-        registration.mobile_owner = "Self"
+        patient.mobile_owner = "No phone"
+    elif patient.mobile_owner == "No phone":
+        patient.mobile_owner = "Self"
 
 
-def clear_registration(columns):
-    def derive(patient, registration):
+def clear_desk(columns):
+    def derive(patient):
         for column in columns:
             field = Patient._meta.get_field(column.name)  # noqa: SLF001
-            setattr(registration, column.name, field.get_default())
+            setattr(patient, column.name, field.get_default())
 
     return derive
 
 
 ADDRESS_PARTS = tuple(
-    R(name) for name in ("house", "street", "locality", "city", "district", "state")
+    D(name) for name in ("house", "street", "locality", "city", "district", "state")
 )
 PERMANENT_ADDRESS_PARTS = tuple(
-    R(f"permanent_{name}")
+    D(f"permanent_{name}")
     for name in (
         "house",
         "street",
@@ -210,7 +219,7 @@ FIELDS = [
     MergeField(
         "name",
         "Name",
-        (P("name"), R("title"), R("first_name"), R("middle_name"), R("last_name")),
+        (P("name"), D("title"), D("first_name"), D("middle_name"), D("last_name")),
         display=first_value,
         derive=split_name,
     ),
@@ -228,7 +237,7 @@ FIELDS = [
     MergeField(
         "phone_number",
         "Mobile number",
-        (P("phone_number"), R("mobile_owner", "Belongs to")),
+        (P("phone_number"), D("mobile_owner", "Belongs to")),
         display=show_phone,
         derive=phone_owner,
     ),
@@ -240,14 +249,14 @@ FIELDS = [
         "Current address",
         (P("address"), P("pincode"), P("geo_organization_id"), *ADDRESS_PARTS),
         display=show_address,
-        derive=clear_registration(ADDRESS_PARTS),
+        derive=clear_desk(ADDRESS_PARTS),
     ),
     MergeField(
         "permanent_address",
         "Permanent address",
         (P("permanent_address"), *PERMANENT_ADDRESS_PARTS),
         display=lambda v: first_value(v) or join_values(v),
-        derive=clear_registration(PERMANENT_ADDRESS_PARTS),
+        derive=clear_desk(PERMANENT_ADDRESS_PARTS),
     ),
     MergeField("blood_group", "Blood group", (P("blood_group"),), display=show_blood_group),
     MergeField("deceased_datetime", "Date of death", (P("deceased_datetime"),)),
@@ -255,186 +264,189 @@ FIELDS = [
         "nationality",
         "Nationality and travel documents",
         (
-            R("registration_type", "Type"),
-            R("nationality_category"),
-            R("nationality", "Nationality"),
-            R("passport_number", "Passport"),
-            R("passport_expiry", "Passport expiry"),
-            R("visa_type", "Visa"),
-            R("visa_expiry", "Visa expiry"),
-            R("frro_c_form", "FRRO C-Form"),
-            R("address_in_india", "Address in India"),
+            D("registration_type", "Type"),
+            D("nationality_category"),
+            D("nationality", "Nationality"),
+            D("passport_number", "Passport"),
+            D("passport_expiry", "Passport expiry"),
+            D("visa_type", "Visa"),
+            D("visa_expiry", "Visa expiry"),
+            D("frro_c_form", "FRRO C-Form"),
+            D("address_in_india", "Address in India"),
         ),
     ),
-    MergeField("marital_status", "Marital status", (R("marital_status"),)),
-    MergeField("father_name", "Father's name", (R("father_name"),)),
-    MergeField("mother_name", "Mother's name", (R("mother_name"),)),
+    MergeField("marital_status", "Marital status", (D("marital_status"),)),
+    MergeField("father_name", "Father's name", (D("father_name"),)),
+    MergeField("mother_name", "Mother's name", (D("mother_name"),)),
     MergeField(
         "guardian",
         "Guardian",
-        (R("guardian_name"), R("guardian_relationship", "Relationship")),
+        (D("guardian_name"), D("guardian_relationship", "Relationship")),
     ),
-    MergeField("occupation", "Occupation", (R("occupation"),)),
-    MergeField("religion", "Religion", (R("religion"),)),
-    MergeField("preferred_language", "Preferred language", (R("preferred_language"),)),
+    MergeField("occupation", "Occupation", (D("occupation"),)),
+    MergeField("religion", "Religion", (D("religion"),)),
+    MergeField("preferred_language", "Preferred language", (D("preferred_language"),)),
     MergeField(
-        "interpreter_language", "Interpreter language", (R("interpreter_language"),)
+        "interpreter_language", "Interpreter language", (D("interpreter_language"),)
     ),
     MergeField(
         "whatsapp_number",
         "WhatsApp number",
-        (R("whatsapp_number"), R("whatsapp_owner", "Belongs to")),
+        (D("whatsapp_number"), D("whatsapp_owner", "Belongs to")),
     ),
     MergeField(
-        "alternate_phone_number", "Alternate phone", (R("alternate_phone_number"),)
+        "alternate_phone_number", "Alternate phone", (D("alternate_phone_number"),)
     ),
-    MergeField("email", "Email", (R("email"),)),
+    MergeField("email", "Email", (D("email"),)),
     MergeField(
         "next_of_kin",
         "Next of kin",
         (
-            R("next_of_kin_title"),
-            R("next_of_kin_name"),
-            R("next_of_kin_relationship", "Relationship"),
-            R("next_of_kin_phone", "Phone"),
+            D("next_of_kin_title"),
+            D("next_of_kin_name"),
+            D("next_of_kin_relationship", "Relationship"),
+            D("next_of_kin_phone", "Phone"),
         ),
     ),
     MergeField(
         "identity_document",
         "Identity document",
         (
-            R("identity_card_type"),
-            R("identity_number_last4", "Ending"),
-            R("identity_storage_consent", "Consent to store"),
+            D("identity_card_type"),
+            D("identity_number_last4", "Ending"),
+            D("identity_storage_consent", "Consent to store"),
         ),
     ),
     MergeField(
         "abha",
         "ABHA",
         (
-            R("abha_status", "Status"),
-            R("abha_number", "Number"),
-            R("abha_address", "Address"),
+            D("abha_status", "Status"),
+            D("abha_number", "Number"),
+            D("abha_address", "Address"),
         ),
     ),
     MergeField(
         "allergies",
         "Allergies",
-        (R("allergy_status"), Column("allergies", "allergies")),
+        (D("allergy_status"), Column("allergies", "allergies")),
         display=show_allergies,
     ),
-    MergeField("assistance_needs", "Assistance needs", (R("assistance_needs"),)),
-    MergeField("pregnancy_status", "Pregnancy status", (R("pregnancy_status"),)),
+    MergeField("assistance_needs", "Assistance needs", (D("assistance_needs"),)),
+    MergeField("pregnancy_status", "Pregnancy status", (D("pregnancy_status"),)),
     MergeField(
         "vip",
         "VIP handling",
         (
-            R("is_vip", "VIP"),
-            R("handle_with_care", "Handle with care"),
-            R("vip_note", "Note"),
-            R("vip_authorised_by", "Authorised by"),
-            R("vip_flagged_by_id", "Flagged by user"),
+            D("is_vip", "VIP"),
+            D("handle_with_care", "Handle with care"),
+            D("vip_note", "Note"),
+            D("vip_authorised_by", "Authorised by"),
+            D("vip_flagged_by_id", "Flagged by user"),
         ),
     ),
     MergeField(
         "payer",
         "Payer",
         (
-            R("payer_type"),
-            R("payer_name"),
-            R("staff_category", "Staff category"),
-            R("employee_id", "Employee ID"),
-            R("policy_number", "Policy"),
-            R("policy_valid_till", "Valid till"),
-            R("policy_holder_relationship", "Policy holder"),
+            D("payer_type"),
+            D("payer_name"),
+            D("staff_category", "Staff category"),
+            D("employee_id", "Employee ID"),
+            D("policy_number", "Policy"),
+            D("policy_valid_till", "Valid till"),
+            D("policy_holder_relationship", "Policy holder"),
         ),
     ),
     MergeField(
         "concession",
         "Concession",
-        (R("concession"), R("concession_approved_by", "Approved by")),
+        (D("concession"), D("concession_approved_by", "Approved by")),
     ),
     MergeField(
         "arrival_source",
         "Arrival and lead source",
         (
-            R("arrival_source"),
-            R("lead_source", "Lead"),
-            R("camp_name", "Camp"),
-            R("camp_patient_id", "Camp patient ID"),
+            D("arrival_source"),
+            D("lead_source", "Lead"),
+            D("camp_name", "Camp"),
+            D("camp_patient_id", "Camp patient ID"),
         ),
     ),
     MergeField(
         "referral",
         "Referral",
         (
-            R("referring_provider"),
-            R("referrer_registration_number", "Registration number"),
-            R("referrer_organisation", "Organisation"),
+            D("referring_provider"),
+            D("referrer_registration_number", "Registration number"),
+            D("referrer_organisation", "Organisation"),
         ),
     ),
-    MergeField("remarks", "Remarks", (R("remarks"),)),
+    MergeField("remarks", "Remarks", (D("remarks"),)),
     MergeField(
         "consent",
         "Consent",
         (
-            R("consent_given_by", "Given by"),
-            R("consent_method", "Method"),
-            R("consent_witness", "Witness"),
-            R("consent_language", "Language"),
-            R("general_consent", "General"),
-            R("data_processing_consent", "Data processing"),
-            R("tariff_consent", "Tariff"),
-            R("international_tariff_consent", "International tariff"),
-            R("share_with_referrer_consent", "Share with referrer"),
-            R("abdm_link_consent", "ABDM linking"),
-            R("teleconsultation_consent", "Teleconsultation"),
-            R("clinical_photography_consent", "Clinical photography"),
-            R("research_consent", "Research"),
+            D("consent_given_by", "Given by"),
+            D("consent_method", "Method"),
+            D("consent_witness", "Witness"),
+            D("consent_language", "Language"),
+            D("general_consent", "General"),
+            D("data_processing_consent", "Data processing"),
+            D("tariff_consent", "Tariff"),
+            D("international_tariff_consent", "International tariff"),
+            D("share_with_referrer_consent", "Share with referrer"),
+            D("abdm_link_consent", "ABDM linking"),
+            D("teleconsultation_consent", "Teleconsultation"),
+            D("clinical_photography_consent", "Clinical photography"),
+            D("research_consent", "Research"),
         ),
     ),
     MergeField(
         "communication",
         "Communication preferences",
         (
-            R("communication_channels", "Channels"),
-            R("do_not_contact", "Do not contact"),
-            R("promotions_consent", "Promotions"),
-            R("promotion_purposes", "Promotion topics"),
+            D("communication_channels", "Channels"),
+            D("do_not_contact", "Do not contact"),
+            D("promotions_consent", "Promotions"),
+            D("promotion_purposes", "Promotion topics"),
         ),
     ),
 ]
 FIELD_KEYS = {x.key for x in FIELDS}
 
 
-def read(column, patient, registration):
+def is_registered(patient):
+    """Whether the desk registered the patient, so its desk columns count."""
+    return patient.registered_at is not None
+
+
+def read(column, patient):
     if column.kind == "patient":
         return getattr(patient, column.name)
     if column.kind == "meta":
         return (patient.meta or {}).get(column.name)
-    if registration is None:
+    if not is_registered(patient):
         return None
     if column.kind == "allergies":
         return sorted(
-            registration.desk_allergies.values_list("substance", "reaction", "severity")
+            patient.desk_allergies.values_list("substance", "reaction", "severity")
         )
-    return getattr(registration, column.name)
+    return getattr(patient, column.name)
 
 
-def write(column, value, patient, registration):
-    if column.kind == "patient":
-        setattr(patient, column.name, value)
-    elif column.kind == "meta":
+def write(column, value, patient):
+    if column.kind == "meta":
         patient.meta = dict(patient.meta or {})
         if value is None:
             patient.meta.pop(column.name, None)
         else:
             patient.meta[column.name] = value
     elif column.kind == "allergies":
-        registration.desk_allergies.all().delete()
+        patient.desk_allergies.all().delete()
         RegistrationAllergy.objects.bulk_create(
             RegistrationAllergy(
-                patient=registration,
+                patient=patient,
                 substance=substance,
                 reaction=reaction,
                 severity=severity,
@@ -442,7 +454,7 @@ def write(column, value, patient, registration):
             for substance, reaction, severity in value or []
         )
     else:
-        setattr(registration, column.name, list(value) if isinstance(value, list) else value)
+        setattr(patient, column.name, list(value) if isinstance(value, list) else value)
 
 
 @dataclass
@@ -477,17 +489,16 @@ def display(field, values):
 
 
 def compare(source, target):
-    source_registration = registration_of(source)
-    target_registration = registration_of(target)
     comparisons = []
     for field in FIELDS:
-        s = {c: read(c, source, source_registration) for c in field.columns}
-        t = {c: read(c, target, target_registration) for c in field.columns}
+        s = {c: read(c, source) for c in field.columns}
+        t = {c: read(c, target) for c in field.columns}
         comparisons.append(Comparison(field, s, t, display(field, s), display(field, t)))
     return comparisons
 
 
-# Every desk registration column of Patient, moved together (merge_patients).
+# Every desk registration column of Patient: copied together when only the
+# duplicate was registered at the desk (take_desk_registration).
 DESK_COLUMNS = [
     *REGISTRATION_FIELDS,
     "vip_flagged_by_id",
@@ -495,12 +506,6 @@ DESK_COLUMNS = [
     "registered_by_id",
     "registration_facility_id",
 ]
-
-
-def registration_of(patient):
-    # Fold run 2b: the desk registration is now columns of Patient. This is
-    # the minimal edit so merge loads; checkpoint 2c rewrites the merge.
-    return patient if patient.registered_at else None
 
 
 # Related records
@@ -603,7 +608,7 @@ def planned_moves(source, target):
     files = patient_files(source).count()
     if files:
         moves["Files"] += files
-    if registration_of(source) and not registration_of(target):
+    if is_registered(source) and not is_registered(target):
         moves["Desk registration"] += 1
     if QuickRegistration.objects.filter(patient=source).exists() and not every(
         QuickRegistration
@@ -719,12 +724,11 @@ def merge_blockers(source, target):  # noqa: C901
 
 def merge_facility(source, target):
     """Where merge authority is checked: the kept record's registration
-    facility, or the duplicate's when only it has one (its registration then
-    moves to the kept record)."""
+    facility, or the duplicate's when only it has one (its desk registration
+    is then copied to the kept record)."""
     for patient in (target, source):
-        registration = registration_of(patient)
-        if registration and registration.registration_facility_id:
-            return registration.registration_facility
+        if is_registered(patient) and patient.registration_facility_id:
+            return patient.registration_facility
     return None
 
 
@@ -838,16 +842,13 @@ def dump(objects):
     return to_json(serializers.serialize("python", objects))
 
 
-def snapshot(source, target, source_registration, target_registration, moved_ids):
-    """Enough to reverse the merge by hand: both records as they were, the
-    source's identifiers and the ids of every row that moved."""
-    registrations = [x for x in (source_registration,) if x]
+def snapshot(source, target, moved_ids):
+    """Enough to reverse the merge by hand: both records as they were (desk
+    registration columns included, since they're Patient columns), their desk
+    allergies, the source's identifiers and the ids of every row that moved."""
     return {
         "patient": dump([source]),
-        "registration": dump(registrations),
-        "allergies": dump(
-            RegistrationAllergy.objects.filter(patient__in=registrations)
-        ),
+        "allergies": dump(RegistrationAllergy.objects.filter(patient=source)),
         "quick_registration": dump(QuickRegistration.objects.filter(patient=source)),
         "identifiers": [
             {
@@ -863,50 +864,57 @@ def snapshot(source, target, source_registration, target_registration, moved_ids
         "files": list(patient_files(source).values_list("id", flat=True)),
         "target_before": {
             "patient": dump([target]),
-            "registration": dump([target_registration] if target_registration else []),
-            "allergies": dump(
-                RegistrationAllergy.objects.filter(patient=target_registration)
-                if target_registration
-                else []
-            ),
+            "allergies": dump(RegistrationAllergy.objects.filter(patient=target)),
         },
         "moved_ids": moved_ids,
     }
 
 
-def apply_fields(comparisons, choices, target, target_registration, source_registration):  # noqa: C901
-    """Copies the chosen and missing demographics onto the target. Returns the
-    registration the target ends with (its own, the source's moved one, or
-    None)."""
-    moved_registration = target_registration is None and source_registration is not None
-    registration = target_registration or source_registration
+def take_desk_registration(source, target):
+    """Only the duplicate was registered at the desk: the kept record takes
+    all its desk columns (registration date, facility and who registered it
+    included) and its allergy rows. Runs before apply_fields, so the derived
+    values apply_fields writes for mixed fields land on top of these."""
+    for name in DESK_COLUMNS:
+        value = getattr(source, name)
+        setattr(target, name, list(value) if isinstance(value, list) else value)
+    RegistrationAllergy.objects.filter(patient=source).update(patient=target)
+
+
+def apply_fields(comparisons, choices, target, *, source_registered, target_registered):
+    """Copies the chosen and missing demographics onto the target.
+
+    The target's desk columns are its own when it was registered, else the
+    duplicate's (already copied by take_desk_registration), else unused. A
+    mixed field (Care columns plus desk columns, e.g. the name and its parts)
+    whose Care value comes from the other record than the desk columns is
+    reconciled by its derive()."""
+    both_registered = source_registered and target_registered
+    desk_side = TARGET if target_registered else SOURCE if source_registered else None
     for comparison in comparisons:
         field = comparison.field
         if comparison.conflict:
-            if choices[field.key] == SOURCE:
-                for column in field.patient_columns:
-                    write(column, comparison.source[column], target, registration)
-                if field.registration_columns and registration is not None:
-                    if source_registration is None:
-                        if field.derive:
-                            field.derive(target, registration)
-                    elif not moved_registration:
-                        for column in field.registration_columns:
-                            write(column, comparison.source[column], target, registration)
-            elif moved_registration and field.registration_columns and field.derive:
-                # The kept record's value with the duplicate's registration.
-                field.derive(target, registration)
+            chosen = choices[field.key]
+            if chosen == SOURCE:
+                for column in field.care_columns:
+                    write(column, comparison.source[column], target)
+            if not field.desk_columns or desk_side is None:
+                continue
+            if chosen == SOURCE and both_registered:
+                for column in field.desk_columns:
+                    write(column, comparison.source[column], target)
+            elif chosen != desk_side and field.derive:
+                field.derive(target)
             continue
         for column in field.columns:
-            if column.kind in ("registration", "allergies") and (
-                registration is None or moved_registration
-            ):
+            # Unless both were registered, the target's desk columns are
+            # already complete (its own, or the duplicate's copied whole).
+            if column.is_desk and not both_registered:
                 continue
             if is_empty(comparison.target[column]) and not is_empty(
                 comparison.source[column]
             ):
-                write(column, comparison.source[column], target, registration)
-    return registration, moved_registration
+                write(column, comparison.source[column], target)
 
 
 def merge_tags(source, target):
@@ -954,31 +962,29 @@ def merge_patients(source, target, choices, reason, user):  # noqa: PLR0913
     """Merges source into target; both must be locked by the caller. Returns
     the PatientMerge row."""
     comparisons = check_merge(source, target, choices)
-    source_registration = registration_of(source)
-    target_registration = registration_of(target)
+    source_registered = is_registered(source)
+    target_registered = is_registered(target)
     moved = planned_moves(source, target)
     moved_ids = {}
-    record_snapshot = snapshot(
-        source, target, source_registration, target_registration, moved_ids
-    )
+    record_snapshot = snapshot(source, target, moved_ids)
 
-    registration, moved_registration = apply_fields(
-        comparisons, choices, target, target_registration, source_registration
+    if source_registered and not target_registered:
+        take_desk_registration(source, target)
+    apply_fields(
+        comparisons,
+        choices,
+        target,
+        source_registered=source_registered,
+        target_registered=target_registered,
     )
     merge_tags(source, target)
     facilities = move_records(source, target, moved_ids)
     record_snapshot["moved_ids"] = to_json(moved_ids)
 
-    if moved_registration:
-        # Only the duplicate was registered at the desk: its desk columns
-        # (with any derive() adjustments) and allergies move to the kept record.
-        for name in DESK_COLUMNS:
-            setattr(target, name, getattr(registration, name))
-        RegistrationAllergy.objects.filter(patient=source).update(patient=target)
     target.updated_by = user
     target.save()
-    if registration is not None:
-        sync_billing_tags(target)
+    # No-op unless the kept record now has a desk registration.
+    sync_billing_tags(target)
 
     target.refresh_from_db()
     target.build_instance_identifiers()

@@ -39,7 +39,7 @@ class PatientMergeTests(CareAPITestBase):
         with self.captureOnCommitCallbacks(execute=True):
             return self.client.post(reverse(name), body, format="json")
 
-    def register(self, date_of_birth):
+    def register(self, date_of_birth, **details):
         PatientCreateLock().release()
         response = self.post(
             "desk-registration",
@@ -53,11 +53,22 @@ class PatientMergeTests(CareAPITestBase):
                     "address": "C-22, Ring Road, Lajpat Nagar III, Delhi",
                     "pincode": 110024,
                 },
-                "registration": registration_details(),
+                "registration": registration_details(**details),
             },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         return Patient.objects.get(external_id=response.data["patient"]["id"])
+
+    def walk_in(self, name, date_of_birth):
+        """A patient Care created without a desk registration (fake data)."""
+        return Patient.objects.create(
+            name=name,
+            gender="female",
+            phone_number=PHONE,
+            date_of_birth=date_of_birth,
+            address="14 Park Street, Kolkata",
+            pincode=700016,
+        )
 
     def preview(self, source=None, target=None):
         return self.client.get(
@@ -186,6 +197,8 @@ class PatientMergeTests(CareAPITestBase):
         self.assertEqual(merge.target_id, self.target.id)
         self.assertEqual(merge.choices["date_of_birth"], "source")
         self.assertEqual(merge.source_snapshot["patient"][0]["pk"], self.source.id)
+        self.assertNotIn("registration", merge.source_snapshot)
+        self.assertEqual(len(merge.source_snapshot["allergies"]), 2)
 
         # The duplicate's old UHID now finds the kept record.
         found = self.client.get(reverse("patient-number-search"), {"uhid": old_uhid})
@@ -193,6 +206,93 @@ class PatientMergeTests(CareAPITestBase):
         self.assertEqual(
             [x["id"] for x in found.data["results"]], [str(self.target.external_id)]
         )
+
+    def test_desk_fields_from_the_duplicate_when_both_registered(self):
+        self.source = self.register(
+            "1999-04-21",
+            religion="Hindu",
+            remarks="Needs a ground-floor room",
+            allergies=[{"substance": "Sulfa", "reaction": "Rash", "severity": "mild"}],
+        )
+        conflicts = self.conflicts()
+        self.assertTrue({"remarks", "allergies", "date_of_birth"} <= conflicts)
+        choices = dict.fromkeys(conflicts, "target")
+        choices.update(remarks="source", allergies="source")
+
+        response = self.merge(choices)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.target.refresh_from_db()
+        self.assertEqual(self.target.remarks, "Needs a ground-floor room")
+        # Only the duplicate had a religion, so it fills the gap.
+        self.assertEqual(self.target.religion, "Hindu")
+        self.assertEqual(
+            list(self.target.desk_allergies.values_list("substance", flat=True)),
+            ["Sulfa"],
+        )
+        self.assertEqual(self.target.date_of_birth, datetime.date(1999, 4, 12))
+
+    def test_only_the_duplicate_registered_at_the_desk(self):
+        source = self.source
+        registered_at = source.registered_at
+        self.target = self.walk_in("Neha Rani Sharma", datetime.date(1999, 4, 12))
+        self.assertIsNone(self.target.registered_at)
+        preview = self.preview()
+        self.assertEqual(preview.data["moves"]["Desk registration"], 1)
+        conflicts = self.conflicts()
+        self.assertEqual(conflicts, {"name", "date_of_birth", "address"})
+        # The kept record's name and address, the duplicate's date of birth.
+        response = self.merge(
+            {"name": "target", "address": "target", "date_of_birth": "source"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.target.refresh_from_db()
+        # The duplicate's desk registration is now the kept record's.
+        self.assertEqual(self.target.registered_at, registered_at)
+        self.assertEqual(self.target.registration_facility_id, self.facility.id)
+        self.assertEqual(self.target.registered_by_id, self.user.id)
+        self.assertEqual(self.target.remarks, "Prefers morning slots")
+        self.assertEqual(self.target.communication_channels, ["WhatsApp", "SMS"])
+        self.assertEqual(
+            sorted(self.target.desk_allergies.values_list("substance", flat=True)),
+            ["Latex", "Penicillin"],
+        )
+        self.assertFalse(source.desk_allergies.exists())
+        self.assertEqual(self.target.date_of_birth, datetime.date(1999, 4, 21))
+        # Derived from the kept record's values, not the copied desk columns.
+        self.assertEqual(self.target.name, "Neha Rani Sharma")
+        self.assertEqual(
+            (self.target.first_name, self.target.middle_name, self.target.last_name),
+            ("Neha", "Rani", "Sharma"),
+        )
+        self.assertEqual(self.target.address, "14 Park Street, Kolkata")
+        self.assertEqual((self.target.house, self.target.city), ("", ""))
+        # The kept record now opens as a desk registration.
+        desk = self.client.get(
+            reverse("desk-registration-detail", args=[self.target.external_id])
+        )
+        self.assertEqual(desk.status_code, status.HTTP_200_OK, desk.data)
+        self.assertEqual(desk.data["last_name"], "Sharma")
+        self.assertEqual(desk.data["created_date"], registered_at)
+
+    def test_only_the_kept_record_registered_at_the_desk(self):
+        self.source = self.walk_in("Neha Rani Sharma", datetime.date(1999, 4, 12))
+        conflicts = self.conflicts()
+        self.assertEqual(conflicts, {"name", "address"})
+        response = self.merge({"name": "source", "address": "target"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.target.refresh_from_db()
+        self.assertEqual(self.target.name, "Neha Rani Sharma")
+        self.assertEqual(
+            (self.target.first_name, self.target.middle_name, self.target.last_name),
+            ("Neha", "Rani", "Sharma"),
+        )
+        # The kept record's own desk columns stay.
+        self.assertEqual(self.target.house, "C-22")
+        self.assertEqual(self.target.remarks, "Prefers morning slots")
+        self.assertEqual(self.target.desk_allergies.count(), 2)
 
     def test_merge_needs_a_choice_for_each_conflict(self):
         response = self.merge({})
