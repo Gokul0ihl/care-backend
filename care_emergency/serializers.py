@@ -20,35 +20,37 @@ def serialize_unit(unit):
     }
 
 
-def serialize_emergency(record):
+def serialize_emergency(encounter):
+    """An emergency encounter's details (Encounter columns). id is the
+    encounter's id, the same as encounter."""
     return {
-        "id": str(record.external_id),
-        "encounter": str(record.encounter.external_id),
-        "encounter_status": record.encounter.status,
+        "id": str(encounter.external_id),
+        "encounter": str(encounter.external_id),
+        "encounter_status": encounter.status,
         "patient": {
-            "id": str(record.patient.external_id),
-            "name": record.patient.name,
-            "gender": record.patient.gender,
-            "year_of_birth": record.patient.year_of_birth,
+            "id": str(encounter.patient.external_id),
+            "name": encounter.patient.name,
+            "gender": encounter.patient.gender,
+            "year_of_birth": encounter.patient.year_of_birth,
         },
-        "facility": str(record.facility.external_id),
-        "triage": record.triage,
-        "is_medico_legal": record.is_medico_legal,
-        "mlc_nature": record.mlc_nature,
-        "police_station": record.police_station,
-        "mlc_number": record.mlc_number,
-        "distinguishing_marks": record.distinguishing_marks,
-        "chief_complaint": record.chief_complaint,
-        "mode_of_arrival": record.mode_of_arrival,
+        "facility": str(encounter.facility.external_id),
+        "triage": encounter.triage,
+        "is_medico_legal": encounter.is_medico_legal,
+        "mlc_nature": encounter.mlc_nature,
+        "police_station": encounter.police_station,
+        "mlc_number": encounter.mlc_number,
+        "distinguishing_marks": encounter.distinguishing_marks,
+        "chief_complaint": encounter.chief_complaint,
+        "mode_of_arrival": encounter.mode_of_arrival,
         "brought_by": {
-            "name": record.brought_by_name,
-            "phone_number": record.brought_by_phone,
-            "relationship": record.brought_by_relationship,
+            "name": encounter.brought_by_name,
+            "phone_number": encounter.brought_by_phone,
+            "relationship": encounter.brought_by_relationship,
         },
-        "is_unidentified": record.is_unidentified,
-        "converted_at": record.converted_at,
-        "created_date": record.created_date,
-        "created_by": record.created_by.username if record.created_by else None,
+        "is_unidentified": encounter.is_unidentified,
+        "converted_at": encounter.converted_at,
+        "created_date": encounter.created_date,
+        "created_by": encounter.created_by.username if encounter.created_by else None,
     }
 
 

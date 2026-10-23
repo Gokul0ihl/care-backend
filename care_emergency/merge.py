@@ -42,14 +42,13 @@ from care_emergency.billing_rules import is_supervisor
 from care_emergency.models import (
     ArtCouple,
     EmergencyDesk,
-    EmergencyEncounter,
     PatientMerge,
     RegistrationAllergy,
 )
 from care_emergency.newborn import BIRTH_COLUMNS, is_newborn
 from care_emergency.restricted import is_restricted
 from care_emergency.serializers import REGISTRATION_FIELDS
-from care_emergency.services import display_numbers
+from care_emergency.services import display_numbers, emergency_encounters
 
 SOURCE = "source"
 TARGET = "target"
@@ -558,7 +557,6 @@ MOVE_LABELS = {
     "emr.patientorganization": "Organisations",
     "emr.patientuser": "Linked users",
     "care_emergency.patientdocument": "Documents",
-    "care_emergency.emergencyencounter": "Emergency records",
     "care_emergency.artcouple": "IVF couple record",
     # Patient.birth_mother: the duplicate mother's babies.
     "emr.patient": "Birth record",
@@ -650,7 +648,7 @@ def planned_moves(source, target):
 
 
 def is_unconverted_emergency(patient):
-    return EmergencyEncounter.objects.filter(
+    return emergency_encounters().filter(
         patient=patient, converted_at__isnull=True, is_unidentified=True
     ).exists()
 

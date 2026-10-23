@@ -53,7 +53,6 @@ from care_emergency.models import (
     ArtCouple,
     BreakGlassAccess,
     EmergencyDesk,
-    EmergencyEncounter,
     FacilityUnit,
     PatientDocument,
     PostOffice,
@@ -106,6 +105,7 @@ from care_emergency.services import (
     attach_documents,
     attach_patient_number,
     display_numbers,
+    emergency_encounters,
     issue_patient_number,
     missing_documents,
     patient_number,
@@ -249,14 +249,15 @@ class PatientNumberView(EmergencyAPIView):
 
 
 def issue_number_blocked(patient):
-    return EmergencyEncounter.objects.filter(
+    return emergency_encounters().filter(
         patient=patient, converted_at__isnull=True, is_unidentified=True
     ).exists()
 
 
 class RegisterView(EmergencyAPIView):
-    """Creates the patient, the emergency encounter and the emergency record
-    in one transaction, so a failure never leaves an orphan patient."""
+    """Creates the patient and the emergency encounter (Care's create, then
+    the emergency columns) in one transaction, so a failure never leaves an
+    orphan patient."""
 
     def post(self, request):
         spec = EmergencyRegisterSpec.model_validate(request.data)
@@ -304,29 +305,33 @@ class RegisterView(EmergencyAPIView):
                     "period": {"start": care_now().isoformat()},
                 }
             )
-            encounter = Encounter.objects.get(external_id=encounter_data["id"])
+            encounter = Encounter.objects.select_related(
+                "patient", "facility", "created_by"
+            ).get(external_id=encounter_data["id"])
             brought_by = spec.brought_by
-            record = EmergencyEncounter(
-                encounter=encounter,
-                patient=patient,
-                facility=facility,
-                triage=spec.triage,
-                is_medico_legal=spec.is_medico_legal,
-                mlc_nature=spec.mlc_nature,
-                police_station=spec.police_station.strip(),
-                distinguishing_marks=spec.distinguishing_marks.strip(),
-                chief_complaint=spec.chief_complaint,
-                mode_of_arrival=spec.mode_of_arrival,
-                is_unidentified=spec.is_unidentified,
-                brought_by_name=brought_by.name.strip() if brought_by else "",
-                brought_by_phone=(brought_by.phone_number or "") if brought_by else "",
-                brought_by_relationship=brought_by.relationship if brought_by else "",
-                created_by=request.user,
-                updated_by=request.user,
-            )
-            if spec.is_medico_legal:
-                record.mlc_number = allocate_mlc_number(facility)
-            record.save()
+            columns = {
+                "triage": spec.triage,
+                "is_medico_legal": spec.is_medico_legal,
+                "mlc_nature": spec.mlc_nature,
+                "police_station": spec.police_station.strip(),
+                "distinguishing_marks": spec.distinguishing_marks.strip(),
+                "chief_complaint": spec.chief_complaint,
+                "mode_of_arrival": spec.mode_of_arrival,
+                "is_unidentified": spec.is_unidentified,
+                "brought_by_name": brought_by.name.strip() if brought_by else "",
+                "brought_by_phone": (
+                    (brought_by.phone_number or "") if brought_by else ""
+                ),
+                "brought_by_relationship": (
+                    brought_by.relationship if brought_by else ""
+                ),
+                "mlc_number": (
+                    allocate_mlc_number(facility) if spec.is_medico_legal else None
+                ),
+            }
+            for field, value in columns.items():
+                setattr(encounter, field, value)
+            encounter.save(update_fields=list(columns))
             patient.refresh_from_db()
             patient_data = PatientRetrieveSpec.serialize(patient).to_json()
 
@@ -334,7 +339,7 @@ class RegisterView(EmergencyAPIView):
             {
                 "patient": patient_data,
                 "encounter": encounter_data,
-                "emergency": serialize_emergency(record),
+                "emergency": serialize_emergency(encounter),
             }
         )
 
@@ -350,7 +355,9 @@ class EmergencyEncounterFilters(filters.FilterSet):
 
 
 class EmergencyEncounterViewSet(MedicoLegalMixin, GenericViewSet):
-    lookup_field = "encounter__external_id"
+    """Emergency encounters: Care encounters with triage set."""
+
+    lookup_field = "external_id"
     lookup_url_kwarg = "external_id"
     filter_backends = [filters.DjangoFilterBackend]
     filterset_class = EmergencyEncounterFilters
@@ -359,9 +366,11 @@ class EmergencyEncounterViewSet(MedicoLegalMixin, GenericViewSet):
         return emr_exception_handler
 
     def get_queryset(self):
-        qs = EmergencyEncounter.objects.select_related(
-            "encounter", "patient", "facility", "created_by"
-        ).order_by("-created_date")
+        qs = (
+            emergency_encounters()
+            .select_related("patient", "facility", "created_by")
+            .order_by("-created_date")
+        )
         if self.action == "list":
             facility = get_facility(self.request.query_params.get("facility"))
             encounters = AuthorizationController.call(
@@ -370,7 +379,10 @@ class EmergencyEncounterViewSet(MedicoLegalMixin, GenericViewSet):
                 self.request.user,
                 facility,
             )
-            return qs.filter(facility=facility, encounter__in=encounters)
+            # serialize_emergency reads only Care's own patient columns.
+            return qs.filter(facility=facility, id__in=encounters.values("id")).defer(
+                *[f"patient__{x}" for x in Patient.list_deferred_fields()]
+            )
         return qs
 
     def list(self, request, *args, **kwargs):
@@ -380,7 +392,7 @@ class EmergencyEncounterViewSet(MedicoLegalMixin, GenericViewSet):
     def retrieve(self, request, *args, **kwargs):
         record = self.get_object()
         if not (
-            can("can_view_encounter_obj", request.user, record.encounter)
+            can("can_view_encounter_obj", request.user, record)
             or can("can_view_patient_obj", request.user, record.patient)
         ):
             raise PermissionDenied("You do not have permission to view this encounter")
@@ -388,15 +400,22 @@ class EmergencyEncounterViewSet(MedicoLegalMixin, GenericViewSet):
 
     def partial_update(self, request, *args, **kwargs):
         record = self.get_object()
-        if not can("can_update_encounter_obj", request.user, record.encounter):
+        if not can("can_update_encounter_obj", request.user, record):
             raise PermissionDenied("You do not have permission to update encounter")
         spec = EmergencyUpdateSpec.model_validate(request.data)
+        changed = {"mlc_nature", "police_station", "mlc_number", "updated_by"}
         for field in spec.model_fields_set - {"brought_by"}:
             value = getattr(spec, field)
             if value is None and field != "is_medico_legal":
                 continue
             setattr(record, field, value.strip() if isinstance(value, str) else value)
+            changed.add(field)
         if "brought_by" in spec.model_fields_set:
+            changed |= {
+                "brought_by_name",
+                "brought_by_phone",
+                "brought_by_relationship",
+            }
             record.brought_by_name = (
                 spec.brought_by.name.strip() if spec.brought_by else ""
             )
@@ -420,7 +439,9 @@ class EmergencyEncounterViewSet(MedicoLegalMixin, GenericViewSet):
         # An issued MLC number is kept even if the case is later marked
         # non-medico-legal, so numbers are never reused.
         record.updated_by = request.user
-        record.save()
+        # Only the emergency columns, so a concurrent edit of the encounter
+        # through Care isn't overwritten.
+        record.save(update_fields=[*changed, "modified_date"])
         return Response(serialize_emergency(record))
 
 
@@ -430,7 +451,7 @@ class ConvertView(EmergencyAPIView):
 
     def post(self, request, patient_id):
         patient = get_object_or_404(Patient, external_id=patient_id)
-        records = EmergencyEncounter.objects.filter(
+        records = emergency_encounters().filter(
             patient=patient, converted_at__isnull=True
         )
         if not records.exists():
@@ -467,9 +488,9 @@ class ConvertView(EmergencyAPIView):
                 "patient": patient_data,
                 "emergency": [
                     serialize_emergency(x)
-                    for x in EmergencyEncounter.objects.filter(
-                        patient=patient
-                    ).select_related("encounter", "patient", "facility", "created_by")
+                    for x in emergency_encounters()
+                    .filter(patient=patient)
+                    .select_related("patient", "facility", "created_by")
                 ],
             }
         )
@@ -771,9 +792,11 @@ class PatientRegistrationView(EmergencyAPIView):
             raise PermissionDenied("You do not have permission to edit this patient")
         if is_restricted(patient) and not can_see_identity(request.user, patient):
             raise PermissionDenied("This patient's record is restricted")
-        if EmergencyEncounter.objects.filter(
-            patient=patient, converted_at__isnull=True
-        ).exists():
+        if (
+            emergency_encounters()
+            .filter(patient=patient, converted_at__isnull=True)
+            .exists()
+        ):
             raise ValidationError("Complete the patient's emergency registration first")
         spec = DeskRegistrationUpdateSpec.model_validate(request.data)
         facility = get_facility(spec.facility) if spec.facility else None

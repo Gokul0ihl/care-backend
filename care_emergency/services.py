@@ -1,5 +1,5 @@
 
-from care.emr.models import FileUpload
+from care.emr.models import Encounter, FileUpload
 from care.emr.models.patient import PatientIdentifier, PatientIdentifierConfig
 from care.emr.resources.patient_identifier.spec import (
     IdentifierConfig,
@@ -25,6 +25,12 @@ from care_emergency.models import (
     PatientDocument,
     PatientNumberSequence,
 )
+
+
+def emergency_encounters():
+    """Encounters registered at the emergency desk. Their emergency details
+    are Encounter columns, and triage set marks them."""
+    return Encounter.objects.exclude(triage="")
 
 
 def allocate_mlc_number(facility):

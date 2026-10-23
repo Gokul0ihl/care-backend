@@ -15,6 +15,7 @@ from care_emergency.models import (
     PatientDocument,
     PostOffice,
 )
+from care_emergency.services import emergency_encounters
 
 PHONE = "+919812345678"
 INDIAN_ALTERNATE = "+919898989898"
@@ -1024,7 +1025,7 @@ class DeskRegistrationTests(CareAPITestBase):
         self.assertEqual(detail.data["phone_number"], "")
         listing = self.client.get("/api/v1/patient/")
         self.assertEqual(listing.data["results"][0]["phone_number"], "")
-        self.assertFalse(patient.emergency_encounters.exists())
+        self.assertFalse(emergency_encounters().filter(patient=patient).exists())
 
     def test_no_phone_missing_configuration_and_conflicts_roll_back(self):
         self.assert_rejected(self.no_phone_body(), "desk number")
@@ -1218,7 +1219,7 @@ class DeskRegistrationTests(CareAPITestBase):
         )
         self.client.force_authenticate(user=desk)
         patient, response = self.create_no_phone()
-        self.assertFalse(patient.emergency_encounters.exists())
+        self.assertFalse(emergency_encounters().filter(patient=patient).exists())
         self.assertEqual(
             self.client.get(f"/api/v1/patient/{patient.external_id}/").status_code, 200
         )

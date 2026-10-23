@@ -5,10 +5,11 @@ from django.db import transaction
 from django.utils import timezone
 
 from care_emergency.constants import PatientNumberSeries
-from care_emergency.models import EmergencyEncounter, FacilityUnit
+from care_emergency.models import FacilityUnit
 from care_emergency.services import (
     allocate_patient_number,
     attach_patient_number,
+    emergency_encounters,
     issue_patient_number,
     patient_number,
 )
@@ -46,7 +47,8 @@ class Command(BaseCommand):
             ):
                 continue
             unknown = (
-                EmergencyEncounter.objects.filter(
+                emergency_encounters()
+                .filter(
                     patient=patient, converted_at__isnull=True, is_unidentified=True
                 )
                 .select_related("facility")
@@ -89,7 +91,9 @@ class Command(BaseCommand):
         if patient.registration_facility_id:
             return patient.registration_facility
         emergency = (
-            EmergencyEncounter.objects.filter(patient=patient)
+            emergency_encounters()
+            .filter(patient=patient)
+            .select_related("facility")
             .order_by("created_date")
             .first()
         )

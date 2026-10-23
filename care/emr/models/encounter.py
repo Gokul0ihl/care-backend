@@ -1,5 +1,6 @@
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.db.models import Q
 
 from care.emr.models.base import EMRBaseModel
 from care.emr.models.scheduling.booking import TokenBooking
@@ -35,6 +36,40 @@ class Encounter(EMRBaseModel):
     tags = ArrayField(models.IntegerField(), default=list)
 
     extensions = models.JSONField(default=dict)
+
+    # Emergency registration (care_emergency's emergency desk, register/ and
+    # convert/). triage marks an emergency encounter; every other encounter has
+    # "" or null in these. The facility and patient are the encounter's own.
+    # Values are checked by care_emergency.specs (TriageChoices, MLC_NATURES,
+    # CHIEF_COMPLAINTS, ARRIVAL_MODES).
+    triage = models.CharField(max_length=10, blank=True, default="")
+    # Nullable so an update can set it back to false (Care drops default values).
+    is_medico_legal = models.BooleanField(null=True)
+    mlc_nature = models.CharField(max_length=50, blank=True, default="")
+    police_station = models.CharField(max_length=200, blank=True, default="")
+    # MLC-<year>-<nnnn>, unique per facility (care_emergency MlcSequence).
+    mlc_number = models.CharField(max_length=30, null=True, blank=True)
+    distinguishing_marks = models.TextField(blank=True, default="")
+    chief_complaint = models.CharField(max_length=40, blank=True, default="")
+    mode_of_arrival = models.CharField(max_length=40, blank=True, default="")
+    brought_by_name = models.CharField(max_length=200, blank=True, default="")
+    brought_by_phone = models.CharField(max_length=14, blank=True, default="")
+    brought_by_relationship = models.CharField(max_length=50, blank=True, default="")
+    # Default False: only an emergency registration sets it.
+    is_unidentified = models.BooleanField(default=False)
+    converted_at = models.DateTimeField(null=True, blank=True)
+    converted_by = models.ForeignKey(
+        "users.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["facility", "mlc_number"],
+                condition=Q(mlc_number__isnull=False),
+                name="encounter_unique_facility_mlc_number",
+            )
+        ]
 
     def sync_organization_cache(self):
         orgs = set()

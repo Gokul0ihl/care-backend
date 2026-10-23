@@ -1,13 +1,18 @@
 from care.emr.locks.billing import PatientCreateLock
 from care.emr.models import Encounter, Patient
 from care.utils.tests.base import CareAPITestBase
+from django.db import IntegrityError, connection, transaction
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 
-from care_emergency.models import EmergencyDesk, EmergencyEncounter, FacilityUnit
+from care_emergency.models import EmergencyDesk, FacilityUnit
+from care_emergency.services import emergency_encounters
 
 DESK_NUMBER = "+919876543210"
+# Queries for the emergency list, whatever the number of records (fold run 5a).
+LIST_QUERIES = 3
 REAL_NUMBER = "+919812345678"
 COMPANION_NUMBER = "+919898989898"
 
@@ -226,7 +231,7 @@ class EmergencyAPITests(CareAPITestBase):
         patient = Patient.objects.get(external_id=patient_id)
         self.assertEqual(patient.phone_number, REAL_NUMBER)
         self.assertEqual(patient.name, "Arun Kumar")
-        record = EmergencyEncounter.objects.get(patient=patient)
+        record = Encounter.objects.get(patient=patient)
         self.assertIsNotNone(record.converted_at)
         self.assertFalse(record.is_unidentified)
 
@@ -237,7 +242,7 @@ class EmergencyAPITests(CareAPITestBase):
         response = self.client.post(url, {"phone_number": DESK_NUMBER}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIsNone(
-            EmergencyEncounter.objects.get(patient__external_id=patient_id).converted_at
+            Encounter.objects.get(patient__external_id=patient_id).converted_at
         )
 
     def test_desk_number_admin_only(self):
@@ -251,3 +256,65 @@ class EmergencyAPITests(CareAPITestBase):
             self.client.put(url, body, format="json").status_code,
             status.HTTP_403_FORBIDDEN,
         )
+
+    def test_emergency_columns_on_encounter(self):
+        self.set_desk()
+        data = self.register().data
+        encounter = Encounter.objects.get(external_id=data["encounter"]["id"])
+        self.assertEqual(data["emergency"]["id"], data["encounter"]["id"])
+        self.assertEqual(data["emergency"]["encounter"], data["encounter"]["id"])
+        self.assertEqual(encounter.triage, "red")
+        self.assertEqual(encounter.mlc_number, data["emergency"]["mlc_number"])
+        self.assertEqual(encounter.brought_by_name, "Ravi")
+        self.assertTrue(encounter.is_unidentified)
+
+    def test_list_and_detail_skip_other_encounters(self):
+        self.set_desk()
+        patient_id = self.register().data["patient"]["id"]
+        patient = Patient.objects.get(external_id=patient_id)
+        organization = self.create_facility_organization(facility=self.facility)
+        other = self.create_encounter(patient, self.facility, organization)
+        self.assertEqual(other.triage, "")
+        self.assertFalse(other.is_unidentified)
+        self.assertEqual(emergency_encounters().count(), 1)
+        url = reverse("emergency-encounter-list")
+        response = self.client.get(url, {"facility": str(self.facility.external_id)})
+        self.assertEqual(response.data["count"], 1)
+        detail = reverse(
+            "emergency-encounter-detail", kwargs={"external_id": other.external_id}
+        )
+        self.assertEqual(self.client.get(detail).status_code, 404)
+
+    def test_mlc_number_unique_per_facility(self):
+        self.set_desk()
+        number = self.register().data["emergency"]["mlc_number"]
+        patient = Patient.objects.first()
+        organization = self.create_facility_organization(facility=self.facility)
+        other = self.create_encounter(patient, self.facility, organization)
+        other.mlc_number = number
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            other.save(update_fields=["mlc_number"])
+
+    def test_list_query_count(self):
+        """The list costs the same number of queries for 2 and 5 records, and
+        doesn't load the patients' desk columns."""
+        self.set_desk()
+        url = reverse("emergency-encounter-list")
+        facility = str(self.facility.external_id)
+        counts = []
+        for total in (2, 5):
+            while emergency_encounters().count() < total:
+                self.register()
+            with CaptureQueriesContext(connection) as context:
+                response = self.client.get(url, {"facility": facility})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.data["count"], total)
+            counts.append(len(context.captured_queries))
+            rows = [
+                x["sql"] for x in context.captured_queries if "mlc_number" in x["sql"]
+            ]
+            self.assertTrue(rows)
+            for sql in rows:
+                self.assertNotIn('"emr_patient"."first_name"', sql)
+        self.assertEqual(counts[0], counts[1])
+        self.assertEqual(counts[0], LIST_QUERIES)
