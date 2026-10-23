@@ -115,7 +115,11 @@ class PatientViewSet(EMRModelViewSet):
             .get_queryset()
             .select_related("created_by", "updated_by", "geo_organization")
         )
-        if self.action != "list":
+        if self.action == "list":
+            # The fold columns (desk, quick, restriction, newborn) aren't in
+            # Care's list spec; see Patient.list_deferred_fields.
+            qs = qs.defer(*Patient.list_deferred_fields())
+        else:
             if settings.PATIENT_GLOBAL_EDIT_ACCESS_ENABLED:
                 return qs.filter(external_id=self.kwargs.get("external_id"))
             patient = get_object_or_404(
@@ -301,7 +305,11 @@ class PatientViewSet(EMRModelViewSet):
             ):
                 partial = True
 
-        queryset = queryset.order_by("-created_date")[:page_size]
+        queryset = (
+            queryset.select_related("geo_organization")
+            .defer(*Patient.list_deferred_fields())
+            .order_by("-created_date")[:page_size]
+        )
         if partial:
             data = [PatientPartialSpec.serialize(obj).to_json() for obj in queryset]
             return Response({"partial": True, "results": data})

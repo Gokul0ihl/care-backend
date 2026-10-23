@@ -273,6 +273,23 @@ class Patient(EMRBaseModel):
     apgar_1_min = models.PositiveSmallIntegerField(null=True, blank=True)
     apgar_5_min = models.PositiveSmallIntegerField(null=True, blank=True)
 
+    # Fold columns the patient serialization hooks read for every patient
+    # (care_emergency contact.hide_no_phone, restricted.mask_patient).
+    LIST_LOADED_FIELDS = ("mobile_owner", "restricted_alias")
+
+    @classmethod
+    def list_deferred_fields(cls):
+        """The columns care_emergency folded into Patient (desk registration,
+        Quick Register, restriction, newborn: every field from
+        registration_facility on), minus LIST_LOADED_FIELDS. Care's patient
+        list and search defer them: Care's specs never read them, and loading
+        ~130 columns per row is the width cost of the fold. Anything that
+        reads a deferred column on a listed patient costs a query per row,
+        so care_emergency/tests/test_patient_queries pins the counts."""
+        names = [field.name for field in cls._meta.concrete_fields]
+        start = names.index("registration_facility")
+        return [x for x in names[start:] if x not in cls.LIST_LOADED_FIELDS]
+
     def get_age(self) -> str:
         start = self.date_of_birth or date(self.year_of_birth, 1, 1)
         end = (self.deceased_datetime or timezone.now()).date()

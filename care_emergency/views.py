@@ -1102,7 +1102,19 @@ class PatientSummaryView(EmergencyAPIView):
 
     def post(self, request):
         spec = PatientSummarySpec.model_validate(request.data)
-        patients = Patient.objects.filter(external_id__in=spec.patients)
+        # Narrow rows (Patient.list_deferred_fields), keeping the desk
+        # facility that the desk access check below reads.
+        patients = (
+            Patient.objects.filter(external_id__in=spec.patients)
+            .defer(
+                *[
+                    x
+                    for x in Patient.list_deferred_fields()
+                    if x != "registration_facility"
+                ]
+            )
+            .select_related("registration_facility")
+        )
         visible = set(
             AuthorizationController.call(
                 "get_filtered_patients", patients, request.user
