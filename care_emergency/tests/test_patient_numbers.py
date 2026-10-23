@@ -9,7 +9,6 @@ from django.utils import timezone
 from rest_framework import status
 
 from care_emergency.constants import PatientNumberSeries
-from care_emergency.models import EmergencyDesk, FacilityUnit
 from care_emergency.services import patient_number, patient_number_config
 from care_emergency.tests.test_registration import PHONE, registration_details
 
@@ -22,8 +21,10 @@ class PatientNumberTests(CareAPITestBase):
         self.user = self.create_super_user()
         self.facility = self.create_facility(user=self.user)
         self.organization = self.create_facility_organization(facility=self.facility)
-        FacilityUnit.objects.create(facility=self.facility, code="LN")
-        EmergencyDesk.objects.create(facility=self.facility, phone_number=DESK_NUMBER)
+        self.facility.unit_code = "LN"
+        self.facility.save(update_fields=["unit_code"])
+        self.facility.emergency_desk_phone = DESK_NUMBER
+        self.facility.save(update_fields=["emergency_desk_phone"])
         self.client.force_authenticate(user=self.user)
         PatientCreateLock().release()
 
@@ -88,7 +89,8 @@ class PatientNumberTests(CareAPITestBase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_registration_needs_unit_code(self):
-        FacilityUnit.objects.all().delete()
+        self.facility.unit_code = None
+        self.facility.save(update_fields=["unit_code"])
         response = self.register_at_desk()
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("unit code", str(response.data))
@@ -195,7 +197,8 @@ class PatientNumberTests(CareAPITestBase):
         older = self.create_patient(name="Older")
         visited = self.create_patient(name="Visited")
         other = self.create_facility(user=self.user)
-        FacilityUnit.objects.create(facility=other, code="KB")
+        other.unit_code = "KB"
+        other.save(update_fields=["unit_code"])
         self.create_encounter(
             visited, other, self.create_facility_organization(facility=other)
         )

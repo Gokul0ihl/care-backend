@@ -4,19 +4,21 @@ from care_emergency.models import ArtCouple, BreakGlassAccess
 from care_emergency.newborn import is_newborn, serialize_birth
 
 
-def serialize_desk(desk):
+def serialize_desk(facility):
+    """The facility's emergency desk number (Facility.emergency_desk_phone)."""
     return {
-        "facility": str(desk.facility.external_id),
-        "phone_number": desk.phone_number,
-        "modified_date": desk.modified_date,
+        "facility": str(facility.external_id),
+        "phone_number": facility.emergency_desk_phone,
+        "modified_date": facility.modified_date,
     }
 
 
-def serialize_unit(unit):
+def serialize_unit(facility):
+    """The facility's unit code (Facility.unit_code)."""
     return {
-        "facility": str(unit.facility.external_id),
-        "code": unit.code,
-        "modified_date": unit.modified_date,
+        "facility": str(facility.external_id),
+        "code": facility.unit_code,
+        "modified_date": facility.modified_date,
     }
 
 

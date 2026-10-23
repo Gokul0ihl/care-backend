@@ -2,7 +2,6 @@ from care.facility.models import Facility
 from django.core.management.base import BaseCommand, CommandError
 
 from care_emergency.lab_catalogue import seed_lab_catalogue
-from care_emergency.models import FacilityUnit
 
 
 class Command(BaseCommand):
@@ -24,10 +23,7 @@ class Command(BaseCommand):
             if not facilities:
                 raise CommandError(f"No facility {value}")
         else:
-            facilities = [
-                unit.facility
-                for unit in FacilityUnit.objects.select_related("facility")
-            ]
+            facilities = list(Facility.objects.filter(unit_code__isnull=False))
             if not facilities:
                 raise CommandError("No facility has a unit code yet")
         for facility in facilities:

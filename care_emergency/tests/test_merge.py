@@ -9,7 +9,6 @@ from rest_framework import status
 
 from care_emergency.constants import PatientNumberSeries
 from care_emergency.models import (
-    FacilityUnit,
     PatientMerge,
 )
 from care_emergency.services import patient_number
@@ -25,7 +24,8 @@ class PatientMergeTests(CareAPITestBase):
         self.user = self.create_super_user()
         self.facility = self.create_facility(user=self.user)
         self.organization = self.create_facility_organization(facility=self.facility)
-        FacilityUnit.objects.create(facility=self.facility, code="LN")
+        self.facility.unit_code = "LN"
+        self.facility.save(update_fields=["unit_code"])
         self.client.force_authenticate(user=self.user)
         PatientCreateLock().release()
         self.target = self.register("1999-04-12")

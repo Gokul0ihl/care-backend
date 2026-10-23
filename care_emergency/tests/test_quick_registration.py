@@ -10,7 +10,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from care_emergency.models import FacilityUnit, PostOffice
+from care_emergency.models import PostOffice
 
 PHONE = "+919812345678"
 
@@ -24,7 +24,8 @@ class QuickRegistrationTests(CareAPITestBase):
         self.department = self.create_facility_organization(
             facility=self.facility, org_type="dept", name="Cardiology"
         )
-        FacilityUnit.objects.create(facility=self.facility, code="LN")
+        self.facility.unit_code = "LN"
+        self.facility.save(update_fields=["unit_code"])
         self.client.force_authenticate(user=self.user)
         PatientCreateLock().release()
 

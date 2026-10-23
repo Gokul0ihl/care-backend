@@ -5,7 +5,6 @@ from django.db import transaction
 from django.utils import timezone
 
 from care_emergency.constants import PatientNumberSeries
-from care_emergency.models import FacilityUnit
 from care_emergency.services import (
     allocate_patient_number,
     attach_patient_number,
@@ -39,7 +38,9 @@ class Command(BaseCommand):
             default = Facility.objects.filter(**lookup).first()
             if default is None:
                 raise CommandError(f"No facility {value}")
-        units = set(FacilityUnit.objects.values_list("facility_id", flat=True))
+        units = set(
+            Facility.objects.filter(unit_code__isnull=False).values_list("id", flat=True)
+        )
         issued = skipped = 0
         for patient in Patient.objects.order_by("created_date", "id"):
             if patient_number(patient, PatientNumberSeries.uhid) or patient_number(

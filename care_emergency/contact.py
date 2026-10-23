@@ -6,12 +6,12 @@ from care.emr.models import Patient
 from care.emr.models.organization import FacilityOrganizationUser
 from django.db.models import Q
 
-from care_emergency.models import EmergencyDesk
+from care_emergency.services import is_emergency_desk_phone
 
 
 def is_desk_phone(phone):
     return (
-        EmergencyDesk.objects.filter(phone_number=phone).exists()
+        is_emergency_desk_phone(phone)
         or Patient.objects.filter(mobile_owner="No phone", phone_number=phone).exists()
     )
 

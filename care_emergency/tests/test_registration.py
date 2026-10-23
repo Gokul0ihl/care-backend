@@ -10,8 +10,6 @@ from rest_framework import status
 
 from care_emergency.models import (
     ArtCouple,
-    FacilityUnit,
-    EmergencyDesk,
     PatientDocument,
     PostOffice,
 )
@@ -112,7 +110,8 @@ class DeskRegistrationTests(CareAPITestBase):
         super().setUp()
         self.user = self.create_super_user()
         self.facility = self.create_facility(user=self.user)
-        FacilityUnit.objects.create(facility=self.facility, code="LN")
+        self.facility.unit_code = "LN"
+        self.facility.save(update_fields=["unit_code"])
         self.client.force_authenticate(user=self.user)
         PatientCreateLock().release()
 
@@ -994,9 +993,9 @@ class DeskRegistrationTests(CareAPITestBase):
         )
 
     def create_no_phone(self, body=None):
-        EmergencyDesk.objects.get_or_create(
-            facility=self.facility, defaults={"phone_number": "+919876543210"}
-        )
+        if not self.facility.emergency_desk_phone:
+            self.facility.emergency_desk_phone = "+919876543210"
+            self.facility.save(update_fields=["emergency_desk_phone"])
         response = self.register(body or self.no_phone_body())
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         return Patient.objects.get(external_id=response.data["patient"]["id"]), response
@@ -1200,9 +1199,8 @@ class DeskRegistrationTests(CareAPITestBase):
         from care.emr.resources.patient.hooks import patient_phone_allowed
 
         self.create_no_phone()
-        EmergencyDesk.objects.filter(facility=self.facility).update(
-            phone_number="+919876543211"
-        )
+        self.facility.emergency_desk_phone = "+919876543211"
+        self.facility.save(update_fields=["emergency_desk_phone"])
         self.assertFalse(patient_phone_allowed("+919876543210"))
         self.assertFalse(patient_phone_allowed("+919876543211"))
         self.assertTrue(patient_phone_allowed(PHONE))
@@ -1254,9 +1252,8 @@ class DeskRegistrationTests(CareAPITestBase):
         )
 
     def test_no_phone_cannot_borrow_another_facility_desk(self):
-        EmergencyDesk.objects.create(
-            facility=self.facility, phone_number="+919876543210"
-        )
+        self.facility.emergency_desk_phone = "+919876543210"
+        self.facility.save(update_fields=["emergency_desk_phone"])
         other_user = self.create_user()
         other_facility = self.create_facility(user=other_user)
         org = self.create_facility_organization(facility=other_facility)

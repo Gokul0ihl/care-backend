@@ -14,7 +14,6 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 
-from care_emergency.models import EmergencyDesk
 from care_emergency.tasks import send_appointment_reminders
 
 
@@ -126,9 +125,8 @@ class AppointmentTests(CareAPITestBase):
         )
 
     def test_shared_desk_number_does_not_receive_patient_reminders(self):
-        EmergencyDesk.objects.create(
-            facility=self.facility, phone_number=self.patient.phone_number
-        )
+        self.facility.emergency_desk_phone = self.patient.phone_number
+        self.facility.save(update_fields=["emergency_desk_phone"])
         response = self.book(booking_channel="phone")
         self.assertEqual(response.status_code, 200, response.data)
         TokenBooking.objects.filter(external_id=response.data["id"]).update(

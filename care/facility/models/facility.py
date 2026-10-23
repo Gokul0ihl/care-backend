@@ -202,6 +202,15 @@ class Facility(BaseModel):
 
     extensions = models.JSONField(default=dict)
 
+    # POH (care_emergency): the facility-owned number used as phone_number for
+    # emergency patients ("" until a facility admin sets it), and the unit code
+    # (LN, KB, DW) printed in the facility's patient numbers. The unit code is
+    # set once: issued numbers carry it.
+    emergency_desk_phone = models.CharField(max_length=14, blank=True, default="")
+    unit_code = models.CharField(
+        max_length=4, unique=True, null=True, blank=True, default=None
+    )
+
     class Meta:
         verbose_name_plural = "Facilities"
 

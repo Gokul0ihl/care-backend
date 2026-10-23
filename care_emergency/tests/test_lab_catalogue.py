@@ -10,7 +10,7 @@ from rest_framework import status
 
 from care_emergency.billing import setup_billing
 from care_emergency.lab_catalogue import LAB_SEED, seed_lab_catalogue
-from care_emergency.models import FacilityUnit, LabTestRule
+from care_emergency.models import LabTestRule
 
 VALIDATE = "care.emr.registries.care_valueset.care_valueset.validate_valueset"
 SPECIMEN = {
@@ -29,7 +29,8 @@ class LabCatalogueTests(CareAPITestBase):
         super().setUp()
         self.user = self.create_super_user()
         self.facility = self.create_facility(user=self.user)
-        FacilityUnit.objects.create(facility=self.facility, code="LN")
+        self.facility.unit_code = "LN"
+        self.facility.save(update_fields=["unit_code"])
         setup_billing(self.facility)
         self.client.force_authenticate(user=self.user)
         self.url = reverse("lab-tests")

@@ -4,20 +4,12 @@ from care_emergency.models import (
     ApiKey,
     ArtCouple,
     BreakGlassAccess,
-    EmergencyDesk,
-    FacilityUnit,
     MlcSequence,
     PatientDocument,
     PatientNumberSequence,
     RegistrationAllergy,
     StatutoryFlag,
 )
-
-
-@admin.register(EmergencyDesk)
-class EmergencyDeskAdmin(admin.ModelAdmin):
-    list_display = ("facility", "phone_number")
-    raw_id_fields = ("facility", "created_by", "updated_by")
 
 
 @admin.register(MlcSequence)
@@ -30,12 +22,6 @@ class MlcSequenceAdmin(admin.ModelAdmin):
 class RegistrationAllergyAdmin(admin.ModelAdmin):
     list_display = ("substance", "severity", "patient")
     raw_id_fields = ("patient",)
-
-
-@admin.register(FacilityUnit)
-class FacilityUnitAdmin(admin.ModelAdmin):
-    list_display = ("code", "facility")
-    raw_id_fields = ("facility", "created_by", "updated_by")
 
 
 @admin.register(PatientNumberSequence)

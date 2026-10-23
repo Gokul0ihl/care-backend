@@ -22,7 +22,6 @@ from care_emergency.billing import (
     slug_for,
     sync_billing_tags,
 )
-from care_emergency.models import FacilityUnit
 
 
 class BillingSetupTests(CareAPITestBase):
@@ -30,7 +29,8 @@ class BillingSetupTests(CareAPITestBase):
         super().setUp()
         self.user = self.create_super_user()
         self.facility = self.create_facility(user=self.user)
-        FacilityUnit.objects.create(facility=self.facility, code="LN")
+        self.facility.unit_code = "LN"
+        self.facility.save(update_fields=["unit_code"])
         setup_billing(self.facility)
 
     def definition(self, code):

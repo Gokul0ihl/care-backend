@@ -32,9 +32,9 @@ from care_emergency.billing import (
     slug_for,
 )
 from care_emergency.constants import PatientNumberSeries
-from care_emergency.models import FacilityUnit
 from care_emergency.services import (
     allocate_document_number,
+    has_unit_code,
     patient_number,
 )
 
@@ -98,10 +98,6 @@ class BillingExtension(PlugExtension):
         except SchemaError as e:
             raise ValueError(e.message) from e
         return data
-
-
-def has_unit(facility_id):
-    return FacilityUnit.objects.filter(facility_id=facility_id).exists()
 
 
 def catalogue_code(item):
@@ -198,7 +194,7 @@ def check_quantity(item, head):
 
 def check_charge_item(item):
     code = catalogue_code(item)
-    if code is None or not has_unit(item.facility_id):
+    if code is None or not has_unit_code(item.facility_id):
         return
     head = item_head(item)
     if item._state.adding:
@@ -238,7 +234,7 @@ def highest_invoice_number(facility_id):
 def number_invoice(invoice):
     """INV numbers (CN for item-return invoices) restart every year, under a
     row lock. Care's own expression counts invoices since the beginning."""
-    if not invoice._state.adding or not has_unit(invoice.facility_id):
+    if not invoice._state.adding or not has_unit_code(invoice.facility_id):
         return
     series = "CN" if invoice.is_refund else "INV"
     invoice.number = allocate_document_number(
@@ -298,7 +294,7 @@ def payment_series(payment, billing):
 def check_payment(payment):
     """VAL-16 amounts, D57 advance purpose, D58 refund cause, reason and
     approval, and the RCT / ADV / RFD number (kept on later updates)."""
-    if not has_unit(payment.facility_id):
+    if not has_unit_code(payment.facility_id):
         return
     extensions = dict(payment.extensions or {})
     billing = dict(extensions.get("billing") or {})

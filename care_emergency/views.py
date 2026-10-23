@@ -52,8 +52,6 @@ from care_emergency.models import (
     AppPatientLink,
     ArtCouple,
     BreakGlassAccess,
-    EmergencyDesk,
-    FacilityUnit,
     PatientDocument,
     PostOffice,
     RegistrationAllergy,
@@ -105,7 +103,9 @@ from care_emergency.services import (
     attach_documents,
     attach_patient_number,
     display_numbers,
+    emergency_desk_phone,
     emergency_encounters,
+    is_emergency_desk_phone,
     issue_patient_number,
     missing_documents,
     patient_number,
@@ -173,24 +173,18 @@ class DeskView(EmergencyAPIView):
             or can("can_update_facility_obj", request.user, facility)
         ):
             raise PermissionDenied("You do not have access to this facility")
-        desk = get_object_or_404(EmergencyDesk, facility=facility)
-        return Response(serialize_desk(desk))
+        if not facility.emergency_desk_phone:
+            raise Http404("No emergency desk number for this facility")
+        return Response(serialize_desk(facility))
 
     def put(self, request):
         spec = DeskWriteSpec.model_validate(request.data)
         facility = get_facility(spec.facility)
         if not can("can_update_facility_obj", request.user, facility):
             raise PermissionDenied("Only facility admins can set the desk number")
-        desk, _ = EmergencyDesk.objects.update_or_create(
-            facility=facility,
-            defaults={"phone_number": spec.phone_number, "updated_by": request.user},
-            create_defaults={
-                "phone_number": spec.phone_number,
-                "created_by": request.user,
-                "updated_by": request.user,
-            },
-        )
-        return Response(serialize_desk(desk))
+        facility.emergency_desk_phone = spec.phone_number
+        facility.save(update_fields=["emergency_desk_phone", "modified_date"])
+        return Response(serialize_desk(facility))
 
 
 class UnitView(EmergencyAPIView):
@@ -201,32 +195,28 @@ class UnitView(EmergencyAPIView):
             or can("can_update_facility_obj", request.user, facility)
         ):
             raise PermissionDenied("You do not have access to this facility")
-        unit = get_object_or_404(FacilityUnit, facility=facility)
-        return Response(serialize_unit(unit))
+        if not facility.unit_code:
+            raise Http404("No unit code for this facility")
+        return Response(serialize_unit(facility))
 
     def put(self, request):
         spec = UnitWriteSpec.model_validate(request.data)
         facility = get_facility(spec.facility)
         if not can("can_update_facility_obj", request.user, facility):
             raise PermissionDenied("Only facility admins can set the unit code")
-        unit = FacilityUnit.objects.filter(facility=facility).first()
-        if unit and unit.code != spec.code:
+        if facility.unit_code and facility.unit_code != spec.code:
             # Issued numbers carry the code, so changing it would split the unit's series.
             raise ValidationError("The unit code can't be changed once set")
         if (
-            FacilityUnit.objects.filter(code=spec.code)
-            .exclude(facility=facility)
+            Facility.objects.filter(unit_code=spec.code)
+            .exclude(id=facility.id)
             .exists()
         ):
             raise ValidationError("Another facility already uses this unit code")
-        if unit is None:
-            unit = FacilityUnit.objects.create(
-                facility=facility,
-                code=spec.code,
-                created_by=request.user,
-                updated_by=request.user,
-            )
-        return Response(serialize_unit(unit))
+        if not facility.unit_code:
+            facility.unit_code = spec.code
+            facility.save(update_fields=["unit_code", "modified_date"])
+        return Response(serialize_unit(facility))
 
 
 class PatientNumberView(EmergencyAPIView):
@@ -264,16 +254,11 @@ class RegisterView(EmergencyAPIView):
         facility = get_facility(spec.facility)
         if not can("can_create_encounter_obj", request.user, facility):
             raise PermissionDenied("You do not have permission to create encounter")
-        desk = EmergencyDesk.objects.filter(facility=facility).first()
-        if desk is None:
-            raise ValidationError(
-                "Set the emergency desk number for this facility first"
-            )
-
+        desk_phone = emergency_desk_phone(facility)
         unit_code(facility)
 
         with transaction.atomic():
-            patient_body = {**spec.patient, "phone_number": desk.phone_number}
+            patient_body = {**spec.patient, "phone_number": desk_phone}
             unknown_number = None
             if spec.is_unidentified:
                 # Staff see unidentified patients as "Unknown <n>", n being the
@@ -467,7 +452,7 @@ class ConvertView(EmergencyAPIView):
             )
             patient_data = view.handle_update(patient, request.data)
             patient.refresh_from_db(fields=["phone_number"])
-            if EmergencyDesk.objects.filter(phone_number=patient.phone_number).exists():
+            if is_emergency_desk_phone(patient.phone_number):
                 raise ValidationError(
                     "Use the patient's own number, not the emergency desk number"
                 )
@@ -564,12 +549,7 @@ class RegistrationView(EmergencyAPIView):
         if spec.registration.mobile_owner == "No phone":
             if not can("can_register_patient_at_facility_obj", request.user, facility):
                 raise PermissionDenied("You do not have access to this facility")
-            desk = EmergencyDesk.objects.filter(facility=facility).first()
-            if desk is None:
-                raise ValidationError(
-                    "Set the emergency desk number for this facility first"
-                )
-            patient_body["phone_number"] = desk.phone_number
+            patient_body["phone_number"] = emergency_desk_phone(facility)
         elif is_desk_phone(patient_body.get("phone_number")):
             raise ValidationError("Select No phone instead of entering the desk number")
         couple = spec.couple
@@ -803,12 +783,7 @@ class PatientRegistrationView(EmergencyAPIView):
         details = registration_columns(spec.registration)
         patient_body = dict(spec.patient)
         if spec.registration.mobile_owner == "No phone":
-            desk = EmergencyDesk.objects.filter(facility=facility).first()
-            if desk is None:
-                raise ValidationError(
-                    "Set the emergency desk number for this facility first"
-                )
-            patient_body["phone_number"] = desk.phone_number
+            patient_body["phone_number"] = emergency_desk_phone(facility)
         elif is_desk_phone(patient_body.get("phone_number")):
             raise ValidationError("Select No phone instead of entering the desk number")
 

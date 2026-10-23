@@ -13,7 +13,6 @@ from care_emergency.merge import (
     merge_patients,
     planned_moves,
 )
-from care_emergency.models import FacilityUnit
 from care_emergency.tests.test_registration import registration_details
 
 PHONE = "+919812345678"
@@ -28,7 +27,8 @@ class NewbornRegistrationTests(CareAPITestBase):
         super().setUp()
         self.user = self.create_super_user()
         self.facility = self.create_facility(user=self.user)
-        FacilityUnit.objects.create(facility=self.facility, code="LN")
+        self.facility.unit_code = "LN"
+        self.facility.save(update_fields=["unit_code"])
         self.client.force_authenticate(user=self.user)
         PatientCreateLock().release()
         self.mother = self.register_mother()

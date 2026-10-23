@@ -6,6 +6,7 @@ from care.emr.resources.patient_identifier.spec import (
     PatientIdentifierStatus,
     PatientIdentifierUse,
 )
+from care.facility.models import Facility
 from care.utils.time_util import care_now
 from django.db import transaction
 from django.utils import timezone
@@ -20,7 +21,6 @@ from care_emergency.constants import (
     PatientNumberSeries,
 )
 from care_emergency.models import (
-    FacilityUnit,
     MlcSequence,
     PatientDocument,
     PatientNumberSequence,
@@ -51,10 +51,24 @@ def allocate_mlc_number(facility):
 
 
 def unit_code(facility):
-    unit = FacilityUnit.objects.filter(facility=facility).first()
-    if unit is None:
+    if not facility.unit_code:
         raise ValidationError("Set the unit code for this facility first")
-    return unit.code
+    return facility.unit_code
+
+
+def emergency_desk_phone(facility):
+    if facility is None or not facility.emergency_desk_phone:
+        raise ValidationError("Set the emergency desk number for this facility first")
+    return facility.emergency_desk_phone
+
+
+def has_unit_code(facility_id):
+    return Facility.objects.filter(id=facility_id, unit_code__isnull=False).exists()
+
+
+def is_emergency_desk_phone(phone):
+    """True if phone is a facility's emergency desk number."""
+    return bool(phone) and Facility.objects.filter(emergency_desk_phone=phone).exists()
 
 
 def patient_number_config(series):

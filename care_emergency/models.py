@@ -9,15 +9,6 @@ from care_emergency.constants import (
 )
 
 
-class EmergencyDesk(EMRBaseModel):
-    """The facility-owned number used as phone_number for emergency patients."""
-
-    facility = models.OneToOneField(
-        "facility.Facility", on_delete=models.PROTECT, related_name="emergency_desk"
-    )
-    phone_number = models.CharField(max_length=14)
-
-
 class MlcSequence(models.Model):
     """One counter row per facility per year, incremented under a row lock."""
 
@@ -51,15 +42,6 @@ class RegistrationAllergy(models.Model):
 
     def __str__(self):
         return self.substance
-
-
-class FacilityUnit(EMRBaseModel):
-    """The facility's unit code (LN, KB, DW), printed in its patient numbers."""
-
-    facility = models.OneToOneField(
-        "facility.Facility", on_delete=models.PROTECT, related_name="unit"
-    )
-    code = models.CharField(max_length=4, unique=True)
 
 
 class PatientNumberSequence(models.Model):

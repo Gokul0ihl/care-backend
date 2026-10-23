@@ -11,7 +11,6 @@ from rest_framework import status
 
 from care_emergency.app_server import setup_app_server
 from care_emergency.constants import APP_SERVER_ROLE
-from care_emergency.models import FacilityUnit
 
 # Clearly fake people.
 PHONE = "+919800000001"
@@ -29,7 +28,8 @@ class AppServerTests(CareAPITestBase):
         PatientCreateLock().release()
         self.admin = self.create_super_user(username="desk-admin")
         self.facility = self.create_facility(user=self.admin)
-        FacilityUnit.objects.create(facility=self.facility, code="LN")
+        self.facility.unit_code = "LN"
+        self.facility.save(update_fields=["unit_code"])
         self.app, _ = setup_app_server()
         self.client.force_authenticate(user=self.app)
 

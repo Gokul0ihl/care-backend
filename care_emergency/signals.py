@@ -13,7 +13,6 @@ from care_emergency.billing_rules import (
     check_payment,
     number_invoice,
 )
-from care_emergency.models import FacilityUnit
 from care_emergency.services import issue_patient_number, patient_number
 
 
@@ -43,7 +42,7 @@ def issue_uhid_on_arrival(sender, instance, created, **kwargs):
     until registration is completed (ConvertView)."""
     if not created:
         return
-    if not FacilityUnit.objects.filter(facility_id=instance.facility_id).exists():
+    if not instance.facility.unit_code:
         return
     patient = instance.patient
     if patient_number(patient, PatientNumberSeries.unknown):

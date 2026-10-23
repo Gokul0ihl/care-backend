@@ -7,8 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 
-from care_emergency.models import EmergencyDesk, FacilityUnit
-from care_emergency.services import emergency_encounters
+from care_emergency.services import emergency_encounters, is_emergency_desk_phone
 
 DESK_NUMBER = "+919876543210"
 # Queries for the emergency list, whatever the number of records (fold run 5a).
@@ -22,14 +21,14 @@ class EmergencyAPITests(CareAPITestBase):
         super().setUp()
         self.user = self.create_super_user()
         self.facility = self.create_facility(user=self.user)
-        FacilityUnit.objects.create(facility=self.facility, code="LN")
+        self.facility.unit_code = "LN"
+        self.facility.save(update_fields=["unit_code"])
         self.client.force_authenticate(user=self.user)
         PatientCreateLock().release()
 
     def set_desk(self):
-        return EmergencyDesk.objects.create(
-            facility=self.facility, phone_number=DESK_NUMBER
-        )
+        self.facility.emergency_desk_phone = DESK_NUMBER
+        self.facility.save(update_fields=["emergency_desk_phone"])
 
     def register_data(self, **kwargs):
         data = {
@@ -256,6 +255,41 @@ class EmergencyAPITests(CareAPITestBase):
             self.client.put(url, body, format="json").status_code,
             status.HTTP_403_FORBIDDEN,
         )
+
+    def test_desk_and_unit_are_facility_columns(self):
+        other = self.create_facility(user=self.user)
+        query = {"facility": str(other.external_id)}
+        for name in ("emergency-desk", "facility-unit"):
+            with self.subTest(name=name):
+                response = self.client.get(reverse(name), query)
+                self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        # A facility without a desk number doesn't make "" a desk number.
+        self.assertFalse(is_emergency_desk_phone(""))
+        desk = self.client.put(
+            reverse("emergency-desk"),
+            {**query, "phone_number": DESK_NUMBER},
+            format="json",
+        )
+        unit = self.client.put(
+            reverse("facility-unit"), {**query, "code": "KB"}, format="json"
+        )
+        other.refresh_from_db()
+        self.assertEqual(other.emergency_desk_phone, DESK_NUMBER)
+        self.assertEqual(other.unit_code, "KB")
+        for name, written, key, value in (
+            ("emergency-desk", desk, "phone_number", DESK_NUMBER),
+            ("facility-unit", unit, "code", "KB"),
+        ):
+            with self.subTest(name=name):
+                read = self.client.get(reverse(name), query)
+                self.assertEqual(read.status_code, status.HTTP_200_OK)
+                for response in (written, read):
+                    self.assertEqual(
+                        set(response.data), {"facility", key, "modified_date"}
+                    )
+                    self.assertEqual(response.data["facility"], query["facility"])
+                    self.assertEqual(response.data[key], value)
+        self.assertTrue(is_emergency_desk_phone(DESK_NUMBER))
 
     def test_emergency_columns_on_encounter(self):
         self.set_desk()

@@ -41,14 +41,17 @@ from care_emergency.billing import sync_billing_tags
 from care_emergency.billing_rules import is_supervisor
 from care_emergency.models import (
     ArtCouple,
-    EmergencyDesk,
     PatientMerge,
     RegistrationAllergy,
 )
 from care_emergency.newborn import BIRTH_COLUMNS, is_newborn
 from care_emergency.restricted import is_restricted
 from care_emergency.serializers import REGISTRATION_FIELDS
-from care_emergency.services import display_numbers, emergency_encounters
+from care_emergency.services import (
+    display_numbers,
+    emergency_encounters,
+    is_emergency_desk_phone,
+)
 
 SOURCE = "source"
 TARGET = "target"
@@ -151,7 +154,7 @@ def show_phone(values):
     phone, owner = values.values()
     if not phone:
         return ""
-    if owner == "No phone" or EmergencyDesk.objects.filter(phone_number=phone).exists():
+    if owner == "No phone" or is_emergency_desk_phone(phone):
         return "No phone"
     return phone
 
@@ -181,7 +184,7 @@ def split_name(patient):
 
 
 def phone_owner(patient):
-    if EmergencyDesk.objects.filter(phone_number=patient.phone_number).exists():
+    if is_emergency_desk_phone(patient.phone_number):
         patient.mobile_owner = "No phone"
     elif patient.mobile_owner == "No phone":
         patient.mobile_owner = "Self"

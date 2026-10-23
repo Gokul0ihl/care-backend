@@ -20,7 +20,6 @@ from rest_framework import status
 
 from care_emergency.billing import setup_billing, slug_for
 from care_emergency.constants import PatientNumberSeries
-from care_emergency.models import FacilityUnit
 from care_emergency.services import attach_patient_number
 
 
@@ -30,7 +29,8 @@ class BillingRuleTests(CareAPITestBase):
         self.user = self.create_super_user()
         self.facility = self.create_facility(user=self.user)
         self.organization = self.create_facility_organization(facility=self.facility)
-        FacilityUnit.objects.create(facility=self.facility, code="LN")
+        self.facility.unit_code = "LN"
+        self.facility.save(update_fields=["unit_code"])
         setup_billing(self.facility)
         self.patient = self.create_patient()
         self.account = get_default_account(self.patient, self.facility)
@@ -133,7 +133,8 @@ class BillingRuleTests(CareAPITestBase):
         )
         # Another POH facility counts too.
         other = self.create_facility(user=self.user)
-        FacilityUnit.objects.create(facility=other, code="KB")
+        other.unit_code = "KB"
+        other.save(update_fields=["unit_code"])
         setup_billing(other)
         self.client.post(
             f"/api/v1/facility/{other.external_id}/charge_item/apply_charge_item_defs/",
