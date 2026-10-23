@@ -6,6 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 CARE is a Digital Public Good building an open source EMR + Hospital Management system. This is the Django backend (Django 6.0 + Python 3.13 + PostgreSQL + Redis).
 
+This repo is our fork of CARE for Pacific OneHealth (POH). We don't merge from upstream, and the
+POH frontend (`~/Code/hmis_fe`) is its only client, so core models and APIs can change to suit it.
+Our own emergency, registration and front-desk code lives in the top-level `care_emergency/` app
+(it used to be a separate plug repo). Feature docs for all of it are in `hmis_fe/docs/`.
+
 ## Local Development Environment
 
 ### Running Locally (without Docker)
@@ -43,13 +48,20 @@ make down             # Stop services
 - `make load-fixtures` — Load test/dummy data
 - `make test path="care.users"` — Run specific tests
 - `make test` — Run all tests
+
+The Makefile test targets pass `--parallel`, which deadlocks on `PatientCreateLock`. Run tests
+serially instead:
+```bash
+docker compose exec -T backend bash -c \
+  "python manage.py test care_emergency care.emr.tests.test_patient_api --keepdb --noinput"
+```
 - `make ruff-fix-all` — Auto-fix linting issues
 
 ### Without Docker (venv)
 ```bash
 uv run python manage.py migrate
 uv run python manage.py load_fixtures
-uv run python manage.py test care.users --keepdb --parallel
+uv run python manage.py test care.users --keepdb
 uv run ruff check --fix .
 uv run ruff format .
 ```
@@ -72,15 +84,17 @@ care/                    # Main Django app
 ├── users/              # User management & auth
 ├── security/           # Roles & permissions
 └── utils/              # Shared utilities
+care_emergency/          # POH app: registration, emergency, patient numbers, appointments desk,
+                         # PIN directory, lab catalogue, API keys (URLs at /api/care_emergency/)
 config/                 # Django configuration
 ├── settings/           # Settings modules (base, local, deployment, test)
 ├── api_router.py       # API URL routing
 └── celery_app.py       # Celery task queue config
-plug_config.py          # Plugin system configuration
+plug_config.py          # Plugin system configuration (no plugs installed)
 ```
 
 ### Plugin System
-CARE supports a plugin architecture via `plug_config.py` and the `plugs` package. Plugins extend core functionality without modifying the main codebase. Be aware of plugin interfaces when modifying core models or APIs.
+CARE supports a plugin architecture via `plug_config.py` and the `plugs` package. No plugs are installed now: `care_emergency` was a plug and is now a regular app in `LOCAL_APPS`, with its URLs mounted explicitly in `config/urls.py`. The `PLUGIN_APPS` loop stays for any future plugs.
 
 ### Settings
 - **Local dev**: `config.settings.local` (DEBUG=True, CORS open, email to console)
@@ -108,5 +122,5 @@ When working autonomously:
 
 1. **Before coding:** Read the relevant model, resource spec, authorization controller, viewset, and test files
 2. **After changes:** Run `ruff check --fix .` and `ruff format .` to lint and format
-3. **Verify:** Run related tests: `uv run python manage.py test care.module_name --keepdb`
+3. **Verify:** Run related tests serially (never `--parallel`): `uv run python manage.py test care.module_name --keepdb`
 4. **Migrations:** Run `makemigrations` after model changes, then `migrate`
