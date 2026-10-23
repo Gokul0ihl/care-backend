@@ -2,18 +2,17 @@
 
 from care.security.authorization.base import AuthorizationController
 from care.security.authorization.patient import PatientAccess
+from care.emr.models import Patient
 from care.emr.models.organization import FacilityOrganizationUser
 from django.db.models import Q
 
-from care_emergency.models import EmergencyDesk, PatientRegistration
+from care_emergency.models import EmergencyDesk
 
 
 def is_desk_phone(phone):
     return (
         EmergencyDesk.objects.filter(phone_number=phone).exists()
-        or PatientRegistration.objects.filter(
-            mobile_owner="No phone", patient__phone_number=phone
-        ).exists()
+        or Patient.objects.filter(mobile_owner="No phone", phone_number=phone).exists()
     )
 
 
@@ -22,13 +21,12 @@ def patient_phone_allowed(phone):
 
 
 def hide_no_phone(mapping, patient, user):
-    if PatientRegistration.objects.filter(
-        patient=patient, mobile_owner="No phone"
-    ).exists():
+    if patient.mobile_owner == "No phone":
         mapping["phone_number"] = ""
 
 
-# Desk registration is the facility association before the first encounter.
+# Desk registration (Patient.registration_facility) is the facility
+# association before the first encounter.
 # Clinical permissions continue to use Care's encounter-based authorization.
 
 
@@ -44,16 +42,11 @@ class DeskPatientAccess(PatientAccess):
         )
 
     def desk_permission(self, user, patient, permission):
-        record = (
-            PatientRegistration.objects.filter(patient=patient)
-            .select_related("facility")
-            .first()
-        )
+        facility = patient.registration_facility
         return bool(
-            record
-            and record.facility
+            facility
             and self.check_permission_in_facility_organization(
-                [permission], user, facility=record.facility
+                [permission], user, facility=facility
             )
         )
 
@@ -72,10 +65,9 @@ class DeskPatientAccess(PatientAccess):
         facilities = FacilityOrganizationUser.objects.filter(
             user=user, role_id__in=self.get_role_from_permissions(["can_list_patients"])
         ).values("organization__facility_id")
-        patients = PatientRegistration.objects.filter(
-            facility_id__in=facilities
-        ).values("patient_id")
-        return qs.filter(Q(pk__in=original.values("pk")) | Q(pk__in=patients))
+        return qs.filter(
+            Q(pk__in=original.values("pk")) | Q(registration_facility_id__in=facilities)
+        )
 
 
 AuthorizationController.register_override_controller(DeskPatientAccess)

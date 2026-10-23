@@ -202,6 +202,11 @@ class PatientNumberTests(CareAPITestBase):
         # The encounter above already issued Visited's UHID; clear it to backfill.
         visited.patientidentifier_set.all().delete()
         orphan = self.create_patient(name="Orphan")
+        # Registered at the desk of the KB unit: numbered there, no encounter.
+        desk = self.create_patient(name="Desk")
+        Patient.objects.filter(id=desk.id).update(
+            registration_facility=other, registered_at=timezone.now()
+        )
         call_command(
             "issue_patient_numbers",
             default_facility=str(self.facility.external_id),
@@ -215,6 +220,9 @@ class PatientNumberTests(CareAPITestBase):
         )
         self.assertEqual(
             patient_number(orphan, PatientNumberSeries.uhid), "POH-LN-0000002"
+        )
+        self.assertEqual(
+            patient_number(desk, PatientNumberSeries.uhid), "POH-KB-0000003"
         )
         # Running again changes nothing.
         call_command("issue_patient_numbers", stdout=StringIO())

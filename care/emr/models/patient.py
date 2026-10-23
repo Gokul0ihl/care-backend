@@ -51,6 +51,147 @@ class Patient(EMRBaseModel):
 
     extensions = models.JSONField(default=dict)
 
+    # Front-desk registration (care_emergency's desk form). The same names as
+    # the plug's former PatientRegistration columns; "" or null for patients
+    # the desk never registered. registered_at is set only by the desk writes
+    # and marks a desk registration. Field map: hmis_fe
+    # docs/patient-registration.md.
+    registration_facility = models.ForeignKey(
+        "facility.Facility",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    registered_at = models.DateTimeField(null=True, blank=True)
+    registered_by = models.ForeignKey(
+        "users.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    registration_type = models.CharField(max_length=10, blank=True, default="")
+
+    # Identity
+    title = models.CharField(max_length=10, blank=True, default="")
+    first_name = models.CharField(max_length=40, blank=True, default="")
+    middle_name = models.CharField(max_length=40, blank=True, default="")
+    last_name = models.CharField(max_length=40, blank=True, default="")
+    marital_status = models.CharField(max_length=20, blank=True, default="")
+    father_name = models.CharField(max_length=100, blank=True, default="")
+    mother_name = models.CharField(max_length=100, blank=True, default="")
+    guardian_name = models.CharField(max_length=40, blank=True, default="")
+    guardian_relationship = models.CharField(max_length=10, blank=True, default="")
+    occupation = models.CharField(max_length=50, blank=True, default="")
+    religion = models.CharField(max_length=30, blank=True, default="")
+    preferred_language = models.CharField(max_length=30, blank=True, default="")
+
+    # Contact
+    mobile_owner = models.CharField(max_length=20, blank=True, default="")
+    whatsapp_number = models.CharField(max_length=16, blank=True, default="")
+    whatsapp_owner = models.CharField(max_length=20, blank=True, default="")
+    alternate_phone_number = models.CharField(max_length=16, blank=True, default="")
+    email = models.CharField(max_length=254, blank=True, default="")
+    house = models.CharField(max_length=100, blank=True, default="")
+    street = models.CharField(max_length=150, blank=True, default="")
+    locality = models.CharField(max_length=100, blank=True, default="")
+    city = models.CharField(max_length=100, blank=True, default="")
+    district = models.CharField(max_length=100, blank=True, default="")
+    state = models.CharField(max_length=100, blank=True, default="")
+    permanent_house = models.CharField(max_length=100, blank=True, default="")
+    permanent_street = models.CharField(max_length=150, blank=True, default="")
+    permanent_locality = models.CharField(max_length=100, blank=True, default="")
+    permanent_city = models.CharField(max_length=100, blank=True, default="")
+    permanent_district = models.CharField(max_length=100, blank=True, default="")
+    permanent_state = models.CharField(max_length=100, blank=True, default="")
+    permanent_pincode = models.CharField(max_length=12, blank=True, default="")
+    permanent_country = models.CharField(max_length=60, blank=True, default="")
+    next_of_kin_title = models.CharField(max_length=10, blank=True, default="")
+    next_of_kin_name = models.CharField(max_length=40, blank=True, default="")
+    next_of_kin_relationship = models.CharField(max_length=30, blank=True, default="")
+    next_of_kin_phone = models.CharField(max_length=16, blank=True, default="")
+
+    # Documentation. Only the ID type and its last 4 characters are kept.
+    nationality_category = models.CharField(max_length=20, blank=True, default="")
+    identity_storage_consent = models.BooleanField(default=False)
+    identity_card_type = models.CharField(max_length=20, blank=True, default="")
+    identity_number_last4 = models.CharField(max_length=4, blank=True, default="")
+    abha_status = models.CharField(max_length=10, blank=True, default="")
+    abha_number = models.CharField(
+        max_length=14, blank=True, default="", db_index=True
+    )
+    abha_address = models.CharField(max_length=60, blank=True, default="")
+
+    # Travel and residency (international patients)
+    nationality = models.CharField(max_length=60, blank=True, default="")
+    passport_number = models.CharField(max_length=15, blank=True, default="")
+    passport_expiry = models.DateField(null=True, blank=True)
+    visa_type = models.CharField(max_length=30, blank=True, default="")
+    visa_expiry = models.DateField(null=True, blank=True)
+    frro_c_form = models.CharField(max_length=50, blank=True, default="")
+    address_in_india = models.CharField(max_length=300, blank=True, default="")
+    interpreter_language = models.CharField(max_length=30, blank=True, default="")
+
+    # Safety flags; allergies are care_emergency RegistrationAllergy rows.
+    allergy_status = models.CharField(max_length=10, blank=True, default="")
+    assistance_needs = ArrayField(
+        models.CharField(max_length=30), default=list, blank=True
+    )
+    pregnancy_status = models.CharField(max_length=20, blank=True, default="")
+
+    # VIP protocol (discreet handling only; no effect on price or care)
+    is_vip = models.BooleanField(default=False)
+    vip_note = models.CharField(max_length=200, blank=True, default="")
+    vip_authorised_by = models.CharField(max_length=100, blank=True, default="")
+    handle_with_care = models.BooleanField(default=False)
+    vip_flagged_by = models.ForeignKey(
+        "users.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+
+    # Payer
+    payer_type = models.CharField(max_length=20, blank=True, default="")
+    payer_name = models.CharField(max_length=200, blank=True, default="")
+    staff_category = models.CharField(max_length=20, blank=True, default="")
+    employee_id = models.CharField(max_length=24, blank=True, default="")
+    policy_number = models.CharField(max_length=24, blank=True, default="")
+    policy_valid_till = models.DateField(null=True, blank=True)
+    policy_holder_relationship = models.CharField(max_length=30, blank=True, default="")
+    concession = models.CharField(max_length=60, blank=True, default="")
+    concession_approved_by = models.CharField(max_length=100, blank=True, default="")
+
+    # Source and referral
+    arrival_source = models.CharField(max_length=40, blank=True, default="")
+    lead_source = models.CharField(max_length=60, blank=True, default="")
+    camp_name = models.CharField(max_length=100, blank=True, default="")
+    camp_patient_id = models.CharField(max_length=30, blank=True, default="")
+    referring_provider = models.CharField(max_length=200, blank=True, default="")
+    referrer_registration_number = models.CharField(
+        max_length=30, blank=True, default=""
+    )
+    referrer_organisation = models.CharField(max_length=200, blank=True, default="")
+    remarks = models.TextField(blank=True, default="")
+
+    # Consent and communication
+    consent_given_by = models.CharField(max_length=20, blank=True, default="")
+    consent_method = models.CharField(max_length=20, blank=True, default="")
+    consent_witness = models.CharField(max_length=40, blank=True, default="")
+    consent_language = models.CharField(max_length=30, blank=True, default="")
+    general_consent = models.BooleanField(default=False)
+    data_processing_consent = models.BooleanField(default=False)
+    tariff_consent = models.BooleanField(default=False)
+    # International patients: the international tariff and currency explained.
+    international_tariff_consent = models.BooleanField(default=False)
+    share_with_referrer_consent = models.BooleanField(default=False)
+    abdm_link_consent = models.BooleanField(default=False)
+    teleconsultation_consent = models.BooleanField(default=False)
+    clinical_photography_consent = models.BooleanField(default=False)
+    research_consent = models.BooleanField(default=False)
+    communication_channels = ArrayField(
+        models.CharField(max_length=20), default=list, blank=True
+    )
+    do_not_contact = models.BooleanField(default=False)
+    promotions_consent = models.BooleanField(default=False)
+    promotion_purposes = ArrayField(
+        models.CharField(max_length=30), default=list, blank=True
+    )
+
     def get_age(self) -> str:
         start = self.date_of_birth or date(self.year_of_birth, 1, 1)
         end = (self.deceased_datetime or timezone.now()).date()

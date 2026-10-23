@@ -5,7 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from care_emergency.constants import PatientNumberSeries
-from care_emergency.models import EmergencyEncounter, FacilityUnit, PatientRegistration
+from care_emergency.models import EmergencyEncounter, FacilityUnit
 from care_emergency.services import (
     allocate_patient_number,
     attach_patient_number,
@@ -86,11 +86,8 @@ class Command(BaseCommand):
     def facility_of(self, patient):
         """Where the patient was registered: the desk, an emergency record, or
         their first encounter."""
-        record = PatientRegistration.objects.filter(
-            patient=patient, facility__isnull=False
-        ).first()
-        if record:
-            return record.facility
+        if patient.registration_facility_id:
+            return patient.registration_facility
         emergency = (
             EmergencyEncounter.objects.filter(patient=patient)
             .order_by("created_date")

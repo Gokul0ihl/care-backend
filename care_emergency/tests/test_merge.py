@@ -11,7 +11,6 @@ from care_emergency.constants import PatientNumberSeries
 from care_emergency.models import (
     FacilityUnit,
     PatientMerge,
-    PatientRegistration,
     RestrictedPatient,
 )
 from care_emergency.services import patient_number
@@ -182,9 +181,7 @@ class PatientMergeTests(CareAPITestBase):
             patient=self.target, config__config__system="care_emergency/uhid"
         ).values_list("value", flat=True)
         self.assertEqual(list(uhids), [kept_uhid])
-        self.assertEqual(
-            PatientRegistration.objects.filter(patient=self.target).count(), 1
-        )
+        self.assertIsNotNone(self.target.registered_at)
         merge = PatientMerge.objects.get(source=self.source)
         self.assertEqual(merge.target_id, self.target.id)
         self.assertEqual(merge.choices["date_of_birth"], "source")

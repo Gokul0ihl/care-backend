@@ -147,3 +147,24 @@ class AppServerTests(CareAPITestBase):
         )
         self.assertFalse(response.json()["matched"])
         self.assertEqual(Patient.objects.count(), 4)
+
+    def test_abha_matches_the_desk_column_and_care_meta(self):
+        # The desk keeps ABHA in Patient.abha_number; older records and the
+        # app keep it in Care's registration meta. Both are checked.
+        desk = self.create_patient(name="Desk Patient", phone_number=PHONE)
+        Patient.objects.filter(id=desk.id).update(abha_number=ABHA)
+        response = self.register(abha_number=ABHA, identity_storage_consent=True)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertTrue(response.json()["matched"])
+        self.assertEqual(response.json()["patient"]["id"], str(desk.external_id))
+
+        number = "91000000000003"
+        column = self.create_patient(phone_number=PHONE)
+        Patient.objects.filter(id=column.id).update(abha_number=number)
+        self.create_patient(
+            phone_number=PHONE, meta={"registration": {"abha_number": number}}
+        )
+        response = self.register(
+            app_user_id="app-user-3", abha_number=number, identity_storage_consent=True
+        )
+        self.assertFalse(response.json()["matched"])

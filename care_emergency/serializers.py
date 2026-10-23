@@ -148,42 +148,46 @@ REGISTRATION_FIELDS = [
 ]
 
 
-def serialize_registration(record):
+def serialize_registration(patient):
+    """The patient's desk registration (its columns on Patient). id and
+    patient are both the patient's id."""
+    facility = patient.registration_facility
     return {
-        "id": str(record.external_id),
-        "patient": str(record.patient.external_id),
-        "facility": str(record.facility.external_id) if record.facility else None,
-        **{field: getattr(record, field) for field in REGISTRATION_FIELDS},
+        "id": str(patient.external_id),
+        "patient": str(patient.external_id),
+        "facility": str(facility.external_id) if facility else None,
+        **{field: getattr(patient, field) for field in REGISTRATION_FIELDS},
         "allergies": [
             {
                 "substance": allergy.substance,
                 "reaction": allergy.reaction,
                 "severity": allergy.severity,
             }
-            for allergy in record.allergies.all()
+            for allergy in patient.desk_allergies.all()
         ],
-        "vip_flagged_by": record.vip_flagged_by.username
-        if record.vip_flagged_by
+        "vip_flagged_by": patient.vip_flagged_by.username
+        if patient.vip_flagged_by
         else None,
-        "couple": serialize_couple(record.patient),
-        "birth": serialize_newborn(record.patient),
+        "couple": serialize_couple(patient),
+        "birth": serialize_newborn(patient),
         "restricted": False,
-        "created_date": record.created_date,
-        "created_by": record.created_by.username if record.created_by else None,
+        "created_date": patient.registered_at,
+        "created_by": patient.registered_by.username if patient.registered_by else None,
     }
 
 
-def serialize_restricted_registration(record, restriction):
+def serialize_restricted_registration(patient, restriction):
     """What the desk sees of a restricted patient (D30): the alias, never the
     identity, contact or the reason."""
+    facility = patient.registration_facility
     return {
-        "id": str(record.external_id),
-        "patient": str(record.patient.external_id),
-        "facility": str(record.facility.external_id) if record.facility else None,
-        "registration_type": record.registration_type,
+        "id": str(patient.external_id),
+        "patient": str(patient.external_id),
+        "facility": str(facility.external_id) if facility else None,
+        "registration_type": patient.registration_type,
         "restricted": True,
         "alias": restriction.alias,
-        "created_date": record.created_date,
+        "created_date": patient.registered_at,
     }
 
 

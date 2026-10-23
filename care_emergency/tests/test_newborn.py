@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework import status
 
 from care_emergency.merge import merge_blockers
-from care_emergency.models import FacilityUnit, NewbornBirth, PatientRegistration
+from care_emergency.models import FacilityUnit, NewbornBirth
 from care_emergency.tests.test_registration import registration_details
 
 PHONE = "+919812345678"
@@ -105,8 +105,9 @@ class NewbornRegistrationTests(CareAPITestBase):
         )
         self.assertTrue(number.startswith("POH-LN-"))
 
-        record = PatientRegistration.objects.get(patient=baby)
-        self.assertEqual(record.facility, self.facility)
+        record = Patient.objects.get(id=baby.id)
+        self.assertEqual(record.registration_facility, self.facility)
+        self.assertIsNotNone(record.registered_at)
         self.assertEqual(record.title, "Ms")
         self.assertEqual(record.first_name, "Baby")
         self.assertEqual(record.guardian_relationship, "D/O")
@@ -118,7 +119,7 @@ class NewbornRegistrationTests(CareAPITestBase):
         self.assertTrue(record.general_consent)
         # Never inherited: clinical details and identity.
         self.assertEqual(record.allergy_status, "")
-        self.assertFalse(record.allergies.exists())
+        self.assertFalse(record.desk_allergies.exists())
         self.assertEqual(record.identity_card_type, "")
         self.assertEqual(record.abha_address, "")
 
@@ -144,28 +145,31 @@ class NewbornRegistrationTests(CareAPITestBase):
         births = NewbornBirth.objects.order_by("birth_order")
         self.assertEqual([b.birth_order for b in births], [1, 2])
         self.assertEqual({b.number_of_babies for b in births}, {2})
-        first = PatientRegistration.objects.get(patient=births[0].baby)
+        first = Patient.objects.get(id=births[0].baby_id)
         self.assertEqual(first.title, "Master")
         self.assertEqual(first.guardian_relationship, "S/O")
 
     def test_staff_mother_makes_baby_a_dependant(self):
-        PatientRegistration.objects.filter(patient=self.mother).update(
+        Patient.objects.filter(id=self.mother.id).update(
             payer_type="Staff", payer_name="POH staff — self", employee_id="E123"
         )
         response = self.register(self.body())
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        record = PatientRegistration.objects.exclude(patient=self.mother).get()
+        record = Patient.objects.exclude(id=self.mother.id).get()
         self.assertEqual(record.payer_type, "Staff")
         self.assertEqual(record.payer_name, "POH staff — dependant")
         self.assertEqual(record.policy_holder_relationship, "Child")
         self.assertEqual(record.employee_id, "E123")
 
     def test_mother_without_desk_registration_gets_defaults(self):
-        PatientRegistration.objects.filter(patient=self.mother).delete()
+        # Registered outside the desk.
+        Patient.objects.filter(id=self.mother.id).update(
+            registered_at=None, registered_by=None, registration_facility=None
+        )
         response = self.register(self.body())
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertFalse(response.data["inherited"])
-        record = PatientRegistration.objects.get()
+        record = Patient.objects.exclude(id=self.mother.id).get()
         self.assertEqual(record.registration_type, "DOM")
         self.assertEqual(record.payer_type, "Self")
 

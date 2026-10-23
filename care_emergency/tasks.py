@@ -7,7 +7,6 @@ from celery import Celery, current_app, shared_task
 from celery.schedules import crontab
 from django.utils import timezone
 
-from care_emergency.models import PatientRegistration
 from care_emergency.contact import is_desk_phone
 from care_emergency.pincodes import refresh_from_api
 
@@ -33,9 +32,7 @@ def send_appointment_reminders():
             continue
         if (
             is_desk_phone(booking.patient.phone_number)
-            or PatientRegistration.objects.filter(
-                patient=booking.patient, mobile_owner="No phone"
-            ).exists()
+            or booking.patient.mobile_owner == "No phone"
         ):
             continue
         start = timezone.localtime(booking.token_slot.start_datetime)

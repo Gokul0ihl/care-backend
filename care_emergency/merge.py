@@ -32,6 +32,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Max, UniqueConstraint
 from rest_framework.exceptions import ValidationError
 
+from care_emergency.billing import sync_billing_tags
 from care_emergency.billing_rules import is_supervisor
 from care_emergency.models import (
     ArtCouple,
@@ -39,11 +40,11 @@ from care_emergency.models import (
     EmergencyEncounter,
     NewbornBirth,
     PatientMerge,
-    PatientRegistration,
     QuickRegistration,
     RegistrationAllergy,
     RestrictedPatient,
 )
+from care_emergency.serializers import REGISTRATION_FIELDS
 from care_emergency.services import display_numbers
 
 SOURCE = "source"
@@ -56,7 +57,8 @@ TARGET = "target"
 @dataclass(frozen=True)
 class Column:
     # "patient" (a Patient column), "meta" (a Patient.meta key),
-    # "registration" (a PatientRegistration column) or "allergies" (its rows).
+    # "registration" (a desk registration column of Patient) or "allergies"
+    # (its RegistrationAllergy rows).
     kind: str
     name: str
     # Shown before the value, or alone for a true boolean.
@@ -181,7 +183,7 @@ def phone_owner(patient, registration):
 def clear_registration(columns):
     def derive(patient, registration):
         for column in columns:
-            field = PatientRegistration._meta.get_field(column.name)  # noqa: SLF001
+            field = Patient._meta.get_field(column.name)  # noqa: SLF001
             setattr(registration, column.name, field.get_default())
 
     return derive
@@ -414,7 +416,7 @@ def read(column, patient, registration):
         return None
     if column.kind == "allergies":
         return sorted(
-            registration.allergies.values_list("substance", "reaction", "severity")
+            registration.desk_allergies.values_list("substance", "reaction", "severity")
         )
     return getattr(registration, column.name)
 
@@ -429,10 +431,10 @@ def write(column, value, patient, registration):
         else:
             patient.meta[column.name] = value
     elif column.kind == "allergies":
-        registration.allergies.all().delete()
+        registration.desk_allergies.all().delete()
         RegistrationAllergy.objects.bulk_create(
             RegistrationAllergy(
-                registration=registration,
+                patient=registration,
                 substance=substance,
                 reaction=reaction,
                 severity=severity,
@@ -485,8 +487,20 @@ def compare(source, target):
     return comparisons
 
 
+# Every desk registration column of Patient, moved together (merge_patients).
+DESK_COLUMNS = [
+    *REGISTRATION_FIELDS,
+    "vip_flagged_by_id",
+    "registered_at",
+    "registered_by_id",
+    "registration_facility_id",
+]
+
+
 def registration_of(patient):
-    return PatientRegistration.objects.filter(patient=patient).first()
+    # Fold run 2b: the desk registration is now columns of Patient. This is
+    # the minimal edit so merge loads; checkpoint 2c rewrites the merge.
+    return patient if patient.registered_at else None
 
 
 # Related records
@@ -495,7 +509,7 @@ def registration_of(patient):
 # Plug relations handled by name rather than by the generic move.
 SPECIAL_RELATIONS = {
     (PatientIdentifier, "patient"),
-    (PatientRegistration, "patient"),
+    (RegistrationAllergy, "patient"),
     (QuickRegistration, "patient"),
     (ArtCouple, "woman"),
     (ArtCouple, "partner"),
@@ -516,7 +530,6 @@ MOVE_LABELS = {
     "emr.patientuser": "Linked users",
     "care_emergency.patientdocument": "Documents",
     "care_emergency.emergencyencounter": "Emergency records",
-    "care_emergency.patientregistration": "Desk registration",
     "care_emergency.quickregistration": "Quick registration",
     "care_emergency.artcouple": "IVF couple record",
     "care_emergency.newbornbirth": "Birth record",
@@ -590,10 +603,8 @@ def planned_moves(source, target):
     files = patient_files(source).count()
     if files:
         moves["Files"] += files
-    if registration_of(source) and not every(PatientRegistration).filter(
-        patient=target
-    ).exists():
-        moves[move_label(PatientRegistration)] += 1
+    if registration_of(source) and not registration_of(target):
+        moves["Desk registration"] += 1
     if QuickRegistration.objects.filter(patient=source).exists() and not every(
         QuickRegistration
     ).filter(patient=target).exists():
@@ -690,14 +701,6 @@ def merge_blockers(source, target):  # noqa: C901
             f"Both records have an open billing account at {facility_name}. "
             "Close one of them first"
         )
-    # A removed registration still holds the one-to-one, so the source's
-    # registration couldn't move to the kept record.
-    if (
-        PatientRegistration.objects.filter(patient=source).exists()
-        and not PatientRegistration.objects.filter(patient=target).exists()
-        and every(PatientRegistration).filter(patient=target).exists()
-    ):
-        blockers.append("The kept record has a removed desk registration")
     for model, field in generic_relations():
         name = model._meta.verbose_name  # noqa: SLF001
         if field.one_to_one:
@@ -720,8 +723,8 @@ def merge_facility(source, target):
     moves to the kept record)."""
     for patient in (target, source):
         registration = registration_of(patient)
-        if registration and registration.facility_id:
-            return registration.facility
+        if registration and registration.registration_facility_id:
+            return registration.registration_facility
     return None
 
 
@@ -843,7 +846,7 @@ def snapshot(source, target, source_registration, target_registration, moved_ids
         "patient": dump([source]),
         "registration": dump(registrations),
         "allergies": dump(
-            RegistrationAllergy.objects.filter(registration__in=registrations)
+            RegistrationAllergy.objects.filter(patient__in=registrations)
         ),
         "quick_registration": dump(QuickRegistration.objects.filter(patient=source)),
         "identifiers": [
@@ -862,7 +865,7 @@ def snapshot(source, target, source_registration, target_registration, moved_ids
             "patient": dump([target]),
             "registration": dump([target_registration] if target_registration else []),
             "allergies": dump(
-                RegistrationAllergy.objects.filter(registration=target_registration)
+                RegistrationAllergy.objects.filter(patient=target_registration)
                 if target_registration
                 else []
             ),
@@ -966,18 +969,16 @@ def merge_patients(source, target, choices, reason, user):  # noqa: PLR0913
     facilities = move_records(source, target, moved_ids)
     record_snapshot["moved_ids"] = to_json(moved_ids)
 
+    if moved_registration:
+        # Only the duplicate was registered at the desk: its desk columns
+        # (with any derive() adjustments) and allergies move to the kept record.
+        for name in DESK_COLUMNS:
+            setattr(target, name, getattr(registration, name))
+        RegistrationAllergy.objects.filter(patient=source).update(patient=target)
     target.updated_by = user
     target.save()
     if registration is not None:
-        if moved_registration:
-            registration.patient = target
-        registration.updated_by = user
-        # Saved, not updated, so the payer tags follow (signals).
-        registration.save()
-    if source_registration is not None and not moved_registration:
-        PatientRegistration.objects.filter(id=source_registration.id).update(
-            deleted=True
-        )
+        sync_billing_tags(target)
 
     target.refresh_from_db()
     target.build_instance_identifiers()

@@ -4,7 +4,7 @@ blood group, government ID). Intake suite: Newborn "Baby of…" registration."""
 
 from care_emergency.constants import STAFF_DEPENDANT
 
-# Copied unchanged from the mother's PatientRegistration: address, contact,
+# Copied unchanged from the mother's desk registration: address, contact,
 # next of kin, nationality, payer and the consents that cover the newborn.
 INHERITED_FIELDS = [
     "preferred_language",
@@ -71,9 +71,10 @@ def baby_name(mother_name, birth_order, number_of_babies):
 
 
 def baby_registration(mother, mother_record, gender):
-    """PatientRegistration column values for a baby of the mother.
-    mother_record is her desk registration, or None when she was registered
-    outside the desk; the baby then gets only the defaults below."""
+    """Desk registration column values (on Patient) for a baby of the mother.
+    mother_record is the mother when the desk registered her (registered_at
+    set), or None when she was registered outside the desk; the baby then gets
+    only the defaults below."""
     inherited = (
         {field: getattr(mother_record, field) for field in INHERITED_FIELDS}
         if mother_record

@@ -245,7 +245,7 @@ REGISTRATION_CHOICES = {
 
 
 class RegistrationSpec(BaseModel):
-    """The front-desk details kept in PatientRegistration. "" means not given."""
+    """The front-desk details, kept in columns of Patient. "" means not given."""
 
     registration_type: str
     title: str

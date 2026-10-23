@@ -13,7 +13,6 @@ from care_emergency.models import (
     FacilityUnit,
     EmergencyDesk,
     PatientDocument,
-    PatientRegistration,
     PostOffice,
 )
 
@@ -142,13 +141,13 @@ class DeskRegistrationTests(CareAPITestBase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(message, str(response.data))
         self.assertFalse(Patient.objects.exists())
-        self.assertFalse(PatientRegistration.objects.exists())
+        self.assertFalse(Patient.objects.filter(registered_at__isnull=False).exists())
 
     def test_register_creates_patient_and_registration(self):
         response = self.register(self.body())
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         patient = Patient.objects.get(external_id=response.data["patient"]["id"])
-        record = PatientRegistration.objects.get(patient=patient)
+        record = Patient.objects.get(id=patient.id)
         self.assertEqual(record.street, "Ring Road")
         self.assertEqual(record.city, "New Delhi")
         self.assertEqual(record.promotion_purposes, ["Health tips", "Camps"])
@@ -158,8 +157,17 @@ class DeskRegistrationTests(CareAPITestBase):
         self.assertEqual(record.assistance_needs, ["Wheelchair"])
         self.assertEqual(record.alternate_phone_number, "")
         self.assertTrue(record.research_consent)
-        self.assertEqual(record.allergies.count(), 2)
+        self.assertEqual(record.desk_allergies.count(), 2)
         self.assertIsNone(record.vip_flagged_by)
+
+        # The desk registration is columns of the patient.
+        self.assertEqual(record.registration_facility, self.facility)
+        self.assertEqual(record.registered_by, self.user)
+        registration = response.data["registration"]
+        self.assertEqual(registration["id"], str(patient.external_id))
+        self.assertEqual(registration["patient"], str(patient.external_id))
+        self.assertEqual(registration["facility"], str(self.facility.external_id))
+        self.assertEqual(registration["created_by"], self.user.username)
 
         detail = self.client.get(
             reverse("desk-registration-detail", args=[patient.external_id])
@@ -203,17 +211,17 @@ class DeskRegistrationTests(CareAPITestBase):
             )
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        record = PatientRegistration.objects.get()
+        record = Patient.objects.get(registered_at__isnull=False)
         self.assertTrue(record.international_tariff_consent)
         self.assertEqual(record.interpreter_language, "Arabic")
         self.assertEqual(record.frro_c_form, "Auto-file within 24 h")
         self.assertTrue(record.is_vip)
         self.assertEqual(record.vip_flagged_by, self.user)
-        documents = PatientDocument.objects.filter(patient=record.patient)
+        documents = PatientDocument.objects.filter(patient=record)
         self.assertEqual(documents.count(), 2)
         self.assertEqual(
             {x.file.associating_id for x in documents},
-            {str(record.patient.external_id)},
+            {str(record.external_id)},
         )
 
     def test_nri_and_oci_need_their_passport_not_a_passport_id(self):
@@ -248,7 +256,7 @@ class DeskRegistrationTests(CareAPITestBase):
         # The government ID stays the Aadhaar; the passport has its own field.
         response = self.register(self.body(**nri))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        record = PatientRegistration.objects.get()
+        record = Patient.objects.get(registered_at__isnull=False)
         self.assertEqual(record.identity_card_type, "aadhaar")
         self.assertEqual(record.passport_number, "Z1234567")
         self.assertEqual(record.permanent_country, "United Kingdom")
@@ -325,7 +333,7 @@ class DeskRegistrationTests(CareAPITestBase):
 
         response = self.register(self.foreign_body())
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        record = PatientRegistration.objects.get()
+        record = Patient.objects.get(registered_at__isnull=False)
         self.assertEqual(record.passport_number, "GBR5521104")
         self.assertIsNone(record.passport_expiry)
         self.assertEqual(record.frro_c_form, "")
@@ -397,7 +405,8 @@ class DeskRegistrationTests(CareAPITestBase):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertEqual(response.data["registration"]["next_of_kin_title"], "Dr")
         self.assertEqual(
-            PatientRegistration.objects.get().payer_name, "POH staff — dependant"
+            Patient.objects.get(registered_at__isnull=False).payer_name,
+            "POH staff — dependant",
         )
 
     def test_any_eighth_schedule_language_is_accepted(self):
@@ -407,7 +416,8 @@ class DeskRegistrationTests(CareAPITestBase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertEqual(
-            PatientRegistration.objects.get().preferred_language, "Santali"
+            Patient.objects.get(registered_at__isnull=False).preferred_language,
+            "Santali",
         )
 
     def test_language_outside_the_master_is_rejected(self):
@@ -492,7 +502,7 @@ class DeskRegistrationTests(CareAPITestBase):
         back = stage_document(self.user, "payer_card", "back")
         response = self.register(self.body(documents=[front, back], **staff))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        record = PatientRegistration.objects.get()
+        record = Patient.objects.get(registered_at__isnull=False)
         self.assertEqual(record.staff_category, "Nurse")
         self.assertEqual(record.whatsapp_owner, "Spouse")
         self.assertEqual(record.mobile_owner, "Father")
@@ -509,7 +519,7 @@ class DeskRegistrationTests(CareAPITestBase):
         )
         response = self.register(body)
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        self.assertTrue(PatientRegistration.objects.get().do_not_contact)
+        self.assertTrue(Patient.objects.get(registered_at__isnull=False).do_not_contact)
         self.assertTrue(response.data["registration"]["do_not_contact"])
 
     def test_gender_other_is_accepted(self):
@@ -828,7 +838,8 @@ class DeskRegistrationTests(CareAPITestBase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertEqual(
-            PatientRegistration.objects.get().policy_holder_relationship, "Child"
+            Patient.objects.get(registered_at__isnull=False).policy_holder_relationship,
+            "Child",
         )
 
     def test_digital_arrival_is_not_a_counter_source(self):
@@ -848,6 +859,13 @@ class DeskRegistrationTests(CareAPITestBase):
             ),
             "1900",
         )
+
+    def test_detail_is_404_without_a_desk_registration(self):
+        patient = self.create_patient(name="Registered elsewhere")
+        response = self.client.get(
+            reverse("desk-registration-detail", args=[patient.external_id])
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_detail_needs_patient_access(self):
         self.register(self.body())
@@ -873,8 +891,9 @@ class DeskRegistrationTests(CareAPITestBase):
         )
         patient = Patient.objects.get()
         uhid = patient.instance_identifiers
-        record = PatientRegistration.objects.get(patient=patient)
+        record = Patient.objects.get(id=patient.id)
         self.assertEqual(record.vip_flagged_by, self.user)
+        registered_at = record.registered_at
         body = self.body(
             patient={"name": "Neha Verma", "address": "D-4, Ring Road"},
             last_name="Verma",
@@ -895,11 +914,15 @@ class DeskRegistrationTests(CareAPITestBase):
         self.assertEqual(patient.instance_identifiers, uhid)
         self.assertEqual(record.last_name, "Verma")
         self.assertEqual(record.house, "D-4")
-        self.assertEqual(record.allergies.count(), 0)
+        self.assertEqual(record.desk_allergies.count(), 0)
         # The original flagger is kept while the patient stays VIP.
         self.assertEqual(record.vip_flagged_by, self.user)
         self.assertEqual(record.updated_by, editor)
-        self.assertEqual(PatientRegistration.objects.count(), 1)
+        # Editing doesn't re-register: who, when and where are kept.
+        self.assertEqual(record.registered_at, registered_at)
+        self.assertEqual(record.registered_by, self.user)
+        self.assertEqual(record.registration_facility, self.facility)
+        self.assertEqual(Patient.objects.filter(registered_at__isnull=False).count(), 1)
 
         response = self.update(patient, self.body(allergy_status="nka", allergies=[]))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
@@ -914,9 +937,7 @@ class DeskRegistrationTests(CareAPITestBase):
         self.assertIn("first name", str(response.data))
         response = self.update(patient, {**self.body(), "pre_registration": True})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            PatientRegistration.objects.get(patient=patient).first_name, "Neha"
-        )
+        self.assertEqual(Patient.objects.get(id=patient.id).first_name, "Neha")
 
     def test_update_counts_documents_already_on_the_patient(self):
         corporate = {
@@ -942,12 +963,16 @@ class DeskRegistrationTests(CareAPITestBase):
     def test_update_creates_a_missing_registration(self):
         self.register(self.body())
         patient = Patient.objects.get()
-        PatientRegistration.objects.all().delete()
+        # Registered elsewhere first: no desk registration yet.
+        Patient.objects.update(
+            registered_at=None, registered_by=None, registration_facility=None
+        )
         response = self.update(patient, self.body(allergy_status="nka", allergies=[]))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        record = PatientRegistration.objects.get(patient=patient)
-        self.assertEqual(record.facility, self.facility)
-        self.assertEqual(record.created_by, self.user)
+        record = Patient.objects.get(id=patient.id)
+        self.assertEqual(record.registration_facility, self.facility)
+        self.assertEqual(record.registered_by, self.user)
+        self.assertIsNotNone(record.registered_at)
 
     def test_update_needs_write_access(self):
         self.register(self.body())
@@ -979,7 +1004,7 @@ class DeskRegistrationTests(CareAPITestBase):
         patient, response = self.create_no_phone()
         self.assertEqual(patient.phone_number, "+919876543210")
         self.assertEqual(response.data["patient"]["phone_number"], "")
-        record = PatientRegistration.objects.get(patient=patient)
+        record = Patient.objects.get(id=patient.id)
         self.assertEqual(record.mobile_owner, "No phone")
         self.assertEqual(record.whatsapp_number, "")
         self.assertEqual(record.communication_channels, [])
@@ -1032,7 +1057,7 @@ class DeskRegistrationTests(CareAPITestBase):
         )
         body["patient"]["phone_number"] = None
         patient, _ = self.create_no_phone(body)
-        record = PatientRegistration.objects.get(patient=patient)
+        record = Patient.objects.get(id=patient.id)
         self.assertEqual(record.guardian_name, "Rakesh Sharma")
         self.assertEqual(record.next_of_kin_relationship, "Father")
         self.assertEqual(record.next_of_kin_phone, "")
@@ -1076,7 +1101,7 @@ class DeskRegistrationTests(CareAPITestBase):
         self.assertEqual(updated.data["phone_number"], PHONE)
         self.assertEqual(updated.data["instance_identifiers"], identifiers)
         self.assertEqual({field: updated.data[field] for field in preserved}, preserved)
-        record = PatientRegistration.objects.get(patient=patient)
+        record = Patient.objects.get(id=patient.id)
         self.assertEqual(record.mobile_owner, "Relative")
         self.assertEqual(record.updated_by, self.user)
         self.assertEqual(
@@ -1157,9 +1182,7 @@ class DeskRegistrationTests(CareAPITestBase):
             url, {"phone_number": PHONE, "mobile_owner": "Parent"}, format="json"
         )
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(
-            PatientRegistration.objects.get(patient=patient).mobile_owner, "Parent"
-        )
+        self.assertEqual(Patient.objects.get(id=patient.id).mobile_owner, "Parent")
 
     def test_no_phone_can_use_email_without_enabling_mobile_channels(self):
         patient, _ = self.create_no_phone(
@@ -1168,7 +1191,7 @@ class DeskRegistrationTests(CareAPITestBase):
             )
         )
         self.assertEqual(
-            PatientRegistration.objects.get(patient=patient).communication_channels,
+            Patient.objects.get(id=patient.id).communication_channels,
             ["Email"],
         )
 
@@ -1247,4 +1270,4 @@ class DeskRegistrationTests(CareAPITestBase):
         rejected = self.register(self.no_phone_body())
         self.assertEqual(rejected.status_code, 403, rejected.data)
         self.assertFalse(Patient.objects.exists())
-        self.assertFalse(PatientRegistration.objects.exists())
+        self.assertFalse(Patient.objects.filter(registered_at__isnull=False).exists())

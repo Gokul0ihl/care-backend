@@ -14,10 +14,15 @@ from care.emr.resources.invoice.default_expression_evaluator import (
 from care.utils.tests.base import CareAPITestBase
 from care.utils.time_util import care_now
 from django.core.management import call_command
-from model_bakery import baker
 
-from care_emergency.billing import CATALOGUE, PAYER_TAGS, setup_billing, slug_for
-from care_emergency.models import FacilityUnit, PatientRegistration
+from care_emergency.billing import (
+    CATALOGUE,
+    PAYER_TAGS,
+    setup_billing,
+    slug_for,
+    sync_billing_tags,
+)
+from care_emergency.models import FacilityUnit
 
 
 class BillingSetupTests(CareAPITestBase):
@@ -39,15 +44,15 @@ class BillingSetupTests(CareAPITestBase):
             date_of_birth=kwargs.pop("date_of_birth", date(1990, 1, 1)),
             facility_tags={},
         )
-        baker.make(
-            PatientRegistration,
-            patient=patient,
-            facility=self.facility,
-            registration_type=kwargs.pop("registration_type", "DOM"),
-            payer_type=payer_type,
-            payer_name=payer_name,
-            concession=kwargs.pop("concession", ""),
-        )
+        # A desk registration, as the desk views write it.
+        patient.registration_facility = self.facility
+        patient.registered_at = care_now()
+        patient.registration_type = kwargs.pop("registration_type", "DOM")
+        patient.payer_type = payer_type
+        patient.payer_name = payer_name
+        patient.concession = kwargs.pop("concession", "")
+        patient.save()
+        sync_billing_tags(patient)
         patient.refresh_from_db()
         return patient
 
@@ -127,6 +132,15 @@ class BillingSetupTests(CareAPITestBase):
         ews = self.register(concession="EWS / charity")
         self.assertEqual(self.price("CON2", ews), Decimal(900))
 
+    def test_patient_not_registered_at_the_desk_is_not_tagged(self):
+        patient = self.create_patient(facility_tags={})
+        patient.registration_facility = self.facility
+        patient.payer_type = "Corporate"
+        patient.save()
+        sync_billing_tags(patient)
+        patient.refresh_from_db()
+        self.assertEqual(patient.facility_tags, {})
+
     def test_payer_change_replaces_the_tag_and_keeps_others(self):
         patient = self.register("Corporate", "Infosys")
         other = TagConfig.objects.create(
@@ -139,10 +153,10 @@ class BillingSetupTests(CareAPITestBase):
         key = str(self.facility.id)
         patient.facility_tags = {key: [*patient.facility_tags[key], other.id]}
         patient.save(update_fields=["facility_tags"])
-        registration = patient.desk_registration
-        registration.payer_type = "Govt scheme"
-        registration.payer_name = "CGHS"
-        registration.save()
+        patient.payer_type = "Govt scheme"
+        patient.payer_name = "CGHS"
+        patient.save(update_fields=["payer_type", "payer_name"])
+        sync_billing_tags(patient)
         patient.refresh_from_db()
         displays = set(
             TagConfig.objects.filter(id__in=patient.facility_tags[key]).values_list(

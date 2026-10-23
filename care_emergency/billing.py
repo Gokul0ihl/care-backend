@@ -540,10 +540,15 @@ def billing_tag_keys(registration):
     return keys
 
 
-def sync_billing_tags(registration):
-    """Replace the patient's billing tags at the registration's facility. Does
-    nothing until setup_billing has run there."""
-    facility = registration.facility
+def sync_billing_tags(patient):
+    """Replace the patient's billing tags at their desk registration facility.
+    Called explicitly by the desk writes (not a Patient post_save, which would
+    run on every patient save and re-enter through the save below). Does
+    nothing for a patient the desk never registered, or until setup_billing
+    has run at the facility."""
+    if patient.registered_at is None:
+        return
+    facility = patient.registration_facility
     if facility is None:
         return
     managed = TagConfig.objects.filter(
@@ -558,10 +563,9 @@ def sync_billing_tags(registration):
     displays = {**PAYER_TAGS, **CONCESSION_TAGS}
     wanted = [
         by_display[displays[key]]
-        for key in billing_tag_keys(registration)
+        for key in billing_tag_keys(patient)
         if displays[key] in by_display
     ]
-    patient = registration.patient
     facility_tags = dict(patient.facility_tags or {})
     current = facility_tags.get(str(facility.id), [])
     managed_ids = set(by_display.values())

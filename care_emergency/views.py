@@ -21,6 +21,8 @@ from care.utils.sms import send_text_message
 from care.utils.time_util import care_now
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
+from django.http import Http404
 from django.utils import timezone
 from django_filters import rest_framework as filters
 from rest_framework import status
@@ -55,13 +57,13 @@ from care_emergency.models import (
     FacilityUnit,
     NewbornBirth,
     PatientDocument,
-    PatientRegistration,
     PostOffice,
     QuickRegistration,
     RegistrationAllergy,
     RestrictedPatient,
     StatutoryFlag,
 )
+from care_emergency.billing import sync_billing_tags
 from care_emergency.contact import is_desk_phone
 from care_emergency.lab_catalogue import (
     LabTestCreateSpec,
@@ -472,8 +474,8 @@ class ConvertView(EmergencyAPIView):
 
 
 def registration_columns(registration):
-    """PatientRegistration column values from a RegistrationSpec. Phone
-    numbers are optional; the columns keep "" for none."""
+    """Desk registration column values (on Patient) from a RegistrationSpec.
+    Phone numbers are optional; the columns keep "" for none."""
     details = registration.model_dump(exclude={"allergies"})
     return {
         key: "" if value is None and key.endswith(("_number", "_phone")) else value
@@ -481,9 +483,54 @@ def registration_columns(registration):
     }
 
 
+DESK_PATIENT_RELATED = ("registration_facility", "vip_flagged_by", "registered_by")
+
+
+def save_desk_registration(
+    patient, details, user, facility, allergies=(), *, replace_allergies=False
+):
+    """Writes the desk registration columns onto the patient, after Care's own
+    create or update so Care's save can't overwrite them (update_fields).
+    The first desk write registers the patient: registered_at, registered_by
+    and registration_facility are set then and kept on later edits. Then the
+    allergies, and the payer tags (billing.sync_billing_tags)."""
+    for key, value in details.items():
+        setattr(patient, key, value)
+    fields = [*details, "vip_flagged_by", "updated_by", "modified_date"]
+    if patient.registered_at is None:
+        patient.registered_at = care_now()
+        patient.registered_by = user
+        patient.registration_facility = facility
+        fields += ["registered_at", "registered_by", "registration_facility"]
+    # Whoever first flagged the VIP stays recorded while the flag is on.
+    if not details.get("is_vip"):
+        patient.vip_flagged_by = None
+    elif patient.vip_flagged_by is None:
+        patient.vip_flagged_by = user
+    patient.updated_by = user
+    patient.save(update_fields=fields)
+    if replace_allergies:
+        patient.desk_allergies.all().delete()
+    RegistrationAllergy.objects.bulk_create(
+        RegistrationAllergy(patient=patient, **allergy.model_dump())
+        for allergy in allergies
+    )
+    sync_billing_tags(patient)
+
+
+def desk_patient(patient_id):
+    """The patient with what serialize_registration reads, from the database
+    (after Care's save)."""
+    return (
+        Patient.objects.select_related(*DESK_PATIENT_RELATED)
+        .prefetch_related("desk_allergies")
+        .get(external_id=patient_id)
+    )
+
+
 class RegistrationView(EmergencyAPIView):
-    """Front-desk registration: creates the Care patient, its
-    PatientRegistration row, an IVF partner and the desk documents in one
+    """Front-desk registration: creates the Care patient, writes its desk
+    registration columns, an IVF partner and the desk documents in one
     transaction."""
 
     def post(self, request):
@@ -533,17 +580,13 @@ class RegistrationView(EmergencyAPIView):
             if facility:
                 issue_patient_number(patient, facility, series)
                 patient_data = PatientRetrieveSpec.serialize(patient).to_json()
-            record = PatientRegistration.objects.create(
-                patient=patient,
-                facility=facility,
-                vip_flagged_by=request.user if spec.registration.is_vip else None,
-                created_by=request.user,
-                updated_by=request.user,
-                **details,
-            )
-            RegistrationAllergy.objects.bulk_create(
-                RegistrationAllergy(registration=record, **allergy.model_dump())
-                for allergy in spec.registration.allergies
+            patient = Patient.objects.get(id=patient.id)
+            save_desk_registration(
+                patient,
+                details,
+                request.user,
+                facility,
+                spec.registration.allergies,
             )
             attach_documents(documents, patient)
             if couple:
@@ -551,10 +594,9 @@ class RegistrationView(EmergencyAPIView):
                     request, spec, patient, facility, series, partner_documents
                 )
             patient_data = PatientRetrieveSpec.serialize(patient).to_json()
+            registration = serialize_registration(desk_patient(patient.external_id))
 
-        return Response(
-            {"patient": patient_data, "registration": serialize_registration(record)}
-        )
+        return Response({"patient": patient_data, "registration": registration})
 
     def register_couple(self, request, spec, woman, facility, series, documents):
         """The partner becomes his own Care patient, at the woman's address."""
@@ -627,7 +669,8 @@ class NewbornRegistrationView(EmergencyAPIView):
             raise ValidationError(
                 "Complete the mother's emergency registration before registering the baby"
             )
-        mother_record = PatientRegistration.objects.filter(patient=mother).first()
+        # Her desk registration, if the desk registered her.
+        mother_record = mother if mother.registered_at else None
         geo_organization = mother.geo_organization or facility.geo_organization
         unit_code(facility)
 
@@ -656,12 +699,12 @@ class NewbornRegistrationView(EmergencyAPIView):
                 )
                 patient = Patient.objects.get(external_id=data["id"])
                 issue_patient_number(patient, facility)
-                PatientRegistration.objects.create(
-                    patient=patient,
-                    facility=facility,
-                    created_by=request.user,
-                    updated_by=request.user,
-                    **baby_registration(mother, mother_record, baby.gender),
+                patient = Patient.objects.get(id=patient.id)
+                save_desk_registration(
+                    patient,
+                    baby_registration(mother, mother_record, baby.gender),
+                    request.user,
+                    facility,
                 )
                 birth = NewbornBirth.objects.create(
                     baby=patient,
@@ -699,24 +742,26 @@ class NewbornRegistrationView(EmergencyAPIView):
 
 class PatientRegistrationView(EmergencyAPIView):
     def get(self, request, patient_id):
-        patient = get_object_or_404(Patient, external_id=patient_id)
+        patient = get_object_or_404(
+            Patient.objects.select_related(*DESK_PATIENT_RELATED).prefetch_related(
+                "desk_allergies"
+            ),
+            external_id=patient_id,
+        )
         if not can("can_view_patient_obj", request.user, patient):
             raise PermissionDenied("You do not have permission to view this patient")
-        record = get_object_or_404(
-            PatientRegistration.objects.select_related(
-                "patient", "facility", "vip_flagged_by", "created_by"
-            ),
-            patient=patient,
-        )
+        if patient.registered_at is None:
+            # The frontend reads 404 as "not registered at the desk".
+            raise Http404("This patient has no desk registration")
         restriction = restriction_of(patient)
         if restriction and not can_see_identity(request.user, patient):
-            return Response(serialize_restricted_registration(record, restriction))
-        return Response(serialize_registration(record))
+            return Response(serialize_restricted_registration(patient, restriction))
+        return Response(serialize_registration(patient))
 
     def put(self, request, patient_id):
         """Edits a registered patient with the registration form: Care's own
-        patient update, then the desk record (created for a patient who has
-        none, e.g. one registered before the plug). The UHID is kept."""
+        patient update, then the desk columns (registering a patient the desk
+        hasn't, e.g. one registered elsewhere first). The UHID is kept."""
         patient = get_object_or_404(Patient, external_id=patient_id)
         if not can("can_write_patient_obj", request.user, patient):
             raise PermissionDenied("You do not have permission to edit this patient")
@@ -750,32 +795,21 @@ class PatientRegistrationView(EmergencyAPIView):
             care_view(
                 PatientViewSet, request, "update", external_id=str(patient_id)
             ).handle_update(patient, patient_body)
-            record = PatientRegistration.objects.filter(patient=patient).first()
-            if record is None:
-                record = PatientRegistration(
-                    patient=patient, facility=facility, created_by=request.user
-                )
-            for key, value in details.items():
-                setattr(record, key, value)
-            # Whoever first flagged the VIP stays recorded while the flag is on.
-            if not spec.registration.is_vip:
-                record.vip_flagged_by = None
-            elif record.vip_flagged_by is None:
-                record.vip_flagged_by = request.user
-            record.updated_by = request.user
-            record.save()
-            record.allergies.all().delete()
-            RegistrationAllergy.objects.bulk_create(
-                RegistrationAllergy(registration=record, **allergy.model_dump())
-                for allergy in spec.registration.allergies
+            patient = Patient.objects.get(id=patient.id)
+            save_desk_registration(
+                patient,
+                details,
+                request.user,
+                facility,
+                spec.registration.allergies,
+                replace_allergies=True,
             )
             attach_documents(documents, patient)
             patient.refresh_from_db()
             patient_data = PatientRetrieveSpec.serialize(patient).to_json()
+            registration = serialize_registration(desk_patient(patient.external_id))
 
-        return Response(
-            {"patient": patient_data, "registration": serialize_registration(record)}
-        )
+        return Response({"patient": patient_data, "registration": registration})
 
 
 def quick_form_link(record):
@@ -1043,7 +1077,8 @@ class PatientSummaryView(EmergencyAPIView):
                 "get_filtered_patients", patients, request.user
             ).values_list("id", flat=True)
         )
-        # Desk access (registration facility) isn't in Care's filter.
+        # Desk access (Patient.registration_facility, contact.DeskPatientAccess)
+        # isn't in Care's filter.
         allowed = {
             patient.external_id: patient
             for patient in patients
@@ -1133,7 +1168,9 @@ class PatientContactView(EmergencyAPIView):
             raise ValidationError("Enter a real contact number, not the desk number")
         with transaction.atomic():
             record = get_object_or_404(
-                PatientRegistration.objects.select_for_update(), patient=patient
+                Patient.objects.select_for_update(),
+                id=patient.id,
+                registered_at__isnull=False,
             )
             if record.mobile_owner != "No phone":
                 raise ValidationError("This patient already has a contact number")
@@ -1147,8 +1184,9 @@ class PatientContactView(EmergencyAPIView):
                 }
             )
             # Apply contact validation without revalidating unrelated demographics.
+            facility = record.registration_facility
             validated = DeskRegisterSpec.model_construct(
-                facility=record.facility.external_id,
+                facility=facility.external_id if facility else None,
                 patient={"pincode": patient.pincode, "phone_number": spec.phone_number},
                 registration=registration,
             )
@@ -1167,9 +1205,12 @@ class PatientContactView(EmergencyAPIView):
             view.handle_update(
                 patient, {"phone_number": spec.phone_number, "pincode": patient.pincode}
             )
+            # A fresh instance: Care's update saved its own copy of the patient.
+            record = Patient.objects.get(id=patient.id)
             record.mobile_owner = spec.mobile_owner
             record.updated_by = request.user
             record.save(update_fields=["mobile_owner", "updated_by", "modified_date"])
+            sync_billing_tags(record)
             patient.refresh_from_db()
         return Response(PatientRetrieveSpec.serialize(patient).to_json())
 
@@ -1497,18 +1538,15 @@ class ApiKeyRevokeView(EmergencyAPIView):
 
 
 def abha_matches(abha_number):
-    """Live patients with this ABHA number, in Care's registration details or
-    the desk record."""
-    ids = set(
+    """Live patients with this ABHA number, in the desk column or Care's
+    registration details (meta, still written by AppPatientView and older
+    records)."""
+    return list(
         Patient.objects.filter(
-            meta__registration__abha_number=abha_number
-        ).values_list("id", flat=True)
-    ) | set(
-        PatientRegistration.objects.filter(abha_number=abha_number).values_list(
-            "patient_id", flat=True
+            Q(abha_number=abha_number)
+            | Q(meta__registration__abha_number=abha_number)
         )
     )
-    return list(Patient.objects.filter(id__in=ids))
 
 
 def app_patient_body(spec, registration):

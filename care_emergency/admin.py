@@ -11,7 +11,6 @@ from care_emergency.models import (
     NewbornBirth,
     PatientDocument,
     PatientNumberSequence,
-    PatientRegistration,
     RegistrationAllergy,
     RestrictedPatient,
     StatutoryFlag,
@@ -60,24 +59,10 @@ class MlcSequenceAdmin(admin.ModelAdmin):
     raw_id_fields = ("facility",)
 
 
-class RegistrationAllergyInline(admin.TabularInline):
-    model = RegistrationAllergy
-    extra = 0
-
-
-@admin.register(PatientRegistration)
-class PatientRegistrationAdmin(admin.ModelAdmin):
-    list_display = ("patient", "registration_type", "payer_type", "created_date")
-    list_filter = ("registration_type", "payer_type", "is_vip")
-    search_fields = ("patient__name", "first_name", "last_name")
-    raw_id_fields = (
-        "patient",
-        "facility",
-        "vip_flagged_by",
-        "created_by",
-        "updated_by",
-    )
-    inlines = [RegistrationAllergyInline]
+@admin.register(RegistrationAllergy)
+class RegistrationAllergyAdmin(admin.ModelAdmin):
+    list_display = ("substance", "severity", "patient")
+    raw_id_fields = ("patient",)
 
 
 @admin.register(FacilityUnit)
