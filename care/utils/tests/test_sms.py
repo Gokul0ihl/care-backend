@@ -123,3 +123,82 @@ class TestTextMessageWithConsoleBackend(TestCase):
         self.assertIn("Group console message", output)
         for r in recipients:
             self.assertIn(r, output)
+
+
+@override_settings(
+    SMS_BACKEND="care.utils.sms.backend.foxsms.FoxSmsBackend",
+    FOX_SMS_BASE_URL="http://fox.example/sms/submitsms.jsp",
+    FOX_SMS_USER="TESTUSER",
+    FOX_SMS_API_KEY="fake_fox_key",
+    FOX_SMS_SENDER_ID="TESTID",
+)
+class TestFoxSmsBackend(TestCase):
+    def _response(self, text, status=200):
+        response = MagicMock()
+        response.status_code = status
+        response.text = text
+        return response
+
+    @patch("care.utils.sms.backend.foxsms.requests.get")
+    def test_sends_with_dlt_params(self, mock_get):
+        mock_get.return_value = self._response("sent,success,1,2,+919999999999 \r\n")
+
+        sent_count = send_text_message(
+            content="Code 12345.\nPacific OneHealth",
+            recipients="+919999999999",
+        )
+
+        self.assertEqual(sent_count, 1)
+        args, kwargs = mock_get.call_args
+        self.assertEqual(args[0], "http://fox.example/sms/submitsms.jsp")
+        self.assertEqual(
+            kwargs["params"],
+            {
+                "user": "TESTUSER",
+                "key": "fake_fox_key",
+                "mobile": "919999999999",
+                "message": "Code 12345.\nPacific OneHealth",
+                "senderid": "TESTID",
+                "accusage": "1",
+            },
+        )
+        # FoxxSMS returns 403 to the default python-requests User-Agent.
+        self.assertNotIn("python", kwargs["headers"]["User-Agent"].lower())
+
+    @patch("care.utils.sms.backend.foxsms.requests.get")
+    def test_ten_digit_number_gets_country_code(self, mock_get):
+        mock_get.return_value = self._response("sent,success,1,2,+919999999999")
+        send_text_message(content="hi", recipients="9999999999")
+        self.assertEqual(mock_get.call_args.kwargs["params"]["mobile"], "919999999999")
+
+    @patch("care.utils.sms.backend.foxsms.requests.get")
+    def test_rejection_raises_without_leaking_key(self, mock_get):
+        from care.utils.sms.backend.foxsms import FoxSmsError
+
+        mock_get.return_value = self._response("invalid template")
+        with self.assertRaises(FoxSmsError) as ctx:
+            send_text_message(content="hi", recipients="+919999999999")
+        self.assertNotIn("fake_fox_key", str(ctx.exception))
+
+    @patch("care.utils.sms.backend.foxsms.requests.get")
+    def test_http_error_raises(self, mock_get):
+        from care.utils.sms.backend.foxsms import FoxSmsError
+
+        mock_get.return_value = self._response("Forbidden", status=403)
+        with self.assertRaises(FoxSmsError):
+            send_text_message(content="hi", recipients="+919999999999")
+
+    @patch("care.utils.sms.backend.foxsms.requests.get")
+    def test_fail_silently_returns_zero(self, mock_get):
+        mock_get.return_value = self._response("error")
+        sent_count = send_text_message(
+            content="hi", recipients="+919999999999", fail_silently=True
+        )
+        self.assertEqual(sent_count, 0)
+
+    @override_settings(FOX_SMS_API_KEY="")
+    def test_missing_config_is_improperly_configured(self):
+        from django.core.exceptions import ImproperlyConfigured
+
+        with self.assertRaises(ImproperlyConfigured):
+            send_text_message(content="hi", recipients="+919999999999")

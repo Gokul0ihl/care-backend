@@ -127,6 +127,13 @@ SNS_SECRET_KEY = env("SNS_SECRET_KEY", default="")
 SNS_REGION = env("SNS_REGION", default="ap-south-1")
 SNS_ROLE_BASED_MODE = env.bool("SNS_ROLE_BASED_MODE", default=False)
 
+# FoxxSMS (SMS_BACKEND=care.utils.sms.backend.foxsms.FoxSmsBackend)
+FOX_SMS_BASE_URL = env("FOX_SMS_BASE_URL", default="")
+FOX_SMS_USER = env("FOX_SMS_USER", default="")
+FOX_SMS_API_KEY = env("FOX_SMS_API_KEY", default="")
+FOX_SMS_SENDER_ID = env("FOX_SMS_SENDER_ID", default="")
+FOX_SMS_TIMEOUT = env.int("FOX_SMS_TIMEOUT", default=15)
+
 # open id connect
 JWKS = JsonWebKey.import_key_set(
     json.loads(

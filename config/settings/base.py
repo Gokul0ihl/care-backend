@@ -715,15 +715,17 @@ DJANGO_REST_MULTITOKENAUTH_REQUIRE_USABLE_PASSWORD = False
 
 SMS_BACKEND = "care.utils.sms.backend.sns.SnsBackend"
 
+# DLT-registered SMS gateways (FoxxSMS) match the template on exact text, which
+# can span lines; write a line break as a literal \n in .env.
 OTP_SMS_LOGIN_CONTENT = env(
     "OTP_SMS_LOGIN_CONTENT",
     default="Care OTP for login is {otp}. Please do not share this with anyone.",
-)
+).replace("\\n", "\n")
 
 OTP_SMS_RESET_PASSWORD_CONTENT = env(
     "OTP_SMS_RESET_PASSWORD_CONTENT",
     default="Care OTP for password reset is {otp}. Please do not share this with anyone.",
-)
+).replace("\\n", "\n")
 
 USER_CREATE_PASSWORD_EMAIL_TEMPLATE_PATH = env(
     "USER_CREATE_PASSWORD_TEMPLATE_PATH", default="email/user_create_password.html"
