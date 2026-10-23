@@ -45,7 +45,6 @@ from care_emergency.models import (
     EmergencyEncounter,
     NewbornBirth,
     PatientMerge,
-    QuickRegistration,
     RegistrationAllergy,
     RestrictedPatient,
 )
@@ -421,6 +420,11 @@ def is_registered(patient):
     return patient.registered_at is not None
 
 
+def is_quick_registered(patient):
+    """Whether the patient was registered through Quick Register."""
+    return patient.quick_registered_at is not None
+
+
 def read(column, patient):
     if column.kind == "patient":
         return getattr(patient, column.name)
@@ -507,6 +511,28 @@ DESK_COLUMNS = [
     "registration_facility_id",
 ]
 
+# Every Quick Register column of Patient: moved together when only the
+# duplicate was quick-registered (take_quick_registration).
+QUICK_COLUMNS = [
+    "quick_registered_at",
+    "quick_registered_by_id",
+    "quick_facility_id",
+    "quick_consultation_type",
+    "quick_department_id",
+    "quick_doctor_id",
+    "quick_whatsapp_same_as_mobile",
+    "quick_send_form_link",
+    "quick_send_payment_reminder",
+    "quick_form_token",
+    "quick_form_expires_at",
+    "quick_form_link_sent_at",
+    "quick_form_submitted_at",
+    "quick_form_details",
+]
+# The name parts the desk took on the call, kept with the quick registration
+# while neither record is registered at the desk.
+QUICK_NAME_COLUMNS = ["title", "first_name", "last_name"]
+
 
 # Related records
 
@@ -515,7 +541,6 @@ DESK_COLUMNS = [
 SPECIAL_RELATIONS = {
     (PatientIdentifier, "patient"),
     (RegistrationAllergy, "patient"),
-    (QuickRegistration, "patient"),
     (ArtCouple, "woman"),
     (ArtCouple, "partner"),
     (RestrictedPatient, "patient"),
@@ -535,7 +560,6 @@ MOVE_LABELS = {
     "emr.patientuser": "Linked users",
     "care_emergency.patientdocument": "Documents",
     "care_emergency.emergencyencounter": "Emergency records",
-    "care_emergency.quickregistration": "Quick registration",
     "care_emergency.artcouple": "IVF couple record",
     "care_emergency.newbornbirth": "Birth record",
     "care_emergency.statutoryflag": "Statutory flags",
@@ -610,10 +634,8 @@ def planned_moves(source, target):
         moves["Files"] += files
     if is_registered(source) and not is_registered(target):
         moves["Desk registration"] += 1
-    if QuickRegistration.objects.filter(patient=source).exists() and not every(
-        QuickRegistration
-    ).filter(patient=target).exists():
-        moves[move_label(QuickRegistration)] += 1
+    if is_quick_registered(source) and not is_quick_registered(target):
+        moves["Quick registration"] += 1
     couples = ArtCouple.objects.filter(woman=source).count() + ArtCouple.objects.filter(
         partner=source
     ).count()
@@ -849,7 +871,6 @@ def snapshot(source, target, moved_ids):
     return {
         "patient": dump([source]),
         "allergies": dump(RegistrationAllergy.objects.filter(patient=source)),
-        "quick_registration": dump(QuickRegistration.objects.filter(patient=source)),
         "identifiers": [
             {
                 "id": x.id,
@@ -879,6 +900,22 @@ def take_desk_registration(source, target):
         value = getattr(source, name)
         setattr(target, name, list(value) if isinstance(value, list) else value)
     RegistrationAllergy.objects.filter(patient=source).update(patient=target)
+
+
+def take_quick_registration(source, target, *, take_name):
+    """Only the duplicate was quick-registered: the kept record takes its
+    Quick Register columns, so the texted form link keeps working. The
+    token is unique, so it is cleared on the duplicate first. take_name: the
+    name parts the desk took on the call come too (neither record is
+    registered at the desk, so nothing else owns them)."""
+    columns = QUICK_COLUMNS + (QUICK_NAME_COLUMNS if take_name else [])
+    values = {name: getattr(source, name) for name in columns}
+    Patient._base_manager.filter(id=source.id).update(  # noqa: SLF001
+        quick_form_token=None
+    )
+    source.quick_form_token = None
+    for name, value in values.items():
+        setattr(target, name, value)
 
 
 def apply_fields(comparisons, choices, target, *, source_registered, target_registered):
@@ -947,12 +984,14 @@ def move_records(source, target, moved_ids):  # noqa: C901
     # still leads to the kept record through the PatientMerge row.
     PatientIdentifier.objects.filter(id__in=[x.id for x in drop]).update(deleted=True)
 
-    quick = QuickRegistration.objects.filter(patient=source).first()
-    if quick:
-        if every(QuickRegistration).filter(patient=target).exists():
-            QuickRegistration.objects.filter(id=quick.id).update(deleted=True)
-        else:
-            QuickRegistration.objects.filter(id=quick.id).update(patient=target)
+    # Both quick-registered: the kept record's stays and the duplicate's stays
+    # on the duplicate, which is soft-deleted (its form link stops working).
+    if is_quick_registered(source) and not is_quick_registered(target):
+        take_quick_registration(
+            source,
+            target,
+            take_name=not is_registered(source) and not is_registered(target),
+        )
     ArtCouple.objects.filter(woman=source).update(woman=target)
     ArtCouple.objects.filter(partner=source).update(partner=target)
     return facilities

@@ -294,6 +294,42 @@ class PatientMergeTests(CareAPITestBase):
         self.assertEqual(self.target.remarks, "Prefers morning slots")
         self.assertEqual(self.target.desk_allergies.count(), 2)
 
+    def test_quick_registration_moves_with_its_form_link(self):
+        self.target = self.walk_in("Neha Sharma", datetime.date(1999, 4, 12))
+        self.source = self.walk_in("Neha Sharma", datetime.date(1999, 4, 12))
+        Patient.objects.filter(id=self.source.id).update(
+            title="Ms",
+            first_name="Neha",
+            last_name="Sharma",
+            quick_registered_at=datetime.datetime(2026, 10, 1, tzinfo=datetime.UTC),
+            quick_registered_by=self.user,
+            quick_facility=self.facility,
+            quick_consultation_type="in_person",
+            quick_form_token="fake-token-for-merge-test",
+            quick_form_expires_at=datetime.datetime(2099, 1, 1, tzinfo=datetime.UTC),
+        )
+        self.source.refresh_from_db()
+        self.assertEqual(self.preview().data["moves"]["Quick registration"], 1)
+
+        response = self.merge({})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.target.refresh_from_db()
+        self.assertEqual(self.target.quick_form_token, "fake-token-for-merge-test")
+        self.assertEqual(self.target.quick_facility_id, self.facility.id)
+        self.assertEqual(self.target.first_name, "Neha")
+        retired = Patient._base_manager.get(id=self.source.id)  # noqa: SLF001
+        self.assertIsNone(retired.quick_form_token)
+        self.assertEqual(
+            retired.quick_registered_at, self.target.quick_registered_at
+        )
+        self.client.force_authenticate(user=None)
+        form = self.client.get(
+            reverse("quick-registration-form", args=["fake-token-for-merge-test"])
+        )
+        self.assertEqual(form.status_code, status.HTTP_200_OK, form.data)
+        self.assertEqual(form.data["first_name"], "Neha")
+
     def test_merge_needs_a_choice_for_each_conflict(self):
         response = self.merge({})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

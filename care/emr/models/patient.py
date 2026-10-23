@@ -192,6 +192,46 @@ class Patient(EMRBaseModel):
         models.CharField(max_length=30), default=list, blank=True
     )
 
+    # Quick Register (care_emergency): a patient registered by phone, with what
+    # the desk took on the call. The name parts are the desk columns above
+    # (title, first_name, last_name). The rest of the registration form is
+    # texted as a one-time link (quick_form_token); the answers wait in
+    # quick_form_details until the desk completes the registration.
+    # quick_registered_at marks a quick registration. Field map: hmis_fe
+    # docs/patient-registration.md.
+    quick_registered_at = models.DateTimeField(null=True, blank=True)
+    quick_registered_by = models.ForeignKey(
+        "users.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    quick_facility = models.ForeignKey(
+        "facility.Facility",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    quick_consultation_type = models.CharField(max_length=20, blank=True, default="")
+    quick_department = models.ForeignKey(
+        "emr.FacilityOrganization",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    quick_doctor = models.ForeignKey(
+        "users.User", on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
+    quick_whatsapp_same_as_mobile = models.BooleanField(default=False)
+    quick_send_form_link = models.BooleanField(default=False)
+    quick_send_payment_reminder = models.BooleanField(default=False)
+    quick_form_token = models.CharField(
+        max_length=64, unique=True, null=True, blank=True
+    )
+    quick_form_expires_at = models.DateTimeField(null=True, blank=True)
+    quick_form_link_sent_at = models.DateTimeField(null=True, blank=True)
+    quick_form_submitted_at = models.DateTimeField(null=True, blank=True)
+    quick_form_details = models.JSONField(default=dict, blank=True)
+
     def get_age(self) -> str:
         start = self.date_of_birth or date(self.year_of_birth, 1, 1)
         end = (self.deceased_datetime or timezone.now()).date()

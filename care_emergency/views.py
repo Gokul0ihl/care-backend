@@ -58,7 +58,6 @@ from care_emergency.models import (
     NewbornBirth,
     PatientDocument,
     PostOffice,
-    QuickRegistration,
     RegistrationAllergy,
     RestrictedPatient,
     StatutoryFlag,
@@ -812,36 +811,48 @@ class PatientRegistrationView(EmergencyAPIView):
         return Response({"patient": patient_data, "registration": registration})
 
 
-def quick_form_link(record):
+# Related rows serialize_quick_registration reads.
+QUICK_PATIENT_RELATED = (
+    "quick_facility",
+    "quick_department",
+    "quick_doctor",
+    "quick_registered_by",
+)
+
+
+def quick_patients():
+    """Patients registered through Quick Register."""
+    return Patient.objects.filter(quick_registered_at__isnull=False)
+
+
+def quick_form_link(patient):
     base = plug_setting("REGISTRATION_FORM_BASE_URL") or settings.CURRENT_DOMAIN
-    return f"{base.rstrip('/')}/register/complete/{record.form_token}"
+    return f"{base.rstrip('/')}/register/complete/{patient.quick_form_token}"
 
 
-def send_quick_form_link(record_id):
+def send_quick_form_link(patient_id):
     """Texts the patient the full registration form. Runs after commit, so a
     rolled-back registration never sends a link."""
-    record = QuickRegistration.objects.select_related("patient", "facility").get(
-        id=record_id
-    )
+    patient = quick_patients().select_related("quick_facility").get(id=patient_id)
     sent = send_text_message(
         content=(
-            f"{record.facility.name}: Hi {record.first_name}, please complete "
-            f"your registration before your visit: {quick_form_link(record)} "
-            f"(valid for {QUICK_FORM_LINK_DAYS} days)"
+            f"{patient.quick_facility.name}: Hi {patient.first_name}, please "
+            f"complete your registration before your visit: "
+            f"{quick_form_link(patient)} (valid for {QUICK_FORM_LINK_DAYS} days)"
         ),
-        recipients=record.patient.phone_number,
+        recipients=patient.phone_number,
         fail_silently=True,
     )
     if sent:
-        QuickRegistration.objects.filter(id=record.id).update(
-            form_link_sent_at=timezone.now()
+        Patient.objects.filter(id=patient.id).update(
+            quick_form_link_sent_at=timezone.now()
         )
     return bool(sent)
 
 
 class QuickRegistrationView(EmergencyAPIView):
     """Quick Register (phone booking): creates the Care patient with a PRE-
-    reference and the QuickRegistration row that marks how they were
+    reference, sets the Quick Register columns that mark how they were
     registered, then texts the full registration form if asked."""
 
     @classmethod
@@ -887,47 +898,53 @@ class QuickRegistrationView(EmergencyAPIView):
             issue_patient_number(
                 patient, facility, PatientNumberSeries.pre_registration
             )
-            record = QuickRegistration.objects.create(
-                patient=patient,
-                facility=facility,
-                title=spec.title,
-                first_name=spec.first_name,
-                last_name=spec.last_name,
-                consultation_type=spec.consultation_type,
-                department=department,
-                doctor=doctor,
-                whatsapp_same_as_mobile=spec.whatsapp_same_as_mobile,
-                send_form_link=spec.send_form_link,
-                send_payment_reminder=spec.send_payment_reminder,
-                form_token=secrets.token_urlsafe(32),
-                form_expires_at=timezone.now()
+            # A fresh instance, so Care's create can't overwrite the columns.
+            patient = Patient.objects.get(id=patient.id)
+            columns = {
+                "title": spec.title,
+                "first_name": spec.first_name,
+                "last_name": spec.last_name,
+                "quick_registered_at": timezone.now(),
+                "quick_registered_by": request.user,
+                "quick_facility": facility,
+                "quick_consultation_type": spec.consultation_type,
+                "quick_department": department,
+                "quick_doctor": doctor,
+                "quick_whatsapp_same_as_mobile": spec.whatsapp_same_as_mobile,
+                "quick_send_form_link": spec.send_form_link,
+                "quick_send_payment_reminder": spec.send_payment_reminder,
+                "quick_form_token": secrets.token_urlsafe(32),
+                "quick_form_expires_at": timezone.now()
                 + datetime.timedelta(days=QUICK_FORM_LINK_DAYS),
-                created_by=request.user,
-                updated_by=request.user,
-            )
+                "updated_by": request.user,
+            }
+            for name, value in columns.items():
+                setattr(patient, name, value)
+            patient.save(update_fields=[*columns, "modified_date"])
             if spec.send_form_link:
-                transaction.on_commit(lambda: send_quick_form_link(record.id))
+                transaction.on_commit(lambda: send_quick_form_link(patient.id))
             patient_data = PatientRetrieveSpec.serialize(patient).to_json()
-        record.refresh_from_db()
 
         return Response(
             {
                 "patient": patient_data,
-                "quick_registration": serialize_quick_registration(record),
+                "quick_registration": serialize_quick_registration(
+                    quick_patients()
+                    .select_related(*QUICK_PATIENT_RELATED)
+                    .get(id=patient.id)
+                ),
             }
         )
 
 
 class PatientQuickRegistrationView(EmergencyAPIView):
     def get_record(self, request, patient_id):
+        """The quick-registered patient; 404 for any other patient."""
         patient = get_object_or_404(Patient, external_id=patient_id)
         if not can("can_view_patient_obj", request.user, patient):
             raise PermissionDenied("You do not have permission to view this patient")
         return get_object_or_404(
-            QuickRegistration.objects.select_related(
-                "patient", "facility", "department", "doctor", "created_by"
-            ),
-            patient=patient,
+            quick_patients().select_related(*QUICK_PATIENT_RELATED), id=patient.id
         )
 
     def get(self, request, patient_id):
@@ -947,28 +964,28 @@ class QuickFormLinkView(PatientQuickRegistrationView):
         return transaction.non_atomic_requests(super().as_view(**initkwargs))
 
     def post(self, request, patient_id):
-        record = self.get_record(request, patient_id)
-        if record.form_submitted_at:
+        patient = self.get_record(request, patient_id)
+        if patient.quick_form_submitted_at:
             raise ValidationError("The patient has already submitted the form")
-        if is_desk_phone(record.patient.phone_number):
+        if is_desk_phone(patient.phone_number):
             raise ValidationError("The patient has no mobile number to text")
-        record.send_form_link = True
-        record.form_expires_at = timezone.now() + datetime.timedelta(
+        patient.quick_send_form_link = True
+        patient.quick_form_expires_at = timezone.now() + datetime.timedelta(
             days=QUICK_FORM_LINK_DAYS
         )
-        record.updated_by = request.user
-        record.save(
+        patient.updated_by = request.user
+        patient.save(
             update_fields=[
-                "send_form_link",
-                "form_expires_at",
+                "quick_send_form_link",
+                "quick_form_expires_at",
                 "updated_by",
                 "modified_date",
             ]
         )
-        if not send_quick_form_link(record.id):
+        if not send_quick_form_link(patient.id):
             raise ValidationError("The message couldn't be sent. Try again later")
-        record.refresh_from_db()
-        return Response(serialize_quick_registration(record))
+        patient.refresh_from_db()
+        return Response(serialize_quick_registration(patient))
 
 
 class QuickFormThrottle(AnonRateThrottle):
@@ -984,52 +1001,58 @@ class QuickFormView(EmergencyAPIView):
     throttle_classes = [QuickFormThrottle]
 
     def get_record(self, token, *, lock=False):
-        records = QuickRegistration.objects.select_related("patient", "facility")
+        """The quick-registered patient the token belongs to."""
+        patients = quick_patients()
         if lock:
-            records = records.select_for_update()
-        return get_object_or_404(records, form_token=token)
+            # No select_related: FOR UPDATE would lock the facility row too.
+            patients = patients.select_for_update()
+        else:
+            patients = patients.select_related("quick_facility")
+        return get_object_or_404(patients, quick_form_token=token)
 
     def get(self, request, token):
-        record = self.get_record(token)
-        if record.form_submitted_at:
+        patient = self.get_record(token)
+        if patient.quick_form_submitted_at:
             state = "submitted"
-        elif record.form_expires_at <= timezone.now():
+        elif patient.quick_form_expires_at <= timezone.now():
             state = "expired"
         else:
             state = "open"
-        phone = record.patient.phone_number or ""
+        phone = patient.phone_number or ""
         return Response(
             {
                 "status": state,
-                "first_name": record.first_name,
-                "facility_name": record.facility.name,
+                "first_name": patient.first_name,
+                "facility_name": patient.quick_facility.name,
                 "phone_last4": phone[-4:],
-                "whatsapp_same_as_mobile": record.whatsapp_same_as_mobile,
-                "expires_at": record.form_expires_at,
+                "whatsapp_same_as_mobile": patient.quick_whatsapp_same_as_mobile,
+                "expires_at": patient.quick_form_expires_at,
             }
         )
 
     def post(self, request, token):
         spec = QuickFormSpec.model_validate(request.data)
         with transaction.atomic():
-            record = self.get_record(token, lock=True)
-            if record.form_submitted_at:
+            patient = self.get_record(token, lock=True)
+            if patient.quick_form_submitted_at:
                 raise ValidationError("This form has already been submitted")
-            if record.form_expires_at <= timezone.now():
+            if patient.quick_form_expires_at <= timezone.now():
                 raise ValidationError(
                     "This link has expired. Please call the hospital for a new one"
                 )
-            phone = record.patient.phone_number
+            phone = patient.phone_number
             if spec.alternate_phone_number and spec.alternate_phone_number == phone:
                 raise ValidationError(
                     "The alternate mobile must differ from the main number"
                 )
             details = spec.model_dump(mode="json")
-            if record.whatsapp_same_as_mobile:
+            if patient.quick_whatsapp_same_as_mobile:
                 details["whatsapp_number"] = phone
-            record.form_details = details
-            record.form_submitted_at = timezone.now()
-            record.save(update_fields=["form_details", "form_submitted_at"])
+            patient.quick_form_details = details
+            patient.quick_form_submitted_at = timezone.now()
+            patient.save(
+                update_fields=["quick_form_details", "quick_form_submitted_at"]
+            )
         return Response({"status": "submitted"})
 
 
@@ -1039,8 +1062,11 @@ class QuickFormPincodeView(QuickFormView):
     http_method_names = ["get"]
 
     def get(self, request, token, pincode):
-        record = self.get_record(token)
-        if record.form_submitted_at or record.form_expires_at <= timezone.now():
+        patient = self.get_record(token)
+        if (
+            patient.quick_form_submitted_at
+            or patient.quick_form_expires_at <= timezone.now()
+        ):
             raise PermissionDenied("This link is no longer open")
         return pincode_response(pincode)
 

@@ -261,21 +261,24 @@ def serialize_restriction(restriction, user, visible):
     return data
 
 
-def serialize_quick_registration(record):
-    doctor = record.doctor
+def serialize_quick_registration(patient):
+    """The patient's Quick Register columns. id is the patient's id: there is
+    no separate record."""
+    doctor = patient.quick_doctor
+    department = patient.quick_department
     return {
-        "id": str(record.external_id),
-        "patient": str(record.patient.external_id),
-        "facility": str(record.facility.external_id),
-        "title": record.title,
-        "first_name": record.first_name,
-        "last_name": record.last_name,
-        "consultation_type": record.consultation_type,
+        "id": str(patient.external_id),
+        "patient": str(patient.external_id),
+        "facility": str(patient.quick_facility.external_id),
+        "title": patient.title,
+        "first_name": patient.first_name,
+        "last_name": patient.last_name,
+        "consultation_type": patient.quick_consultation_type,
         "department": {
-            "id": str(record.department.external_id),
-            "name": record.department.name,
+            "id": str(department.external_id),
+            "name": department.name,
         }
-        if record.department
+        if department
         else None,
         "doctor": {
             "id": str(doctor.external_id),
@@ -283,13 +286,15 @@ def serialize_quick_registration(record):
         }
         if doctor
         else None,
-        "whatsapp_same_as_mobile": record.whatsapp_same_as_mobile,
-        "send_form_link": record.send_form_link,
-        "send_payment_reminder": record.send_payment_reminder,
-        "form_expires_at": record.form_expires_at,
-        "form_link_sent_at": record.form_link_sent_at,
-        "form_submitted_at": record.form_submitted_at,
-        "form_details": record.form_details,
-        "created_date": record.created_date,
-        "created_by": record.created_by.username if record.created_by else None,
+        "whatsapp_same_as_mobile": patient.quick_whatsapp_same_as_mobile,
+        "send_form_link": patient.quick_send_form_link,
+        "send_payment_reminder": patient.quick_send_payment_reminder,
+        "form_expires_at": patient.quick_form_expires_at,
+        "form_link_sent_at": patient.quick_form_link_sent_at,
+        "form_submitted_at": patient.quick_form_submitted_at,
+        "form_details": patient.quick_form_details,
+        "created_date": patient.quick_registered_at,
+        "created_by": patient.quick_registered_by.username
+        if patient.quick_registered_by
+        else None,
     }

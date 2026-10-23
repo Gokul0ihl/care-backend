@@ -10,7 +10,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from care_emergency.models import FacilityUnit, PostOffice, QuickRegistration
+from care_emergency.models import FacilityUnit, PostOffice
 
 PHONE = "+919812345678"
 
@@ -53,8 +53,12 @@ class QuickRegistrationTests(CareAPITestBase):
             )
         return response, sms
 
+    def quick_patient(self):
+        """The one quick-registered patient."""
+        return Patient.objects.get(quick_registered_at__isnull=False)
+
     def form_url(self, record):
-        return reverse("quick-registration-form", args=[record.form_token])
+        return reverse("quick-registration-form", args=[record.quick_form_token])
 
     def form_answers(self, **kwargs):
         return {
@@ -73,15 +77,26 @@ class QuickRegistrationTests(CareAPITestBase):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         patient = Patient.objects.get(external_id=response.data["patient"]["id"])
         self.assertEqual(patient.name, "Neha Sharma")
-        record = QuickRegistration.objects.get(patient=patient)
+        record = self.quick_patient()
+        self.assertEqual(record, patient)
         self.assertEqual(record.title, "Ms")
-        self.assertEqual(record.department, self.department)
-        self.assertTrue(record.send_payment_reminder)
-        self.assertIsNotNone(record.form_link_sent_at)
+        self.assertEqual(record.first_name, "Neha")
+        self.assertEqual(record.last_name, "Sharma")
+        self.assertEqual(record.quick_facility, self.facility)
+        self.assertEqual(record.quick_registered_by, self.user)
+        self.assertEqual(record.quick_department, self.department)
+        self.assertTrue(record.quick_send_payment_reminder)
+        self.assertIsNotNone(record.quick_form_link_sent_at)
+        # A quick registration isn't a desk registration.
+        self.assertIsNone(record.registered_at)
+        self.assertEqual(
+            response.data["quick_registration"]["id"], str(patient.external_id)
+        )
         sms.assert_called_once()
         self.assertEqual(sms.call_args.kwargs["recipients"], PHONE)
         self.assertIn(
-            f"/register/complete/{record.form_token}", sms.call_args.kwargs["content"]
+            f"/register/complete/{record.quick_form_token}",
+            sms.call_args.kwargs["content"],
         )
         numbers = [x["value"] for x in response.data["patient"]["instance_identifiers"]]
         self.assertEqual(numbers, ["PRE-LN-0000001"])
@@ -91,7 +106,17 @@ class QuickRegistrationTests(CareAPITestBase):
         )
         self.assertEqual(detail.status_code, status.HTTP_200_OK)
         self.assertEqual(detail.data["department"]["name"], "Cardiology")
+        self.assertEqual(detail.data["title"], "Ms")
+        self.assertEqual(detail.data["facility"], str(self.facility.external_id))
+        self.assertEqual(detail.data["created_by"], self.user.username)
         self.assertNotIn("form_token", detail.data)
+        self.assertNotIn("quick_form_token", detail.data)
+
+        other = self.create_patient(name="Ravi Kumar")
+        not_quick = self.client.get(
+            reverse("quick-registration-detail", args=[other.external_id])
+        )
+        self.assertEqual(not_quick.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_no_link_when_not_asked(self):
         response, sms = self.register(
@@ -101,9 +126,9 @@ class QuickRegistrationTests(CareAPITestBase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         sms.assert_not_called()
-        record = QuickRegistration.objects.get()
-        self.assertEqual(record.doctor, self.user)
-        self.assertIsNone(record.form_link_sent_at)
+        record = self.quick_patient()
+        self.assertEqual(record.quick_doctor, self.user)
+        self.assertIsNone(record.quick_form_link_sent_at)
 
     def test_rejects_bad_requests_without_creating_a_patient(self):
         cases = [
@@ -136,11 +161,11 @@ class QuickRegistrationTests(CareAPITestBase):
                 self.assertIn(response.status_code, (400, 404), response.data)
                 self.assertIn(message, str(response.data))
                 sms.assert_not_called()
-        self.assertFalse(QuickRegistration.objects.exists())
+        self.assertFalse(Patient.objects.exists())
 
     def test_patient_completes_form_once_without_login(self):
         self.register(self.body())
-        record = QuickRegistration.objects.get()
+        record = self.quick_patient()
         self.client.force_authenticate(user=None)
 
         opened = self.client.get(self.form_url(record))
@@ -155,9 +180,9 @@ class QuickRegistrationTests(CareAPITestBase):
         )
         self.assertEqual(submitted.status_code, status.HTTP_200_OK, submitted.data)
         record.refresh_from_db()
-        self.assertIsNotNone(record.form_submitted_at)
-        self.assertEqual(record.form_details["house"], "C-22")
-        self.assertEqual(record.form_details["whatsapp_number"], PHONE)
+        self.assertIsNotNone(record.quick_form_submitted_at)
+        self.assertEqual(record.quick_form_details["house"], "C-22")
+        self.assertEqual(record.quick_form_details["whatsapp_number"], PHONE)
         self.assertEqual(
             self.client.get(self.form_url(record)).data["status"], "submitted"
         )
@@ -170,7 +195,7 @@ class QuickRegistrationTests(CareAPITestBase):
 
     def test_form_rejects_bad_answers_and_expired_links(self):
         self.register(self.body())
-        record = QuickRegistration.objects.get()
+        record = self.quick_patient()
         self.client.force_authenticate(user=None)
 
         bad = self.client.post(
@@ -180,7 +205,7 @@ class QuickRegistrationTests(CareAPITestBase):
         )
         self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
         record.refresh_from_db()
-        self.assertIsNone(record.form_submitted_at)
+        self.assertIsNone(record.quick_form_submitted_at)
 
         PostOffice.objects.create(
             pincode="110024",
@@ -193,7 +218,8 @@ class QuickRegistrationTests(CareAPITestBase):
         )
         pin = self.client.get(
             reverse(
-                "quick-registration-form-pincode", args=[record.form_token, "110024"]
+                "quick-registration-form-pincode",
+                args=[record.quick_form_token, "110024"],
             )
         )
         self.assertEqual(pin.status_code, status.HTTP_200_OK, pin.data)
@@ -224,7 +250,7 @@ class QuickRegistrationTests(CareAPITestBase):
             closed_pin = self.client.get(
                 reverse(
                     "quick-registration-form-pincode",
-                    args=[record.form_token, "110024"],
+                    args=[record.quick_form_token, "110024"],
                 )
             )
         self.assertEqual(closed_pin.status_code, status.HTTP_403_FORBIDDEN)
@@ -241,8 +267,8 @@ class QuickRegistrationTests(CareAPITestBase):
 
     def test_desk_resends_link_and_reopens_it(self):
         self.register(self.body(send_form_link=False))
-        record = QuickRegistration.objects.get()
-        url = reverse("quick-registration-send-link", args=[record.patient.external_id])
+        record = self.quick_patient()
+        url = reverse("quick-registration-send-link", args=[record.external_id])
 
         with mock.patch("care_emergency.views.send_text_message", return_value=0):
             failed = self.client.post(url)
