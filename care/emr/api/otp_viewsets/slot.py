@@ -65,8 +65,17 @@ class OTPSlotViewSet(EMRRetrieveMixin, EMRBaseViewSet):
             external_id=request_data.patient, phone_number=request.user.phone_number
         ).exists():
             raise ValidationError("Patient not allowed")
+        # The patient's own booking; the desk-only details are left out.
         appointment = SlotViewSet.create_appointment_handler(
-            self.get_object(), request.data, None
+            self.get_object(),
+            {
+                "patient": str(request_data.patient),
+                "note": request_data.note,
+                "tags": [str(tag) for tag in request_data.tags],
+                "booking_channel": "online",
+                "consultation_type": request_data.consultation_type.value,
+            },
+            None,
         )
         return Response(TokenBookingOTPReadSpec.serialize(appointment).to_json())
 

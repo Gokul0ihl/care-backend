@@ -5,12 +5,18 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
-from pydantic import UUID4, BaseModel, model_validator
+from pydantic import UUID4, BaseModel, Field, model_validator
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from care.emr.api.viewsets.base import EMRBaseViewSet, EMRRetrieveMixin
+from care.emr.api.viewsets.scheduling.desk_details import (
+    allocate_appointment_number,
+    check_walk_in_reserve,
+    default_visit_purpose,
+    reminder_due,
+)
 from care.emr.api.viewsets.scheduling.schedule import get_schedulable_resource
 from care.emr.models import AvailabilityException, Schedule, TokenBooking
 from care.emr.models.patient import Patient
@@ -26,6 +32,14 @@ from care.emr.resources.charge_item.spec import (
 from care.emr.resources.scheduling.schedule.spec import (
     SchedulableResourceTypeOptions,
     SlotTypeOptions,
+)
+from care.emr.resources.scheduling.slot.appointment import (
+    GUIDANCE_AREAS,
+    GUIDANCE_RED_FLAGS,
+    GUIDANCE_SINCE,
+    BookingChannels,
+    ConsultationTypes,
+    VisitPurposes,
 )
 from care.emr.resources.scheduling.slot.spec import (
     CANCELLED_STATUS_CHOICES,
@@ -50,9 +64,39 @@ class SlotsForDayRequestSpec(BaseModel):
 
 class AppointmentBookingSpec(BaseModel):
     patient: UUID4
-    note: str
+    note: str = ""
 
     tags: list[UUID4] = []
+
+    # Desk details (resources/scheduling/slot/appointment.py).
+    booking_channel: BookingChannels = BookingChannels.front_desk
+    consultation_type: ConsultationTypes = ConsultationTypes.in_person
+    # Left out: follow-up if the patient is inside the schedule's revisit window.
+    visit_purpose: VisitPurposes | None = None
+    # "I don't know whom to meet" (D50). Red flags are refused, never stored.
+    guidance_area: str = ""
+    guidance_since: str = ""
+    red_flags: list[str] = []
+    chief_complaint: str = Field(default="", max_length=500)
+
+    @model_validator(mode="after")
+    def validate_guidance(self):
+        if self.guidance_area and self.guidance_area not in GUIDANCE_AREAS:
+            msg = f"Unknown problem area: {self.guidance_area}"
+            raise ValueError(msg)
+        if self.guidance_since and self.guidance_since not in GUIDANCE_SINCE:
+            msg = f"Unknown duration: {self.guidance_since}"
+            raise ValueError(msg)
+        for flag in self.red_flags:
+            if flag not in GUIDANCE_RED_FLAGS:
+                msg = f"Unknown red flag: {flag}"
+                raise ValueError(msg)
+        if self.red_flags:
+            raise ValueError(
+                "Red flag: send the patient to the emergency desk, not an appointment"
+            )
+        self.chief_complaint = self.chief_complaint.strip()
+        return self
 
 
 class AvailabilityStatsRequestSpec(BaseModel):
@@ -123,7 +167,9 @@ def convert_availability_and_exceptions_to_slots(availabilities, exceptions, day
     return slots
 
 
-def lock_create_appointment(token_slot, patient, created_by, note):
+def lock_create_appointment(token_slot, patient, created_by, note, **details):
+    """details are the desk fields of TokenBooking; the APT number is
+    allocated here unless a reschedule passes the old one on."""
     with Lock(f"booking:resource:{token_slot.resource.id}"), transaction.atomic():
         if token_slot.end_datetime < timezone.now():
             raise ValidationError("Slot is already past")
@@ -137,6 +183,17 @@ def lock_create_appointment(token_slot, patient, created_by, note):
             raise ValidationError("Patient already has a booking for this slot")
         token_slot.allocated += 1
         token_slot.save()
+        channel = details.get("booking_channel") or BookingChannels.front_desk.value
+        details = {
+            "consultation_type": ConsultationTypes.in_person.value,
+            **details,
+            "booking_channel": channel,
+            "appointment_number": details.get("appointment_number")
+            or allocate_appointment_number(),
+            "visit_purpose": details.get("visit_purpose")
+            or default_visit_purpose(token_slot, patient),
+            "reminder_due_at": reminder_due(token_slot, channel),
+        }
         booking = TokenBooking.objects.create(
             token_slot=token_slot,
             patient=patient,
@@ -145,6 +202,7 @@ def lock_create_appointment(token_slot, patient, created_by, note):
             updated_by=created_by,
             note=note,
             status="booked",
+            **details,
         )
         # Generate Charge Item
         schedule = booking.token_slot.availability.schedule
@@ -325,7 +383,29 @@ class SlotViewSet(EMRRetrieveMixin, EMRBaseViewSet):
 
             if not patient:
                 raise ValidationError("Patient not found")
-            appointment = lock_create_appointment(obj, patient, user, request_data.note)
+            # Locks the slot so allocated is current when capacity is checked.
+            obj = (
+                TokenSlot.objects.select_related(
+                    "resource__facility", "availability__schedule"
+                )
+                .select_for_update(of=("self",))
+                .get(pk=obj.pk)
+            )
+            check_walk_in_reserve(obj, request_data.booking_channel.value)
+            appointment = lock_create_appointment(
+                obj,
+                patient,
+                user,
+                request_data.note,
+                booking_channel=request_data.booking_channel.value,
+                consultation_type=request_data.consultation_type.value,
+                visit_purpose=request_data.visit_purpose.value
+                if request_data.visit_purpose
+                else None,
+                guidance_area=request_data.guidance_area,
+                guidance_since=request_data.guidance_since,
+                chief_complaint=request_data.chief_complaint,
+            )
             if request_data.tags:
                 tag_manager = SingleFacilityTagManager()
                 tag_manager.set_tags(

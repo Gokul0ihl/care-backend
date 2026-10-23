@@ -67,6 +67,9 @@ class Availability(EMRBaseModel):
     create_tokens = models.BooleanField(default=False)
     reason = models.TextField(null=True, blank=True)
     availability = models.JSONField(default=dict)
+    # Holds back one in every walk_in_every seats each day for walk-ins;
+    # scheduled bookings can't take them. null: no reserve.
+    walk_in_every = models.PositiveSmallIntegerField(null=True, blank=True)
 
 
 class AvailabilityException(EMRBaseModel):

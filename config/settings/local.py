@@ -59,7 +59,8 @@ JWKS = JsonWebKey.import_key_set(
     )
 )
 
-SMS_BACKEND = "care.utils.sms.backend.console.ConsoleBackend"
+# Prints SMS unless .env picks a real backend (e.g. FoxxSMS) and sets USE_SMS=True.
+SMS_BACKEND = env("SMS_BACKEND", default="care.utils.sms.backend.console.ConsoleBackend")
 
 
 MAINTAIN_PATIENT_PHONE_NUMBER_IDENTIFIER = True

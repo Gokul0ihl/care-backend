@@ -18,7 +18,7 @@ if [[ -f "$DEPLOY_DIR/deploy.env" ]]; then
 fi
 SRC_DIR="${SRC_DIR:-/opt/ihl-hims/source}"
 IMAGE_REPO="${IMAGE_REPO:-ihl-hims-backend}"
-HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:9000/ping/}"
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:9001/ping/}"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-600}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/ihl-hims/backups}"
 KEEP_BACKUPS="${KEEP_BACKUPS:-5}"

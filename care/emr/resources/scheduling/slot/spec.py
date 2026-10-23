@@ -13,6 +13,7 @@ from care.emr.resources.patient.otp_based_flow import PatientOTPReadSpec
 from care.emr.resources.patient.spec import PatientRetrieveSpec
 from care.emr.resources.scheduling.resource.spec import serialize_resource
 from care.emr.resources.scheduling.schedule.spec import SchedulableResourceTypeOptions
+from care.emr.resources.scheduling.slot.appointment import CONSULTATION_ENCOUNTER_CLASS
 from care.emr.resources.scheduling.token.spec import TokenReadSpec
 from care.emr.resources.user.spec import UserSpec
 from care.emr.tagging.base import SingleFacilityTagManager
@@ -34,7 +35,7 @@ class TokenSlotBaseSpec(EMRResource):
         mapping["availability"] = {
             "name": obj.availability.name,
             "tokens_per_slot": obj.availability.tokens_per_slot,
-            "id": obj.external_id,
+            "id": obj.availability.external_id,
             "schedule": {
                 "name": obj.availability.schedule.name,
                 "id": obj.availability.schedule.external_id,
@@ -120,11 +121,25 @@ class TokenBookingBaseReadSpec(TokenBookingBaseSpec):
     token: TokenReadSpec | None = None
     tags: list[dict] = []
     charge_item: dict | None = None
+    # Desk details (slot/appointment.py)
+    appointment_number: str | None = None
+    consultation_type: str
+    encounter_class: str = ""
+    visit_purpose: str
+    booking_channel: str
+    guidance_area: str
+    guidance_since: str
+    chief_complaint: str
+    reminder_due_at: datetime.datetime | None = None
+    reminder_sent_at: datetime.datetime | None = None
 
     @classmethod
     def perform_extra_serialization(cls, mapping, obj):
         mapping["id"] = obj.external_id
         mapping["token_slot"] = TokenSlotBaseSpec.serialize(obj.token_slot).to_json()
+        mapping["encounter_class"] = CONSULTATION_ENCOUNTER_CLASS.get(
+            obj.consultation_type, ""
+        )
         mapping["resource_type"] = obj.token_slot.resource.resource_type
         mapping["resource"] = serialize_resource(obj.token_slot.resource)
         mapping["facility"] = model_from_cache(

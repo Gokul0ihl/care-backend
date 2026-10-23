@@ -6,6 +6,12 @@
 # Lives in /opt/ihl-hims/deploy on the box. deploy.sh copies this file there
 # when it changes, sets BACKEND_IMAGE in .env and runs docker compose up -d.
 # Never run `docker compose pull` there: the backend image only exists locally.
+#
+# care-modification branch: this stack runs on the same EC2 box as the main
+# one, in its own directory. It has its own project name (so its containers and
+# volumes don't collide with the main stack's) and its own host ports: backend
+# on 9001, Postgres on loopback 5433.
+name: ihl-hims-care-modification
 
 # Full debug mode for the dev box: Django DEBUG (tracebacks in error
 # responses), DEBUG logging including every SQL query, request timings, and
@@ -39,7 +45,7 @@ services:
     # Published on the EC2 host's loopback only (not public) - reach it via an
     # SSH tunnel (e.g. pgAdmin's SSH Tunnel tab), never via the security group.
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5433:5432"
 
   redis:
     image: redis:8-alpine
@@ -60,7 +66,7 @@ services:
     entrypoint: ["bash", "start.sh"]
     restart: unless-stopped
     ports:
-      - "9000:9000"
+      - "9001:9000"
     depends_on:
       db:
         condition: service_healthy

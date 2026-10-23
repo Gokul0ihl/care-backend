@@ -50,6 +50,8 @@ class AvailabilityForScheduleSpec(AvailabilityBaseSpec):
     create_tokens: bool = False
     reason: str = ""
     availability: list[AvailabilityDateTimeSpec]
+    # The walk-in reserve: 4 holds back one seat in four. None: no reserve.
+    walk_in_every: int | None = Field(default=None, ge=2, le=20)
 
     @field_validator("availability")
     @classmethod

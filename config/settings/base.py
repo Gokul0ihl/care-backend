@@ -541,7 +541,21 @@ GOOGLE_CAPTCHA_POST_KEY = "g-recaptcha-response"
 
 # SMS
 # ------------------------------------------------------------------------------
-USE_SMS = False
+# Read from .env in every settings module (local included). Off unless set;
+# staging and production default it on. test.py forces it off.
+USE_SMS = env.bool("USE_SMS", default=False)
+SMS_BACKEND = env("SMS_BACKEND", default="care.utils.sms.backend.sns.SnsBackend")
+SNS_ACCESS_KEY = env("SNS_ACCESS_KEY", default="")
+SNS_SECRET_KEY = env("SNS_SECRET_KEY", default="")
+SNS_REGION = env("SNS_REGION", default="ap-south-1")
+SNS_ROLE_BASED_MODE = env.bool("SNS_ROLE_BASED_MODE", default=False)
+
+# FoxxSMS (SMS_BACKEND=care.utils.sms.backend.foxsms.FoxSmsBackend)
+FOX_SMS_BASE_URL = env("FOX_SMS_BASE_URL", default="")
+FOX_SMS_USER = env("FOX_SMS_USER", default="")
+FOX_SMS_API_KEY = env("FOX_SMS_API_KEY", default="")
+FOX_SMS_SENDER_ID = env("FOX_SMS_SENDER_ID", default="")
+FOX_SMS_TIMEOUT = env.int("FOX_SMS_TIMEOUT", default=15)
 
 # Cloud and Buckets
 # ------------------------------------------------------------------------------
@@ -712,8 +726,6 @@ SNOWSTORM_DEPLOYMENT_URL = env(
 )
 
 DJANGO_REST_MULTITOKENAUTH_REQUIRE_USABLE_PASSWORD = False
-
-SMS_BACKEND = "care.utils.sms.backend.sns.SnsBackend"
 
 # DLT-registered SMS gateways (FoxxSMS) match the template on exact text, which
 # can span lines; write a line break as a literal \n in .env.

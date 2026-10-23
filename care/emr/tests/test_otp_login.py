@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest import mock
 
 from django.test import override_settings
 from rest_framework import status
@@ -252,3 +253,18 @@ class OTPLoginFlowTests(APITestCase):
         MobileOTP.objects.filter(phone_number=self.PHONE).update(created_date=recent)
         resp = self._login(self.DEV_OTP)
         self.assertEqual(resp.status_code, 200)
+
+
+@override_settings(USE_SMS=True, IS_PRODUCTION=False)
+class OTPSentBySmsTests(APITestCase):
+    PHONE = "+919999999998"
+
+    def test_texted_otp_is_random_outside_production(self):
+        with mock.patch("care.utils.sms.send_text_message") as send:
+            resp = self.client.post(
+                "/api/v1/otp/send/", {"phone_number": self.PHONE}, format="json"
+            )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        otp = MobileOTP.objects.get(phone_number=self.PHONE).otp
+        self.assertNotEqual(otp, "45612")
+        self.assertIn(otp, send.call_args.kwargs["content"])

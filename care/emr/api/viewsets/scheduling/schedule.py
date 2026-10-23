@@ -2,7 +2,8 @@ from django.db import transaction
 from django.utils import timezone
 from django_filters import DateTimeFilter, FilterSet, UUIDFilter
 from django_filters.rest_framework import DjangoFilterBackend
-from pydantic import BaseModel
+from drf_spectacular.utils import extend_schema
+from pydantic import BaseModel, Field
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -42,6 +43,10 @@ class ChargeItemDefinitionSetSpec(BaseModel):
     charge_item_definition: str | None
     re_visit_allowed_days: int
     re_visit_charge_item_definition: str | None
+
+
+class WalkInReserveSpec(BaseModel):
+    walk_in_every: int | None = Field(default=None, ge=2, le=20)
 
 
 class ScheduleFilters(FilterSet):
@@ -356,3 +361,15 @@ class AvailabilityViewSet(EMRCreateMixin, EMRDestroyMixin, EMRBaseViewSet):
 
     def authorize_destroy(self, instance):
         self.authorize_create(None)
+
+    @extend_schema(request=WalkInReserveSpec)
+    @action(detail=True, methods=["POST"])
+    def set_walk_in_reserve(self, request, *args, **kwargs):
+        """Sets or (with null) removes the session's walk-in reserve."""
+        instance = self.get_object()
+        self.authorize_create(None)
+        spec = WalkInReserveSpec.model_validate(request.data)
+        instance.walk_in_every = spec.walk_in_every
+        instance.updated_by = request.user
+        instance.save(update_fields=["walk_in_every", "updated_by", "modified_date"])
+        return Response(AvailabilityForScheduleSpec.serialize(instance).to_json())

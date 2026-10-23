@@ -3,7 +3,7 @@ from typing import Literal
 
 from django.db import transaction
 from django.utils import timezone
-from django_filters import DateFromToRangeFilter, FilterSet, UUIDFilter
+from django_filters import CharFilter, DateFromToRangeFilter, FilterSet, UUIDFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from pydantic import UUID4, BaseModel
@@ -20,6 +20,7 @@ from care.emr.api.viewsets.base import (
     EMRUpdateMixin,
 )
 from care.emr.api.viewsets.scheduling import lock_create_appointment
+from care.emr.api.viewsets.scheduling.desk_details import check_walk_in_reserve
 from care.emr.api.viewsets.scheduling.schedule import get_schedulable_resource
 from care.emr.models import PatientUser, TokenSlot
 from care.emr.models.organization import (
@@ -77,6 +78,19 @@ class RescheduleBookingSpec(BaseModel):
     tags: list[UUID4] = []
 
 
+# Desk details a reschedule carries to the new booking. The reminder is
+# worked out again for the new slot.
+MOVED_ON_RESCHEDULE = [
+    "appointment_number",
+    "consultation_type",
+    "visit_purpose",
+    "booking_channel",
+    "guidance_area",
+    "guidance_since",
+    "chief_complaint",
+]
+
+
 class TokenBookingFilters(FilterSet):
     status = MultiSelectFilter(field_name="status")
     date = DateFromToRangeFilter(field_name="token_slot__start_datetime__date")
@@ -84,6 +98,10 @@ class TokenBookingFilters(FilterSet):
     resource_type = DummyCharFilter()
     resource_ids = DummyCharFilter()
     patient = UUIDFilter(field_name="patient__external_id")
+    appointment_number = CharFilter(
+        field_name="appointment_number", lookup_expr="iexact"
+    )
+    booking_channel = MultiSelectFilter(field_name="booking_channel")
 
 
 class TokenBookingViewSet(
@@ -162,6 +180,12 @@ class TokenBookingViewSet(
             )
         if self.action == "list":
             if "resource_type" not in self.request.query_params:
+                # The whole facility's bookings (the desk's day list), for
+                # users who may list every booking there.
+                if AuthorizationController.call(
+                    "can_list_booking_on_facility", self.request.user, facility
+                ):
+                    return queryset
                 raise ValidationError("Resource Type is required")
 
             organization_ids = []
@@ -198,6 +222,7 @@ class TokenBookingViewSet(
             if request_data.note:
                 instance.note = request_data.note
             instance.status = request_data.reason
+            instance.reminder_due_at = None
             instance.updated_by = user
             if instance.charge_item:
                 handle_charge_item_cancel(instance.charge_item)
@@ -237,8 +262,18 @@ class TokenBookingViewSet(
         )
         if existing_booking.token_slot.id == new_slot.id:
             raise ValidationError("Cannot reschedule to the same slot")
+        if existing_booking.status in CANCELLED_STATUS_CHOICES:
+            raise ValidationError("A cancelled booking cannot be rescheduled")
 
         with transaction.atomic():
+            new_slot = (
+                TokenSlot.objects.select_related(
+                    "resource__facility", "availability__schedule"
+                )
+                .select_for_update(of=("self",))
+                .get(pk=new_slot.pk)
+            )
+            check_walk_in_reserve(new_slot, existing_booking.booking_channel)
             self.cancel_appointment_handler(
                 existing_booking,
                 {
@@ -247,11 +282,16 @@ class TokenBookingViewSet(
                 },
                 request.user,
             )
+            # The APT number and desk details move to the new booking.
             appointment = lock_create_appointment(
                 new_slot,
                 existing_booking.patient,
                 request.user,
                 request_data.new_booking_note,
+                **{
+                    field: getattr(existing_booking, field)
+                    for field in MOVED_ON_RESCHEDULE
+                },
             )
             if request_data.tags:
                 tag_manager = SingleFacilityTagManager()

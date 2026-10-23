@@ -48,3 +48,41 @@ class TokenBooking(EMRBaseModel):
     charge_item = models.ForeignKey(
         "emr.ChargeItem", on_delete=models.CASCADE, null=True, blank=True
     )
+    # Desk details (resources/scheduling/slot/appointment.py). Bookings made
+    # before these existed have no APT number and a blank channel.
+    appointment_number = models.CharField(
+        max_length=20, null=True, blank=True, default=None
+    )
+    consultation_type = models.CharField(max_length=20, default="in_person")
+    visit_purpose = models.CharField(max_length=20, blank=True, default="")
+    booking_channel = models.CharField(max_length=20, blank=True, default="")
+    # Phone bookings only; care_emergency's reminder task sends them.
+    reminder_due_at = models.DateTimeField(null=True, blank=True)
+    reminder_sent_at = models.DateTimeField(null=True, blank=True)
+    # "I don't know whom to meet" (D50); the remarks print as the chief complaint.
+    guidance_area = models.CharField(max_length=40, blank=True, default="")
+    guidance_since = models.CharField(max_length=20, blank=True, default="")
+    chief_complaint = models.CharField(max_length=500, blank=True, default="")
+
+    class Meta:
+        constraints = [
+            # A reschedule hands the number to the new booking and the old,
+            # rescheduled one keeps a copy.
+            models.UniqueConstraint(
+                fields=["appointment_number"],
+                condition=models.Q(appointment_number__isnull=False)
+                & ~models.Q(status="rescheduled"),
+                name="unique_appointment_number",
+            )
+        ]
+
+
+class AppointmentSequence(models.Model):
+    """One counter row per year for APT numbers, incremented under a row lock.
+    The number has no site code, so the counter is shared by all facilities."""
+
+    year = models.PositiveIntegerField(unique=True)
+    last_value = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return f"{self.year}: {self.last_value}"
