@@ -1,7 +1,7 @@
 from django.utils import timezone
 
-from care_emergency.models import ArtCouple, BreakGlassAccess, NewbornBirth
-from care_emergency.newborn import serialize_birth
+from care_emergency.models import ArtCouple, BreakGlassAccess
+from care_emergency.newborn import is_newborn, serialize_birth
 
 
 def serialize_desk(desk):
@@ -192,12 +192,9 @@ def serialize_restricted_registration(patient):
 
 
 def serialize_newborn(patient):
-    birth = (
-        NewbornBirth.objects.filter(baby=patient)
-        .select_related("baby", "mother", "facility")
-        .first()
-    )
-    return serialize_birth(birth) if birth else None
+    """The birth details when the patient was registered as a newborn. Only
+    babies pay the two lookups (mother, facility)."""
+    return serialize_birth(patient) if is_newborn(patient) else None
 
 
 def serialize_couple(patient):

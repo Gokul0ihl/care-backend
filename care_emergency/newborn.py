@@ -111,22 +111,57 @@ def baby_registration(mother, mother_record, gender):
     }
 
 
-def serialize_birth(birth):
+# The birth columns of Patient, set once when the desk registers the baby
+# (save_birth) and moved together by a merge (merge.take_birth).
+BIRTH_COLUMNS = [
+    "birth_mother_id",
+    "birth_facility_id",
+    "born_at",
+    "birth_order",
+    "number_of_babies",
+    "delivery_type",
+    "gestation_weeks",
+    "birth_weight_grams",
+    "length_cm",
+    "head_circumference_cm",
+    "apgar_1_min",
+    "apgar_5_min",
+]
+
+
+def is_newborn(patient):
+    """Whether the patient was registered as a baby born at the facility."""
+    return patient.born_at is not None
+
+
+def save_birth(patient, details, user):
+    """Writes the birth columns onto the baby's patient (update_fields, after
+    Care's create and the desk registration)."""
+    for key, value in details.items():
+        setattr(patient, key, value)
+    patient.updated_by = user
+    patient.save(update_fields=[*details, "updated_by", "modified_date"])
+
+
+def serialize_birth(patient):
+    """The baby's birth details, keyed as the former NewbornBirth row; id and
+    baby are both the baby's patient id. Reads birth_mother and
+    birth_facility, so select_related them when serializing many."""
     return {
-        "id": str(birth.external_id),
-        "baby": str(birth.baby.external_id),
-        "mother": str(birth.mother.external_id),
-        "facility": str(birth.facility.external_id),
-        "born_at": birth.born_at,
-        "birth_order": birth.birth_order,
-        "number_of_babies": birth.number_of_babies,
-        "delivery_type": birth.delivery_type,
-        "gestation_weeks": birth.gestation_weeks,
-        "birth_weight_grams": birth.birth_weight_grams,
-        "length_cm": float(birth.length_cm) if birth.length_cm is not None else None,
-        "head_circumference_cm": float(birth.head_circumference_cm)
-        if birth.head_circumference_cm is not None
+        "id": str(patient.external_id),
+        "baby": str(patient.external_id),
+        "mother": str(patient.birth_mother.external_id),
+        "facility": str(patient.birth_facility.external_id),
+        "born_at": patient.born_at,
+        "birth_order": patient.birth_order,
+        "number_of_babies": patient.number_of_babies,
+        "delivery_type": patient.delivery_type,
+        "gestation_weeks": patient.gestation_weeks,
+        "birth_weight_grams": patient.birth_weight_grams,
+        "length_cm": float(patient.length_cm) if patient.length_cm is not None else None,
+        "head_circumference_cm": float(patient.head_circumference_cm)
+        if patient.head_circumference_cm is not None
         else None,
-        "apgar_1_min": birth.apgar_1_min,
-        "apgar_5_min": birth.apgar_5_min,
+        "apgar_1_min": patient.apgar_1_min,
+        "apgar_5_min": patient.apgar_5_min,
     }

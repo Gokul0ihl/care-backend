@@ -240,6 +240,39 @@ class Patient(EMRBaseModel):
     )
     restricted_at = models.DateTimeField(null=True, blank=True)
 
+    # Newborn registration (care_emergency newborn.py): a baby born at the
+    # facility, linked to the mother by birth_mother, never by an identifier.
+    # Twins share the delivery details and are numbered by birth_order.
+    # born_at marks a newborn birth; everyone else has these null or "".
+    birth_mother = models.ForeignKey(
+        "emr.Patient",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="newborn_babies",
+    )
+    birth_facility = models.ForeignKey(
+        "facility.Facility",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    born_at = models.DateTimeField(null=True, blank=True)
+    birth_order = models.PositiveSmallIntegerField(null=True, blank=True)
+    number_of_babies = models.PositiveSmallIntegerField(null=True, blank=True)
+    delivery_type = models.CharField(max_length=30, blank=True, default="")
+    gestation_weeks = models.PositiveSmallIntegerField(null=True, blank=True)
+    birth_weight_grams = models.PositiveSmallIntegerField(null=True, blank=True)
+    length_cm = models.DecimalField(
+        max_digits=4, decimal_places=1, null=True, blank=True
+    )
+    head_circumference_cm = models.DecimalField(
+        max_digits=4, decimal_places=1, null=True, blank=True
+    )
+    apgar_1_min = models.PositiveSmallIntegerField(null=True, blank=True)
+    apgar_5_min = models.PositiveSmallIntegerField(null=True, blank=True)
+
     def get_age(self) -> str:
         start = self.date_of_birth or date(self.year_of_birth, 1, 1)
         end = (self.deceased_datetime or timezone.now()).date()

@@ -43,10 +43,10 @@ from care_emergency.models import (
     ArtCouple,
     EmergencyDesk,
     EmergencyEncounter,
-    NewbornBirth,
     PatientMerge,
     RegistrationAllergy,
 )
+from care_emergency.newborn import BIRTH_COLUMNS, is_newborn
 from care_emergency.restricted import is_restricted
 from care_emergency.serializers import REGISTRATION_FIELDS
 from care_emergency.services import display_numbers
@@ -560,7 +560,8 @@ MOVE_LABELS = {
     "care_emergency.patientdocument": "Documents",
     "care_emergency.emergencyencounter": "Emergency records",
     "care_emergency.artcouple": "IVF couple record",
-    "care_emergency.newbornbirth": "Birth record",
+    # Patient.birth_mother: the duplicate mother's babies.
+    "emr.patient": "Birth record",
     "care_emergency.statutoryflag": "Statutory flags",
 }
 
@@ -635,6 +636,8 @@ def planned_moves(source, target):
         moves["Desk registration"] += 1
     if is_quick_registered(source) and not is_quick_registered(target):
         moves["Quick registration"] += 1
+    if is_newborn(source) and not is_newborn(target):
+        moves[MOVE_LABELS["emr.patient"]] += 1
     couples = ArtCouple.objects.filter(woman=source).count() + ArtCouple.objects.filter(
         partner=source
     ).count()
@@ -702,9 +705,7 @@ def merge_blockers(source, target):  # noqa: C901
         ArtCouple.objects.filter(woman=target, partner=source).exists()
     ):
         blockers.append("These records are the two partners of an IVF couple")
-    elif NewbornBirth.objects.filter(mother=source, baby=target).exists() or (
-        NewbornBirth.objects.filter(mother=target, baby=source).exists()
-    ):
+    elif source.birth_mother_id == target.id or target.birth_mother_id == source.id:
         blockers.append("These records are a mother and her baby")
     else:
         for field, label in (("woman", "the woman"), ("partner", "the partner")):
@@ -727,6 +728,8 @@ def merge_blockers(source, target):  # noqa: C901
             f"Both records have an open billing account at {facility_name}. "
             "Close one of them first"
         )
+    if is_newborn(source) and is_newborn(target):
+        blockers.append("Both records have a birth record")
     for model, field in generic_relations():
         name = model._meta.verbose_name  # noqa: SLF001
         if field.one_to_one:
@@ -917,6 +920,13 @@ def take_quick_registration(source, target, *, take_name):
         setattr(target, name, value)
 
 
+def take_birth(source, target):
+    """Only the duplicate was registered as a newborn: the kept record takes
+    its birth columns (mother included)."""
+    for name in BIRTH_COLUMNS:
+        setattr(target, name, getattr(source, name))
+
+
 def apply_fields(comparisons, choices, target, *, source_registered, target_registered):
     """Copies the chosen and missing demographics onto the target.
 
@@ -991,6 +1001,9 @@ def move_records(source, target, moved_ids):  # noqa: C901
             target,
             take_name=not is_registered(source) and not is_registered(target),
         )
+    # Both babies is a blocker; the duplicate's birth details move otherwise.
+    if is_newborn(source) and not is_newborn(target):
+        take_birth(source, target)
     ArtCouple.objects.filter(woman=source).update(woman=target)
     ArtCouple.objects.filter(partner=source).update(partner=target)
     return facilities

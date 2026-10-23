@@ -55,7 +55,6 @@ from care_emergency.models import (
     EmergencyDesk,
     EmergencyEncounter,
     FacilityUnit,
-    NewbornBirth,
     PatientDocument,
     PostOffice,
     RegistrationAllergy,
@@ -82,7 +81,12 @@ from care_emergency.merge import (
     merge_patients,
     resolve_merged,
 )
-from care_emergency.newborn import baby_name, baby_registration, serialize_birth
+from care_emergency.newborn import (
+    baby_name,
+    baby_registration,
+    save_birth,
+    serialize_birth,
+)
 from care_emergency.pincodes import lookup as lookup_pincode
 from care_emergency.pincodes import plug_setting
 from care_emergency.restricted import can_see_identity, is_restricted, new_alias
@@ -645,7 +649,7 @@ class RegistrationView(EmergencyAPIView):
 class NewbornRegistrationView(EmergencyAPIView):
     """Registers the babies of one delivery: each baby becomes their own Care
     patient with their own UHID and a desk registration inherited from the
-    mother's, linked to her by a NewbornBirth row. One transaction, so twins
+    mother's, linked to her by the baby's birth columns (birth_mother). One transaction, so twins
     are registered together or not at all."""
 
     def post(self, request):
@@ -704,28 +708,31 @@ class NewbornRegistrationView(EmergencyAPIView):
                     request.user,
                     facility,
                 )
-                birth = NewbornBirth.objects.create(
-                    baby=patient,
-                    mother=mother,
-                    facility=facility,
-                    born_at=baby.born_at,
-                    birth_order=order,
-                    number_of_babies=number_of_babies,
-                    delivery_type=spec.delivery_type,
-                    gestation_weeks=spec.gestation_weeks,
-                    birth_weight_grams=baby.birth_weight_grams,
-                    length_cm=baby.length_cm,
-                    head_circumference_cm=baby.head_circumference_cm,
-                    apgar_1_min=baby.apgar_1_min,
-                    apgar_5_min=baby.apgar_5_min,
-                    created_by=request.user,
-                    updated_by=request.user,
+                save_birth(
+                    patient,
+                    {
+                        "birth_mother": mother,
+                        "birth_facility": facility,
+                        "born_at": baby.born_at,
+                        "birth_order": order,
+                        "number_of_babies": number_of_babies,
+                        "delivery_type": spec.delivery_type,
+                        "gestation_weeks": spec.gestation_weeks,
+                        "birth_weight_grams": baby.birth_weight_grams,
+                        "length_cm": baby.length_cm,
+                        "head_circumference_cm": baby.head_circumference_cm,
+                        "apgar_1_min": baby.apgar_1_min,
+                        "apgar_5_min": baby.apgar_5_min,
+                    },
+                    request.user,
                 )
-                patient.refresh_from_db()
+                patient = Patient.objects.select_related(
+                    "birth_mother", "birth_facility"
+                ).get(id=patient.id)
                 babies.append(
                     {
                         "patient": PatientRetrieveSpec.serialize(patient).to_json(),
-                        "birth": serialize_birth(birth),
+                        "birth": serialize_birth(patient),
                     }
                 )
 

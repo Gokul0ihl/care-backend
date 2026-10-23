@@ -7,11 +7,20 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 
-from care_emergency.merge import merge_blockers
-from care_emergency.models import FacilityUnit, NewbornBirth
+from care_emergency.merge import (
+    compare,
+    merge_blockers,
+    merge_patients,
+    planned_moves,
+)
+from care_emergency.models import FacilityUnit
 from care_emergency.tests.test_registration import registration_details
 
 PHONE = "+919812345678"
+
+
+def keep_target(source, target):
+    return {x.field.key: "target" for x in compare(source, target) if x.conflict}
 
 
 class NewbornRegistrationTests(CareAPITestBase):
@@ -86,7 +95,7 @@ class NewbornRegistrationTests(CareAPITestBase):
         self.assertIn(response.status_code, (400, 403), response.data)
         self.assertIn(message, str(response.data))
         self.assertEqual(Patient.objects.count(), before)
-        self.assertFalse(NewbornBirth.objects.exists())
+        self.assertFalse(Patient.objects.filter(born_at__isnull=False).exists())
 
     def test_single_baby_gets_own_uhid_and_inherited_registration(self):
         response = self.register(self.body())
@@ -123,11 +132,24 @@ class NewbornRegistrationTests(CareAPITestBase):
         self.assertEqual(record.identity_card_type, "")
         self.assertEqual(record.abha_address, "")
 
-        birth = NewbornBirth.objects.get(baby=baby)
-        self.assertEqual(birth.mother, self.mother)
-        self.assertEqual(birth.birth_weight_grams, 3100)
-        self.assertEqual(birth.apgar_5_min, 9)
+        self.assertEqual(record.birth_mother, self.mother)
+        self.assertEqual(record.birth_facility, self.facility)
+        self.assertEqual(record.birth_weight_grams, 3100)
+        self.assertEqual(record.apgar_5_min, 9)
+        self.assertEqual(record.delivery_type, "Normal vaginal")
         self.assertEqual(entry["birth"]["length_cm"], 49.5)
+        self.assertEqual(entry["birth"]["id"], str(baby.external_id))
+        self.assertEqual(entry["birth"]["baby"], str(baby.external_id))
+        self.assertEqual(entry["birth"]["mother"], str(self.mother.external_id))
+        self.assertEqual(entry["birth"]["facility"], str(self.facility.external_id))
+        self.assertEqual(entry["birth"]["birth_order"], 1)
+        self.assertEqual(entry["birth"]["number_of_babies"], 1)
+        self.assertEqual(entry["birth"]["gestation_weeks"], 39)
+        self.assertEqual(entry["birth"]["head_circumference_cm"], 34.0)
+        self.assertEqual(list(self.mother.newborn_babies.all()), [record])
+        # The mother is not a newborn.
+        self.mother.refresh_from_db()
+        self.assertIsNone(self.mother.born_at)
 
         detail = self.client.get(
             reverse("desk-registration-detail", args=[baby.external_id])
@@ -142,10 +164,12 @@ class NewbornRegistrationTests(CareAPITestBase):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         names = [entry["patient"]["name"] for entry in response.data["babies"]]
         self.assertEqual(names, ["Baby 1 Of Test Mother", "Baby 2 Of Test Mother"])
-        births = NewbornBirth.objects.order_by("birth_order")
+        births = Patient.objects.filter(birth_mother=self.mother).order_by(
+            "birth_order"
+        )
         self.assertEqual([b.birth_order for b in births], [1, 2])
         self.assertEqual({b.number_of_babies for b in births}, {2})
-        first = Patient.objects.get(id=births[0].baby_id)
+        first = births[0]
         self.assertEqual(first.title, "Master")
         self.assertEqual(first.guardian_relationship, "S/O")
 
@@ -201,3 +225,52 @@ class NewbornRegistrationTests(CareAPITestBase):
         self.assertIn(
             "These records are a mother and her baby", merge_blockers(baby, self.mother)
         )
+
+    def test_mother_registration_detail_has_no_birth(self):
+        detail = self.client.get(
+            reverse("desk-registration-detail", args=[self.mother.external_id])
+        )
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertIsNone(detail.data["birth"])
+
+    def test_merge_moves_birth_details_and_babies(self):
+        # A duplicate baby record (registered as a newborn) merged into a
+        # plain record of the same baby takes the birth details along, and a
+        # duplicate mother's babies follow her into the kept record.
+        response = self.register(self.body())
+        baby = Patient.objects.get(external_id=response.data["babies"][0]["patient"]["id"])
+        plain = self.register_mother()
+        Patient.objects.filter(id=plain.id).update(name="Baby Of Test Mother")
+        plain.refresh_from_db()
+        baby.refresh_from_db()
+        self.assertEqual(planned_moves(baby, plain).get("Birth record"), 1)
+        self.assertEqual(merge_blockers(baby, plain), [])
+        merge_patients(baby, plain, keep_target(baby, plain), "Same baby", self.user)
+        plain.refresh_from_db()
+        self.assertEqual(plain.birth_mother, self.mother)
+        self.assertEqual(plain.birth_weight_grams, 3100)
+        self.assertEqual(plain.birth_order, 1)
+
+        other_mother = self.register_mother()
+        self.assertEqual(
+            planned_moves(self.mother, other_mother).get("Birth record"), 1
+        )
+        merge_patients(
+            self.mother,
+            other_mother,
+            keep_target(self.mother, other_mother),
+            "Same mother",
+            self.user,
+        )
+        plain.refresh_from_db()
+        self.assertEqual(plain.birth_mother, other_mother)
+
+    def test_two_babies_cannot_be_merged(self):
+        response = self.register(
+            self.body(babies=[self.baby(), self.baby(gender="male")])
+        )
+        first, second = (
+            Patient.objects.get(external_id=entry["patient"]["id"])
+            for entry in response.data["babies"]
+        )
+        self.assertIn("Both records have a birth record", merge_blockers(first, second))
