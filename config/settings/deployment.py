@@ -121,6 +121,8 @@ if SENTRY_DSN := env("SENTRY_DSN", default=""):
     ignore_logger("django.security.DisallowedHost")
 
 # SMS API KEYS
+# Off unless set: base.py has USE_SMS = False and staging/production turn it on.
+USE_SMS = env.bool("USE_SMS", default=False)
 SMS_BACKEND = env("SMS_BACKEND", default="care.utils.sms.backend.sns.SnsBackend")
 SNS_ACCESS_KEY = env("SNS_ACCESS_KEY", default="")
 SNS_SECRET_KEY = env("SNS_SECRET_KEY", default="")
