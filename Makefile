@@ -11,7 +11,7 @@ ifndef DOCKER_VERSION
 endif
 
 install:
-	pipenv install --categories "packages dev-packeges docs"
+	uv sync
 
 re-build:
 	docker compose -f docker-compose.yaml -f $(docker_config_file) build --no-cache

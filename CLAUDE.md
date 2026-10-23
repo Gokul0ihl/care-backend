@@ -47,18 +47,18 @@ make down             # Stop services
 
 ### Without Docker (venv)
 ```bash
-pipenv run python manage.py migrate
-pipenv run python manage.py load_fixtures
-pipenv run python manage.py test care.users --keepdb --parallel
-pipenv run ruff check --fix .
-pipenv run ruff format .
+uv run python manage.py migrate
+uv run python manage.py load_fixtures
+uv run python manage.py test care.users --keepdb --parallel
+uv run ruff check --fix .
+uv run ruff format .
 ```
 
 ## Code Style
 
 - **Linter/Formatter**: Ruff (replaces black, isort, flake8)
 - **Python version**: 3.13 (strict requirement)
-- **Package management**: Pipenv (`Pipfile` + `Pipfile.lock`)
+- **Package management**: uv (`pyproject.toml` + `uv.lock`; add packages with `uv add`, dev tools with `uv add --dev`)
 
 ## Architecture
 
@@ -108,5 +108,5 @@ When working autonomously:
 
 1. **Before coding:** Read the relevant model, resource spec, authorization controller, viewset, and test files
 2. **After changes:** Run `ruff check --fix .` and `ruff format .` to lint and format
-3. **Verify:** Run related tests: `pipenv run python manage.py test care.module_name --keepdb`
+3. **Verify:** Run related tests: `uv run python manage.py test care.module_name --keepdb`
 4. **Migrations:** Run `makemigrations` after model changes, then `migrate`

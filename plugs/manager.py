@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 from collections import defaultdict
@@ -28,8 +29,15 @@ class PlugManager:
 
     def install(self) -> None:
         packages = {f"{x.package_name}{x.version}" for x in self.plugs}
-        if packages:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", *packages])  # noqa: S603
+        if not packages:
+            return
+        # Install into the running interpreter's environment, with uv when it's
+        # there (the Docker images) and pip otherwise.
+        if uv := shutil.which("uv"):
+            cmd = [uv, "pip", "install", "--python", sys.executable, *packages]
+        else:
+            cmd = [sys.executable, "-m", "pip", "install", *packages]
+        subprocess.check_call(cmd)  # noqa: S603
 
     def add_plug(self, plug: Plug) -> None:
         if not isinstance(plug, Plug):

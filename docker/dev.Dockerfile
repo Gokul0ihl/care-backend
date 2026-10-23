@@ -4,8 +4,6 @@ ARG APP_HOME=/app
 
 WORKDIR $APP_HOME
 
-ENV PIPENV_CACHE_DIR=/root/.cache/pip
-
 RUN apt-get update && apt-get install --no-install-recommends -y \
   build-essential libjpeg-dev zlib1g-dev libgmp-dev \
   libpq-dev libpangoft2-1.0-0 gettext wget curl gnupg git \
@@ -13,20 +11,24 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
   && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
   && rm -rf /var/lib/apt/lists/*
 
-# use pipenv to manage virtualenv
+# The venv lives outside $APP_HOME, which compose bind-mounts from the host.
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /usr/local/bin/uv
+ENV UV_PROJECT_ENVIRONMENT=/.venv \
+  UV_CACHE_DIR=/root/.cache/uv \
+  UV_PYTHON_DOWNLOADS=never \
+  UV_LINK_MODE=copy
 ENV PATH=/.venv/bin:$PATH
-RUN python -m venv /.venv
-RUN --mount=type=cache,target=/root/.cache/pip pip install pipenv==2025.1.1
 
-COPY Pipfile Pipfile.lock $APP_HOME/
-RUN --mount=type=cache,target=/root/.cache/pip pipenv  install --system --categories "packages dev-packages docs"
+COPY pyproject.toml uv.lock $APP_HOME/
+RUN --mount=type=cache,target=/root/.cache/uv \
+  uv sync --locked --all-groups --no-install-project
 
 ARG ADDITIONAL_PLUGS=""
 ENV ADDITIONAL_PLUGS=$ADDITIONAL_PLUGS
 
 COPY . $APP_HOME/
 
-RUN --mount=type=cache,target=/root/.cache/pip python3 $APP_HOME/install_plugins.py
+RUN --mount=type=cache,target=/root/.cache/uv python3 $APP_HOME/install_plugins.py
 
 HEALTHCHECK \
   --interval=10s \

@@ -250,8 +250,7 @@
           source .venv/bin/activate
 
           echo "Installing Python dependencies..."
-          pip install --upgrade pip pipenv
-          pipenv install --dev --system
+          uv sync --python ${python}/bin/python
 
           # Install plugins
           python install_plugins.py
@@ -442,6 +441,7 @@
           buildInputs = with pkgs; [
             # Python and package management
             pythonEnv
+            uv
 
             # Databases and services (from Nix store)
             postgresql_15

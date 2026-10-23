@@ -12,7 +12,7 @@ An issue with the [good first](https://github.com/ohcnetwork/care/issues?q=is%3A
 Install dependencies
 
 ```bash
-pipenv sync --categories "packages dev-packages docs"
+uv sync
 ```
 
 Install pre-commit hooks
@@ -55,12 +55,10 @@ DATABASE_URL=postgres://<your_username>:<your_password>@localhost:5432/care
 ##### Setting up the environment
 
 ```bash
-# create a virtualenv
-python3 -m venv .venv
+# create .venv and install dependencies (dev and docs groups included)
+uv sync
 # activate the virtualenv
 source .venv/bin/activate
-# install dependencies
-pipenv sync --categories "packages dev-packages docs"
 # to read from .env file
 export DJANGO_READ_DOT_ENV_FILE=true
 # run migrations
@@ -74,7 +72,7 @@ If you're on Mac and you have installed Postgres.app Run:
 export PATH=$PATH:/Applications/Postgres.app/Contents/Versions/14/bin
 ```
 
-If you're pipenv install is failing on Pillow Consider installing these dependencies:
+If `uv sync` is failing on Pillow Consider installing these dependencies:
 ```bash
 brew install libjpeg libtiff little-cms2 openjpeg webp freetype harfbuzz fribidi
 ```

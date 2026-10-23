@@ -9,8 +9,6 @@ WORKDIR $APP_HOME
 ENV BUILD_ENVIRONMENT=$BUILD_ENVIRONMENT
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV PIPENV_VENV_IN_PROJECT=1
-ENV PIPENV_CACHE_DIR=/root/.cache/pip
 ENV PATH=$APP_HOME/.venv/bin:$PATH
 ENV HOME=$APP_HOME
 
@@ -24,12 +22,16 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
   && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
   && rm -rf /var/lib/apt/lists/*
 
-# use pipenv to manage virtualenv
-RUN pip install pipenv==2025.1.1
+# uv installs the locked dependencies into $APP_HOME/.venv, using the
+# image's own Python (the runtime stage has the same one).
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /usr/local/bin/uv
+ENV UV_PROJECT_ENVIRONMENT=$APP_HOME/.venv \
+  UV_PYTHON_DOWNLOADS=never \
+  UV_COMPILE_BYTECODE=1 \
+  UV_NO_CACHE=1
 
-RUN python -m venv $APP_HOME/.venv
-COPY Pipfile Pipfile.lock $APP_HOME/
-RUN pipenv install --deploy --categories "packages"
+COPY pyproject.toml uv.lock $APP_HOME/
+RUN uv sync --locked --no-default-groups --no-install-project
 
 COPY plugs/ $APP_HOME/plugs/
 COPY install_plugins.py plug_config.py $APP_HOME/

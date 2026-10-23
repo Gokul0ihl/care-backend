@@ -22,7 +22,7 @@ Upstream already ships everything needed to run this:
   `manage.py migrate` automatically on every start)
 
 We don't add a custom Dockerfile - `docker/prod.Dockerfile` is already correct
-for this stack (Pipfile-based deps, PDF generation libs, etc).
+for this stack (uv-locked deps, PDF generation libs, etc).
 
 ## Local development
 

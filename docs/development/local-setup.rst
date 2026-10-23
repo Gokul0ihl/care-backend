@@ -116,7 +116,7 @@ Pre-Commit is a package manager and tool for running and organising your git hoo
 * Install pre-commit
     pre-commit is installed while you run ::
 
-     pipenv install --categories "packages dev-packages"
+     uv sync
 
 * Setup
     this installs all the git-hooks ::

@@ -393,7 +393,7 @@ The development environment includes these tools from the Nix store:
 
 When adding new dependencies:
 
-1. **Python packages**: Add to `Pipfile` and run `setup-dev`
+1. **Python packages**: `uv add <package>` (updates `pyproject.toml` and `uv.lock`), then run `setup-dev`
 2. **System packages**: Add to `flake.nix` buildInputs
 3. **Services**: Update service management scripts in `flake.nix`
 4. **Environment variables**: Add to envVars in `flake.nix`
