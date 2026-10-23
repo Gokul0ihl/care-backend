@@ -13,6 +13,8 @@ from rest_framework import status
 from care_emergency.models import PostOffice
 
 PHONE = "+919812345678"
+# Quick Register texts the form link from its views module.
+SEND_SMS = "care_emergency.views.quick_registration.send_text_message"
 
 
 class QuickRegistrationTests(CareAPITestBase):
@@ -46,7 +48,7 @@ class QuickRegistrationTests(CareAPITestBase):
 
     def register(self, body):
         with (
-            mock.patch("care_emergency.views.send_text_message", return_value=1) as sms,
+            mock.patch(SEND_SMS, return_value=1) as sms,
             self.captureOnCommitCallbacks(execute=True),
         ):
             response = self.client.post(
@@ -271,15 +273,13 @@ class QuickRegistrationTests(CareAPITestBase):
         record = self.quick_patient()
         url = reverse("quick-registration-send-link", args=[record.external_id])
 
-        with mock.patch("care_emergency.views.send_text_message", return_value=0):
+        with mock.patch(SEND_SMS, return_value=0):
             failed = self.client.post(url)
         self.assertEqual(failed.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("couldn't be sent", str(failed.data))
 
         with freeze_time(timezone.now() + datetime.timedelta(days=8)):
-            with mock.patch(
-                "care_emergency.views.send_text_message", return_value=1
-            ) as sms:
+            with mock.patch(SEND_SMS, return_value=1) as sms:
                 resent = self.client.post(url)
             self.assertEqual(resent.status_code, status.HTTP_200_OK, resent.data)
             sms.assert_called_once()

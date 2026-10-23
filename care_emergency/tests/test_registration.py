@@ -1120,7 +1120,12 @@ class DeskRegistrationTests(CareAPITestBase):
     def test_no_phone_permissions_for_lookup_and_contact(self):
         patient, response = self.create_no_phone()
         number = response.data["patient"]["instance_identifiers"][0]["value"]
-        with mock.patch("care_emergency.views.can", return_value=False):
+        # Each view module imports can() from views.base, so patch it where used.
+        denied = [
+            mock.patch(f"care_emergency.views.{module}.can", return_value=False)
+            for module in ("patient_numbers", "patient_contact", "registration")
+        ]
+        with denied[0], denied[1], denied[2]:
             lookup = self.client.get(reverse("patient-number-search"), {"uhid": number})
             self.assertEqual(lookup.data["results"], [])
             update = self.client.patch(
