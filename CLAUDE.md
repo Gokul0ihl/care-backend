@@ -8,8 +8,8 @@ CARE is a Digital Public Good building an open source EMR + Hospital Management 
 
 This repo is our fork of CARE for Pacific OneHealth (POH). We don't merge from upstream, and the
 POH frontend (`~/Code/hmis_fe`) is its only client, so core models and APIs can change to suit it.
-Our own emergency, registration and front-desk code lives in the top-level `care_emergency/` app
-(it used to be a separate plug repo). Feature docs for all of it are in `hmis_fe/docs/`.
+Our own emergency, registration and front-desk code lives in the top-level `hmis/` app, served at
+`/api/hmis/` (it used to be a separate plug repo called `care_emergency`). Feature docs for all of it are in `hmis_fe/docs/`.
 
 ## Local Development Environment
 
@@ -53,7 +53,7 @@ The Makefile test targets pass `--parallel`, which deadlocks on `PatientCreateLo
 serially instead:
 ```bash
 docker compose exec -T backend bash -c \
-  "python manage.py test care_emergency care.emr.tests.test_patient_api --keepdb --noinput"
+  "python manage.py test hmis care.emr.tests.test_patient_api --keepdb --noinput"
 ```
 - `make ruff-fix-all` — Auto-fix linting issues
 
@@ -84,8 +84,8 @@ care/                    # Main Django app
 ├── users/              # User management & auth
 ├── security/           # Roles & permissions
 └── utils/              # Shared utilities
-care_emergency/          # POH app: registration, emergency, patient numbers, appointments desk,
-                         # PIN directory, lab catalogue, API keys (URLs at /api/care_emergency/)
+hmis/                    # POH app: registration, emergency, patient numbers, appointments desk,
+                         # PIN directory, lab catalogue, API keys (URLs at /api/hmis/)
 config/                 # Django configuration
 ├── settings/           # Settings modules (base, local, deployment, test)
 ├── api_router.py       # API URL routing
@@ -94,7 +94,7 @@ plug_config.py          # Plugin system configuration (no plugs installed)
 ```
 
 ### Plugin System
-CARE supports a plugin architecture via `plug_config.py` and the `plugs` package. No plugs are installed now: `care_emergency` was a plug and is now a regular app in `LOCAL_APPS`, with its URLs mounted explicitly in `config/urls.py`. The `PLUGIN_APPS` loop stays for any future plugs.
+CARE supports a plugin architecture via `plug_config.py` and the `plugs` package. No plugs are installed now: the former `care_emergency` plug is now the regular `hmis` app in `LOCAL_APPS`, with its URLs mounted explicitly in `config/urls.py` (plus the patient app server's endpoints under the old `/api/care_emergency/` prefix until that server moves). The `PLUGIN_APPS` loop stays for any future plugs.
 
 ### Settings
 - **Local dev**: `config.settings.local` (DEBUG=True, CORS open, email to console)

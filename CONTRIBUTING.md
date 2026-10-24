@@ -136,11 +136,11 @@ Run tests serially. With `--parallel` (which the Makefile targets use) the worke
 
 ```bash
 docker compose exec -T backend bash -c \
-  "python manage.py test care_emergency care.emr.tests.test_patient_api --keepdb --noinput"
+  "python manage.py test hmis care.emr.tests.test_patient_api --keepdb --noinput"
 ```
 
-`care_emergency/` (registration, emergency, patient numbers and other POH features) is a regular
-app in this repo. It used to be a separate plug, so you no longer need a plug checkout or
+`hmis/` (registration, emergency, patient numbers and other POH features) is a regular
+app in this repo, served at `/api/hmis/`. It used to be a separate plug called `care_emergency`, so you no longer need a plug checkout or
 `CARE_EMERGENCY_PATH` in `.env`.
 
 #

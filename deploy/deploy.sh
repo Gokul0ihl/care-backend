@@ -52,8 +52,8 @@ set_image() {
 }
 
 # Ask the NEW image which migrations it would apply (core apps and the
-# care_emergency plug alike), without starting it. A missing dependency, such
-# as a plug migration needing a core migration this build doesn't have, fails
+# the hmis app alike), without starting it. A missing dependency, such
+# as a hmis migration needing a core migration this build doesn't have, fails
 # here, before anything running is touched.
 log "Checking migrations for $image"
 # BACKEND_IMAGE from the environment must win over the old value in .env, or
@@ -74,8 +74,8 @@ if grep -q "No planned migration operations" <<< "$plan"; then
   log "No pending migrations"
 else
   printf '%s\n' "$plan"
-  plug_steps="$(grep -c '^care_emergency\.' <<< "$plan" || true)"
-  log "Pending migrations, $plug_steps of them from care_emergency. Backing up the database first"
+  hmis_steps="$(grep -c '^hmis\.' <<< "$plan" || true)"
+  log "Pending migrations, $hmis_steps of them from hmis. Backing up the database first"
   mkdir -p "$BACKUP_DIR"
   dump="$BACKUP_DIR/pre-deploy-$(date -u +%Y%m%dT%H%M%SZ)-${sha:0:12}.dump"
   # The dump holds patient data: readable by this user only.

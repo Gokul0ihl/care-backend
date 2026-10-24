@@ -78,7 +78,7 @@ class PatientViewSet(EMRModelViewSet):
             raise PermissionDenied("Cannot delete patient")
 
     def validate_destroy(self, instance):
-        # A duplicate with history is merged (care_emergency), not deleted, so
+        # A duplicate with history is merged (hmis), not deleted, so
         # its visits and bills stay with the patient.
         if any(
             model.objects.filter(patient=instance).exists()

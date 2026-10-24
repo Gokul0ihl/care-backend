@@ -202,7 +202,7 @@ class Facility(BaseModel):
 
     extensions = models.JSONField(default=dict)
 
-    # POH (care_emergency): the facility-owned number used as phone_number for
+    # POH (hmis/ app): the facility-owned number used as phone_number for
     # emergency patients ("" until a facility admin sets it), and the unit code
     # (LN, KB, DW) printed in the facility's patient numbers. The unit code is
     # set once: issued numbers carry it.

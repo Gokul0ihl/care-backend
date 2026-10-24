@@ -37,17 +37,17 @@ class Encounter(EMRBaseModel):
 
     extensions = models.JSONField(default=dict)
 
-    # Emergency registration (care_emergency's emergency desk, register/ and
+    # Emergency registration (hmis's emergency desk, emergency/register/ and
     # convert/). triage marks an emergency encounter; every other encounter has
     # "" or null in these. The facility and patient are the encounter's own.
-    # Values are checked by care_emergency.specs (TriageChoices, MLC_NATURES,
+    # Values are checked by hmis.specs (TriageChoices, MLC_NATURES,
     # CHIEF_COMPLAINTS, ARRIVAL_MODES).
     triage = models.CharField(max_length=10, blank=True, default="")
     # Nullable so an update can set it back to false (Care drops default values).
     is_medico_legal = models.BooleanField(null=True)
     mlc_nature = models.CharField(max_length=50, blank=True, default="")
     police_station = models.CharField(max_length=200, blank=True, default="")
-    # MLC-<year>-<nnnn>, unique per facility (care_emergency MlcSequence).
+    # MLC-<year>-<nnnn>, unique per facility (hmis MlcSequence).
     mlc_number = models.CharField(max_length=30, null=True, blank=True)
     distinguishing_marks = models.TextField(blank=True, default="")
     chief_complaint = models.CharField(max_length=40, blank=True, default="")

@@ -137,7 +137,7 @@ LOCAL_APPS = [
     "care.users",
     "care.audit_log",
     "care.emr",
-    "care_emergency",
+    "hmis",
 ]
 
 PLUGIN_APPS = manager.get_apps()
@@ -371,8 +371,8 @@ REST_FRAMEWORK = {
         # Primary api authentication
         # "rest_framework_simplejwt.authentication.JWTAuthentication",
         "config.authentication.CustomJWTAuthentication",
-        # API keys for clients such as the patient mobile app (care_emergency)
-        "care_emergency.api_keys.ApiKeyAuthentication",
+        # API keys for clients such as the patient mobile app (hmis)
+        "hmis.api_keys.ApiKeyAuthentication",
         "config.authentication.CustomBasicAuthentication",
         "rest_framework.authentication.SessionAuthentication",
         "rest_framework.authentication.TokenAuthentication",

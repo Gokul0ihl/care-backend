@@ -63,9 +63,12 @@ urlpatterns = [
         name="change_password_view",
     ),
     path("api/v1/", include(api_router.urlpatterns)),
-    # Emergency, registration and front-desk endpoints (formerly the
-    # care_emergency plug; the frontend still calls these paths).
-    path("api/care_emergency/", include("care_emergency.urls")),
+    # POH's own endpoints: registration, emergency, patient numbers and the
+    # other front-desk features (the hmis/ app).
+    path("api/hmis/", include("hmis.urls")),
+    # The patient app's server still calls the old care_emergency prefix.
+    # Remove once it has moved to /api/hmis/.
+    path("api/care_emergency/", include("hmis.urls_legacy")),
     *static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT),
 ]
 

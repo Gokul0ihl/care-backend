@@ -51,7 +51,7 @@ class Patient(EMRBaseModel):
 
     extensions = models.JSONField(default=dict)
 
-    # Front-desk registration (care_emergency's desk form). The same names as
+    # Front-desk registration (hmis's desk form). The same names as
     # the plug's former PatientRegistration columns; "" or null for patients
     # the desk never registered. registered_at is set only by the desk writes
     # and marks a desk registration. Field map: hmis_fe
@@ -129,7 +129,7 @@ class Patient(EMRBaseModel):
     address_in_india = models.CharField(max_length=300, blank=True, default="")
     interpreter_language = models.CharField(max_length=30, blank=True, default="")
 
-    # Safety flags; allergies are care_emergency RegistrationAllergy rows.
+    # Safety flags; allergies are hmis RegistrationAllergy rows.
     allergy_status = models.CharField(max_length=10, blank=True, default="")
     assistance_needs = ArrayField(
         models.CharField(max_length=30), default=list, blank=True
@@ -192,7 +192,7 @@ class Patient(EMRBaseModel):
         models.CharField(max_length=30), default=list, blank=True
     )
 
-    # Quick Register (care_emergency): a patient registered by phone, with what
+    # Quick Register (hmis): a patient registered by phone, with what
     # the desk took on the call. The name parts are the desk columns above
     # (title, first_name, last_name). The rest of the registration form is
     # texted as a one-time link (quick_form_token); the answers wait in
@@ -232,7 +232,7 @@ class Patient(EMRBaseModel):
     quick_form_submitted_at = models.DateTimeField(null=True, blank=True)
     quick_form_details = models.JSONField(default=dict, blank=True)
 
-    # Statutory confidentiality (care_emergency restricted.py, D30): set with
+    # Statutory confidentiality (hmis restricted.py, D30): set with
     # the first statutory flag, and from then on the patient is shown as the
     # alias. Null for everyone else.
     restricted_alias = models.CharField(
@@ -240,7 +240,7 @@ class Patient(EMRBaseModel):
     )
     restricted_at = models.DateTimeField(null=True, blank=True)
 
-    # Newborn registration (care_emergency newborn.py): a baby born at the
+    # Newborn registration (hmis newborn.py): a baby born at the
     # facility, linked to the mother by birth_mother, never by an identifier.
     # Twins share the delivery details and are numbered by birth_order.
     # born_at marks a newborn birth; everyone else has these null or "".
@@ -274,18 +274,18 @@ class Patient(EMRBaseModel):
     apgar_5_min = models.PositiveSmallIntegerField(null=True, blank=True)
 
     # Fold columns the patient serialization hooks read for every patient
-    # (care_emergency contact.hide_no_phone, restricted.mask_patient).
+    # (hmis contact.hide_no_phone, restricted.mask_patient).
     LIST_LOADED_FIELDS = ("mobile_owner", "restricted_alias")
 
     @classmethod
     def list_deferred_fields(cls):
-        """The columns care_emergency folded into Patient (desk registration,
+        """The POH columns on Patient (desk registration,
         Quick Register, restriction, newborn: every field from
         registration_facility on), minus LIST_LOADED_FIELDS. Care's patient
         list and search defer them: Care's specs never read them, and loading
         ~130 columns per row is the width cost of the fold. Anything that
         reads a deferred column on a listed patient costs a query per row,
-        so care_emergency/tests/test_patient_queries pins the counts."""
+        so hmis/tests/test_patient_queries pins the counts."""
         names = [field.name for field in cls._meta.concrete_fields]
         start = names.index("registration_facility")
         return [x for x in names[start:] if x not in cls.LIST_LOADED_FIELDS]

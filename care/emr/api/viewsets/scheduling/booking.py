@@ -170,7 +170,7 @@ class TokenBookingViewSet(
             .order_by("-modified_date")
         )
         if self.request.user.is_service_account:
-            # A service account (the patient app's server, care_emergency)
+            # A service account (the patient app's server, hmis)
             # books for the patients linked to it and sees only theirs, so
             # the staff list rules (by doctor or department) don't apply.
             return queryset.filter(

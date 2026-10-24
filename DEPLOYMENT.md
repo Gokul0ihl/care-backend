@@ -63,9 +63,9 @@ workflow** with a branch, tag or full commit SHA. There is no image registry:
    doesn't stream output).
 2. `deploy.sh` builds `docker/prod.Dockerfile` as `ihl-hims-backend:<sha>`.
    It then runs `manage.py migrate --plan` with the new image, before
-   starting it. If that errors (for example a `care_emergency` migration needs
+   starting it. If that errors (for example a `hmis` migration needs
    a core migration this build doesn't have), the deploy stops and nothing
-   changes. If any migrations are pending, core or plug, it first takes a
+   changes. If any migrations are pending, core or hmis, it first takes a
    `pg_dump` to `/opt/ihl-hims/backups` (keeps the last 5, owner-only
    permissions; set `BACKUP_S3_URI` in `/opt/ihl-hims/deploy/deploy.env` to
    also copy it to S3).

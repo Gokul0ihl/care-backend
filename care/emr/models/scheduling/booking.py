@@ -56,7 +56,7 @@ class TokenBooking(EMRBaseModel):
     consultation_type = models.CharField(max_length=20, default="in_person")
     visit_purpose = models.CharField(max_length=20, blank=True, default="")
     booking_channel = models.CharField(max_length=20, blank=True, default="")
-    # Phone bookings only; care_emergency's reminder task sends them.
+    # Phone bookings only; hmis's reminder task sends them.
     reminder_due_at = models.DateTimeField(null=True, blank=True)
     reminder_sent_at = models.DateTimeField(null=True, blank=True)
     # "I don't know whom to meet" (D50); the remarks print as the chief complaint.
