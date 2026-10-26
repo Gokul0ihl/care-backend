@@ -100,11 +100,11 @@ def send_otp(phone_number, otp_type: type[BaseOTPType]):
             raise ValidationError({"phone_number": "Max Retries has exceeded"})
 
         # The fixed dev code is only for runs that don't send SMS; a texted
-        # code is always random, or anyone could sign in with 45612.
+        # code is always random, or anyone could sign in with 456123.
         otp_value = (
             generate_otp(settings.OTP_LENGTH)
             if settings.IS_PRODUCTION or settings.USE_SMS
-            else "45612"
+            else "456123"
         )
         if settings.USE_SMS:
             try:
@@ -128,6 +128,46 @@ def send_otp(phone_number, otp_type: type[BaseOTPType]):
         MobileOTP.objects.create(phone_number=phone_number, otp=otp_value)
 
 
+def check_otp(phone_number, otp):
+    """Marks the latest code for the number used if it matches. Otherwise
+    counts the failure and raises. The mobile app's verify_otp
+    (hmis/views/mobile.py) shares this, so limits and lockout are the same."""
+    expired = False
+    with OTPVerifyLock(phone_number):
+        if failure_count(phone_number) >= settings.OTP_MAX_FAILURES:
+            raise Throttled(detail="Too many failed login attempts. Try again later.")
+
+        otp_object = (
+            MobileOTP.objects.filter(
+                phone_number=phone_number,
+                is_used=False,
+                created_date__gte=care_now()
+                - timedelta(minutes=settings.OTP_VALIDITY_MINUTES),
+            )
+            .order_by("-created_date")
+            .first()
+        )
+
+        if otp_object:
+            if otp_object.otp == otp:
+                otp_object.is_used = True
+                otp_object.save(update_fields=["is_used", "modified_date"])
+                return
+            otp_object.failed_attempts += 1
+            if otp_object.failed_attempts >= settings.OTP_MAX_VERIFY_ATTEMPTS:
+                otp_object.is_used = True
+                expired = True
+            otp_object.save(
+                update_fields=["failed_attempts", "is_used", "modified_date"]
+            )
+
+    if expired:
+        raise ValidationError(
+            {"otp": "Too many wrong attempts. Please request a new OTP."}
+        )
+    raise ValidationError({"otp": "Invalid OTP"})
+
+
 class OTPLoginView(EMRBaseViewSet):
     authentication_classes = []
     permission_classes = []
@@ -147,42 +187,7 @@ class OTPLoginView(EMRBaseViewSet):
     @action(detail=False, methods=["POST"])
     def login(self, request):
         data = OTPLoginSpec(**request.data)
-
-        expired = False
-        with OTPVerifyLock(data.phone_number):
-            if failure_count(data.phone_number) >= settings.OTP_MAX_FAILURES:
-                raise Throttled(
-                    detail="Too many failed login attempts. Try again later."
-                )
-
-            otp_object = (
-                MobileOTP.objects.filter(
-                    phone_number=data.phone_number,
-                    is_used=False,
-                    created_date__gte=care_now()
-                    - timedelta(minutes=settings.OTP_VALIDITY_MINUTES),
-                )
-                .order_by("-created_date")
-                .first()
-            )
-
-            if otp_object:
-                if otp_object.otp == data.otp:
-                    otp_object.is_used = True
-                    otp_object.save(update_fields=["is_used", "modified_date"])
-                    token = PatientToken()
-                    token["phone_number"] = data.phone_number
-                    return Response({"access": str(token)})
-                otp_object.failed_attempts += 1
-                if otp_object.failed_attempts >= settings.OTP_MAX_VERIFY_ATTEMPTS:
-                    otp_object.is_used = True
-                    expired = True
-                otp_object.save(
-                    update_fields=["failed_attempts", "is_used", "modified_date"]
-                )
-
-        if expired:
-            raise ValidationError(
-                {"otp": "Too many wrong attempts. Please request a new OTP."}
-            )
-        raise ValidationError({"otp": "Invalid OTP"})
+        check_otp(data.phone_number, data.otp)
+        token = PatientToken()
+        token["phone_number"] = data.phone_number
+        return Response({"access": str(token)})

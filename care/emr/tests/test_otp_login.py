@@ -23,8 +23,8 @@ class OTPLoginFlowTests(APITestCase):
     SEND_URL = "/api/v1/otp/send/"
     LOGIN_URL = "/api/v1/otp/login/"
     PHONE = "+919999999999"
-    DEV_OTP = "45612"  # value hard-coded in send() for non-prod, non-SMS path
-    WRONG_OTP = "00000"
+    DEV_OTP = "456123"  # value hard-coded in send() for non-prod, non-SMS path
+    WRONG_OTP = "000000"
 
     def _send(self, phone=None):
         return self.client.post(
@@ -266,5 +266,5 @@ class OTPSentBySmsTests(APITestCase):
             )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         otp = MobileOTP.objects.get(phone_number=self.PHONE).otp
-        self.assertNotEqual(otp, "45612")
+        self.assertNotEqual(otp, "456123")
         self.assertIn(otp, send.call_args.kwargs["content"])

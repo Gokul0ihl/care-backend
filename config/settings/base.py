@@ -506,7 +506,16 @@ AUDIT_LOG = {
 
 # OTP
 # ------------------------------------------------------------------------------
-OTP_LENGTH = 5
+OTP_LENGTH = 6
+
+# Patient mobile app tokens (hmis/mobile_auth.py). Each refresh issues a new
+# refresh token, so an app in use stays signed in.
+PATIENT_ACCESS_TOKEN_LIFETIME = timedelta(
+    minutes=env.int("PATIENT_ACCESS_TOKEN_LIFETIME_MINUTES", default=15)
+)
+PATIENT_REFRESH_TOKEN_LIFETIME = timedelta(
+    days=env.int("PATIENT_REFRESH_TOKEN_LIFETIME_DAYS", default=60)
+)
 
 # The time window (in minutes) for tracking OTP request limits
 OTP_SEND_WINDOW_MINUTES = env.int("OTP_SEND_WINDOW_MINUTES", default=60)

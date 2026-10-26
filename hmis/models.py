@@ -231,3 +231,44 @@ class AppPatientLink(EMRBaseModel):
     # Linked to a patient who already existed (same ABHA number) rather than
     # created by the app. The app doesn't overwrite such a patient's details.
     matched = models.BooleanField(default=False)
+
+
+class PatientAccount(models.Model):
+    """A Care patient as the patient mobile app sees them. The app expects a
+    numeric id for every person, and Care's own Patient.id isn't exposed, so
+    the app's user id is this row's id. Created the first time someone signs
+    in to the app as that patient. The phone number stays on the patient, so
+    changing it at the desk changes who can sign in."""
+
+    patient = models.OneToOneField(
+        "emr.Patient", on_delete=models.PROTECT, related_name="mobile_account"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"App account {self.id}"
+
+
+class PatientSession(models.Model):
+    """One signed-in app profile on one device: the refresh token chain behind
+    a PatientAccessToken / PatientRefreshToken pair (hmis/mobile_auth.py).
+    Revoking it ends every token in the chain."""
+
+    account = models.ForeignKey(
+        PatientAccount, on_delete=models.CASCADE, related_name="sessions"
+    )
+    # The number the OTP was verified on. If the patient's number changes at
+    # the desk, the session stops working.
+    phone_number = models.CharField(max_length=16)
+    # jti of the one refresh token that may be used next. The one before it is
+    # kept for a short grace period, for a refresh whose response was lost.
+    refresh_jti = models.CharField(max_length=64, blank=True, default="")
+    previous_refresh_jti = models.CharField(max_length=64, blank=True, default="")
+    rotated_at = models.DateTimeField(null=True, blank=True)
+    fcm_token = models.CharField(max_length=512, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"App session {self.id} of account {self.account_id}"

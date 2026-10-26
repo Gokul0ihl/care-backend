@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import include, path
 from rest_framework.routers import SimpleRouter
 
 from hmis.views import (
@@ -41,6 +41,7 @@ router.register(
 )
 
 urlpatterns = [
+    path("mobile/", include("hmis.urls_mobile")),
     path("app/patients/", AppPatientView.as_view(), name="app-patients"),
     path(
         "app/patients/<str:app_user_id>/",

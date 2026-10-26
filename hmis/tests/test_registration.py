@@ -1148,7 +1148,7 @@ class DeskRegistrationTests(CareAPITestBase):
         self.client.force_authenticate(user=None)
         for endpoint, data in (
             ("otp-login-send", {"phone_number": "+919876543210"}),
-            ("otp-login-login", {"phone_number": "+919876543210", "otp": "45612"}),
+            ("otp-login-login", {"phone_number": "+919876543210", "otp": "456123"}),
         ):
             with (
                 self.subTest(endpoint=endpoint),

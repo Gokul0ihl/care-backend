@@ -24,7 +24,7 @@ class OTPResetPasswordAPITestCase(CareAPITestBase):
         self.new_password = "NewPass123!"
         self.send_otp_url = reverse("otp-password-reset-send")
         self.confirm_otp_url = reverse("otp-password-reset-confirm")
-        self.otp = "45612"  # As per settings in override, OTP will be this value
+        self.otp = "456123"  # As per settings in override, OTP will be this value
 
     def _send(self, phone_number=None):
         return self.client.post(
@@ -101,7 +101,7 @@ class OTPResetPasswordAPITestCase(CareAPITestBase):
         When OTP confirmation is done with an invalid OTP,
         it should return an error."""
         self._send()
-        response = self._confirm(otp="00000")
+        response = self._confirm(otp="000000")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(str(response.data["errors"][0]["msg"]["otp"]), "Invalid OTP")
 
@@ -179,11 +179,11 @@ class OTPResetPasswordAPITestCase(CareAPITestBase):
         correct OTP is rejected afterwards.
         """
         self._send()
-        first = self._confirm(otp="00000")
+        first = self._confirm(otp="000000")
         self.assertEqual(first.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(str(first.data["errors"][0]["msg"]["otp"]), "Invalid OTP")
 
-        capped = self._confirm(otp="00001")
+        capped = self._confirm(otp="000001")
         self.assertEqual(capped.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(
             "Too many wrong attempts", str(capped.data["errors"][0]["msg"]["otp"])
