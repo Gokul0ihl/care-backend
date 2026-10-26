@@ -1,4 +1,5 @@
 from datetime import timedelta
+from secrets import choice
 
 from django.utils import timezone
 
@@ -18,6 +19,7 @@ from care.fixtures.constants import (
     HealthcareServiceInternalType,
 )
 from care.fixtures.context import care_fixture_context
+from care.fixtures.poh import load_poh, register_desk_patients, set_up_facility
 
 
 def log(message):
@@ -64,6 +66,7 @@ def load_fixtures(base):  # noqa: PLR0915, PLR0912
         facility_type="Private Hospital",
     )
     facility_id = facility.id
+    set_up_facility(base, facility_id, "LN")
     log("Loading facility completed")
 
     existing = base.get_facility_organizations(facility_id)
@@ -127,10 +130,8 @@ def load_fixtures(base):  # noqa: PLR0915, PLR0912
         created_users[role_name] = user
     log("Loading users completed")
 
-    patients = []
-    for _ in range(10):
-        patients.append(base.create_patient(geo_organization.id))
-    log("Loading patients completed")
+    patients = register_desk_patients(base, facility_id, geo_organization.id)
+    log("Loading patients (desk registration, UHIDs) completed")
 
     encounters = {}
     for patient in patients:
@@ -139,6 +140,9 @@ def load_fixtures(base):  # noqa: PLR0915, PLR0912
             facility_id,
             organizations=[general_medicine.id],
             status=StatusChoices.in_progress.value,
+            # Emergency encounters come from emergency registration (poh.py),
+            # which sets the triage the ED board needs.
+            encounter_class=choice(["amb", "imp"]),
         )
     log("Loading encounters completed")
 
@@ -153,12 +157,16 @@ def load_fixtures(base):  # noqa: PLR0915, PLR0912
                 )
     log("Loading facility organization memberships completed")
 
-    base.create_facility(
+    load_poh(base, facility_id, geo_organization.id, departments)
+    log("Loading pre-registration and emergency arrivals completed")
+
+    secondary = base.create_facility(
         geo_organization.id,
         name="SECONDARY FACILITY",
         facility_type="Private Hospital",
         is_public=True,
     )
+    set_up_facility(base, secondary.id, "KB")
     log("Loading secondary facility completed")
 
     base.load_questionnaires_from_file([geo_organization.id])

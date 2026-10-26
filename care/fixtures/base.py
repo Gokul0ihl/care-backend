@@ -107,6 +107,13 @@ class CareFixtureBase:
             raise FixtureError(msg)
         return to_attr_dict(response.data)
 
+    def put(self, url, data):
+        response = self.client.put(url, data, format="json")
+        if response.status_code != http_status.HTTP_200_OK:
+            msg = f"PUT {url} failed ({response.status_code}): {response.data}"
+            raise FixtureError(msg)
+        return to_attr_dict(response.data)
+
     def get(self, url, params=None):
         response = self.client.get(url, params or {}, format="json")
         if response.status_code != http_status.HTTP_200_OK:
@@ -245,6 +252,31 @@ class CareFixtureBase:
             **kwargs,
         }
         return self.post(reverse("patient-list"), data)
+
+    # POH (hmis/ app) endpoints. Bodies are built in care/fixtures/poh.py.
+
+    def set_unit_code(self, facility_id, code):
+        data = {"facility": facility_id, "code": code}
+        return self.put(reverse("facility-unit"), data)
+
+    def set_emergency_desk(self, facility_id, phone_number):
+        data = {"facility": facility_id, "phone_number": phone_number}
+        return self.put(reverse("emergency-desk"), data)
+
+    def register_desk_patient(self, facility_id, patient, registration, **kwargs):
+        """Front-desk registration; returns {"patient", "registration"}."""
+        data = {
+            "facility": facility_id,
+            "patient": patient,
+            "registration": registration,
+            **kwargs,
+        }
+        return self.post(reverse("desk-registration"), data)
+
+    def register_emergency_patient(self, facility_id, patient, **kwargs):
+        """Emergency registration; returns {"patient", "encounter", "emergency"}."""
+        data = {"facility": facility_id, "patient": patient, **kwargs}
+        return self.post(reverse("emergency-register"), data)
 
     def create_encounter(self, patient_id, facility_id, organizations=None, **kwargs):
         data = {

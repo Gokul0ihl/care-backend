@@ -14,6 +14,7 @@ care/fixtures/
 ├── billing.py           # load_billing orchestrator
 ├── constants.py         # Medical codes, builder helpers, data arrays
 ├── context.py           # care_fixture_context() — setup/teardown
+├── poh.py               # POH (hmis/ app) data: unit codes, desk patients, ED arrivals
 ├── scripts/
 │   ├── __init__.py
 │   └── default_fixtures.py   # Default seed file (loaded by manage.py)
@@ -115,6 +116,21 @@ Each method builds the request payload, calls the API, and returns an
 - `create_user(...)` — with role/role-org assignments
 - `create_patient(...)` — Faker-generated demographics
 - `create_encounter(...)`
+
+### POH (hmis/ app)
+
+These call the `/api/hmis/` endpoints; `poh.py` builds the bodies the way the
+frontend does, so the desk and emergency validation runs.
+
+- `set_unit_code(facility_id, code)` — the facility's unit code (`LN`), printed in its UHIDs and invoice numbers. Set once.
+- `set_emergency_desk(facility_id, phone_number)` — the number emergency and "No phone" patients are registered on.
+- `register_desk_patient(facility_id, patient, registration, **kwargs)` — front-desk registration; returns `{"patient", "registration"}`. `pre_registration=True` issues a PRE- number instead of a UHID.
+- `register_emergency_patient(facility_id, patient, **kwargs)` — emergency registration (patient and `emer` encounter); returns `{"patient", "encounter", "emergency"}`.
+
+`default_fixtures.py` uses `poh.set_up_facility` on both facilities,
+`poh.register_desk_patients` for its patients and `poh.load_poh` for a
+pre-registration and three emergency arrivals. What it seeds is listed in the
+frontend repo's `docs/local-development.md` (Fixture data).
 
 ### Lab & observation
 
