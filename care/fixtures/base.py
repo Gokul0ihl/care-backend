@@ -64,6 +64,13 @@ def to_attr_dict(obj):
     return obj
 
 
+def error_body(response):
+    """DRF errors have .data; Django's own (e.g. DisallowedHost) only content."""
+    if hasattr(response, "data"):
+        return response.data
+    return response.content.decode(errors="replace")[:500]
+
+
 def generate_phone_number():
     prefix = secrets.choice(["6", "7", "8", "9"])
     suffix = "".join(secrets.choice(string.digits) for _ in range(9))
@@ -93,7 +100,7 @@ class CareFixtureBase:
             http_status.HTTP_200_OK,
             http_status.HTTP_201_CREATED,
         ):
-            msg = f"POST {url} failed ({response.status_code}): {response.data}"
+            msg = f"POST {url} failed ({response.status_code}): {error_body(response)}"
             raise FixtureError(msg)
         return to_attr_dict(response.data)
 
@@ -103,21 +110,21 @@ class CareFixtureBase:
             http_status.HTTP_200_OK,
             http_status.HTTP_201_CREATED,
         ):
-            msg = f"PATCH {url} failed ({response.status_code}): {response.data}"
+            msg = f"PATCH {url} failed ({response.status_code}): {error_body(response)}"
             raise FixtureError(msg)
         return to_attr_dict(response.data)
 
     def put(self, url, data):
         response = self.client.put(url, data, format="json")
         if response.status_code != http_status.HTTP_200_OK:
-            msg = f"PUT {url} failed ({response.status_code}): {response.data}"
+            msg = f"PUT {url} failed ({response.status_code}): {error_body(response)}"
             raise FixtureError(msg)
         return to_attr_dict(response.data)
 
     def get(self, url, params=None):
         response = self.client.get(url, params or {}, format="json")
         if response.status_code != http_status.HTTP_200_OK:
-            msg = f"GET {url} failed ({response.status_code}): {response.data}"
+            msg = f"GET {url} failed ({response.status_code}): {error_body(response)}"
             raise FixtureError(msg)
         return to_attr_dict(response.data)
 
