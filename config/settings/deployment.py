@@ -120,7 +120,25 @@ if SENTRY_DSN := env("SENTRY_DSN", default=""):
     )
     ignore_logger("django.security.DisallowedHost")
 
+<<<<<<< HEAD
 # SMS: USE_SMS, SMS_BACKEND, SNS_* and FOX_SMS_* are read from env in base.py.
+=======
+# SMS API KEYS
+# Off unless set: base.py has USE_SMS = False and staging/production turn it on.
+USE_SMS = env.bool("USE_SMS", default=False)
+SMS_BACKEND = env("SMS_BACKEND", default="care.utils.sms.backend.sns.SnsBackend")
+SNS_ACCESS_KEY = env("SNS_ACCESS_KEY", default="")
+SNS_SECRET_KEY = env("SNS_SECRET_KEY", default="")
+SNS_REGION = env("SNS_REGION", default="ap-south-1")
+SNS_ROLE_BASED_MODE = env.bool("SNS_ROLE_BASED_MODE", default=False)
+
+# FoxxSMS (SMS_BACKEND=care.utils.sms.backend.foxsms.FoxSmsBackend)
+FOX_SMS_BASE_URL = env("FOX_SMS_BASE_URL", default="")
+FOX_SMS_USER = env("FOX_SMS_USER", default="")
+FOX_SMS_API_KEY = env("FOX_SMS_API_KEY", default="")
+FOX_SMS_SENDER_ID = env("FOX_SMS_SENDER_ID", default="")
+FOX_SMS_TIMEOUT = env.int("FOX_SMS_TIMEOUT", default=15)
+>>>>>>> 162cc2481f95963df99d5aa8fd38a7ef5d7aef97
 
 # open id connect
 JWKS = JsonWebKey.import_key_set(

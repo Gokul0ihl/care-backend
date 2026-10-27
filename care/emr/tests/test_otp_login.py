@@ -266,5 +266,9 @@ class OTPSentBySmsTests(APITestCase):
             )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         otp = MobileOTP.objects.get(phone_number=self.PHONE).otp
+<<<<<<< HEAD
         self.assertNotEqual(otp, "456123")
+=======
+        self.assertNotEqual(otp, "45612")
+>>>>>>> 162cc2481f95963df99d5aa8fd38a7ef5d7aef97
         self.assertIn(otp, send.call_args.kwargs["content"])

@@ -100,11 +100,19 @@ def send_otp(phone_number, otp_type: type[BaseOTPType]):
             raise ValidationError({"phone_number": "Max Retries has exceeded"})
 
         # The fixed dev code is only for runs that don't send SMS; a texted
+<<<<<<< HEAD
         # code is always random, or anyone could sign in with 456123.
         otp_value = (
             generate_otp(settings.OTP_LENGTH)
             if settings.IS_PRODUCTION or settings.USE_SMS
             else "456123"
+=======
+        # code is always random, or anyone could sign in with 45612.
+        otp_value = (
+            generate_otp(settings.OTP_LENGTH)
+            if settings.IS_PRODUCTION or settings.USE_SMS
+            else "45612"
+>>>>>>> 162cc2481f95963df99d5aa8fd38a7ef5d7aef97
         )
         if settings.USE_SMS:
             try:
