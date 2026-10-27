@@ -187,6 +187,15 @@ class PatientMerge(EMRBaseModel):
     source_snapshot = models.JSONField(default=dict)
     # Label -> number of the source's records moved to the target.
     moved = models.JSONField(default=dict)
+    # The signed consent to merge, filed on the kept record. Null only for
+    # merges made before consent was required.
+    consent_document = models.ForeignKey(
+        "hmis.PatientDocument",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
 
 
 class LabTestRule(EMRBaseModel):

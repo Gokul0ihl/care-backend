@@ -65,6 +65,18 @@ class DocumentTests(CareAPITestBase):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertIsNone(response.data["document_date"])
 
+    def test_named_document_of_a_design_category(self, put_object, delete_object):
+        response = self.upload(
+            category="discharge_summary",
+            side="single",
+            name="  Discharge summary — 26/10/2026 ",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["category"], "discharge_summary")
+        self.assertEqual(response.data["name"], "Discharge summary — 26/10/2026")
+        response = self.upload(name="x" * 101)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_document_date_cannot_be_in_the_future(self, put_object, delete_object):
         response = self.upload(document_date="2999-01-01")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

@@ -19,6 +19,8 @@ pricing and stay outside this module."""
 
 from decimal import Decimal
 
+from django.db import transaction
+
 from care.emr.models.charge_item_definition import ChargeItemDefinition
 from care.emr.models.facility_config import FacilityMonetoryConfig
 from care.emr.models.resource_category import (
@@ -27,8 +29,7 @@ from care.emr.models.resource_category import (
 )
 from care.emr.models.tag_config import TagConfig
 from care.emr.resources.facility.spec import FacilityMonetaryCodeSpec
-from django.db import transaction
-
+from hmis.concessions import highest_concession
 from hmis.constants import INTERNATIONAL_TYPES
 from hmis.services import unit_code
 
@@ -532,11 +533,16 @@ def billing_tag_keys(registration):
             if registration.payer_name == "POH staff — dependant"
             else "staff_self"
         )
-    if (
-        registration.payer_type == "Self"
-        and registration.concession in CONCESSION_VALUES
-    ):
-        keys.append(CONCESSION_VALUES[registration.concession])
+    if registration.payer_type == "Self":
+        values = getattr(registration, "concessions", []) or [registration.concession]
+        age = (
+            registration.age
+            if registration.date_of_birth or registration.year_of_birth
+            else 0
+        )
+        selected = highest_concession(values, age)
+        if selected in CONCESSION_VALUES:
+            keys.append(CONCESSION_VALUES[selected])
     return keys
 
 

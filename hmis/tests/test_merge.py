@@ -1,17 +1,21 @@
 import datetime
+from unittest import mock
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.urls import reverse
+from rest_framework import status
 
 from care.emr.locks.billing import PatientCreateLock
 from care.emr.models import Encounter, Patient
 from care.emr.models.patient import PatientIdentifier
 from care.utils.tests.base import CareAPITestBase
-from django.urls import reverse
-from rest_framework import status
-
 from hmis.constants import PatientNumberSeries
 from hmis.models import (
+    PatientDocument,
     PatientMerge,
 )
 from hmis.services import patient_number
+from hmis.tests.test_documents import JPEG
 from hmis.tests.test_registration import PHONE, registration_details
 
 
@@ -28,6 +32,12 @@ class PatientMergeTests(CareAPITestBase):
         self.facility.save(update_fields=["unit_code"])
         self.client.force_authenticate(user=self.user)
         PatientCreateLock().release()
+        for method in ("put_object", "delete_object"):
+            patcher = mock.patch(
+                f"care.emr.utils.file_manager.S3FilesManager.{method}"
+            )
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.target = self.register("1999-04-12")
         self.source = self.register("1999-04-21")
         self.encounter = self.create_encounter(
@@ -78,18 +88,33 @@ class PatientMergeTests(CareAPITestBase):
             },
         )
 
-    def merge(self, choices, **kwargs):
-        PatientCreateLock().release()
-        return self.post(
-            "patient-merge",
+    def upload_consent(self, category="merge_consent"):
+        """Stages a (fake) signed consent, as the merge dialog does first."""
+        response = self.client.post(
+            reverse("desk-documents"),
             {
-                "source": str(self.source.external_id),
-                "target": str(self.target.external_id),
-                "choices": choices,
-                "reason": "Registered twice at the desk",
-                **kwargs,
+                "file": SimpleUploadedFile("consent.jpg", JPEG, content_type="image/jpeg"),
+                "category": category,
+                "side": "single",
+                "capture_method": "scanned",
             },
+            format="multipart",
         )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        return response.data["id"]
+
+    def merge(self, choices, **kwargs):
+        body = {
+            "source": str(self.source.external_id),
+            "target": str(self.target.external_id),
+            "choices": choices,
+            "reason": "Registered twice at the desk",
+            **kwargs,
+        }
+        if "consent_document" not in body:
+            body["consent_document"] = self.upload_consent()
+        PatientCreateLock().release()
+        return self.post("patient-merge", body)
 
     def conflicts(self):
         response = self.preview()
@@ -171,7 +196,7 @@ class PatientMergeTests(CareAPITestBase):
     # Merge
 
     def test_merge_moves_records_and_retires_the_duplicate(self):
-        choices = {key: "target" for key in self.conflicts()}
+        choices = dict.fromkeys(self.conflicts(), "target")
         choices["date_of_birth"] = "source"
         old_uhid = patient_number(self.source, PatientNumberSeries.uhid)
         kept_uhid = patient_number(self.target, PatientNumberSeries.uhid)
@@ -337,12 +362,47 @@ class PatientMergeTests(CareAPITestBase):
         self.assertFalse(PatientMerge.objects.exists())
 
     def test_merge_refuses_unknown_fields(self):
-        choices = {key: "target" for key in self.conflicts()}
+        choices = dict.fromkeys(self.conflicts(), "target")
         response = self.merge({**choices, "shoe_size": "source"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(
             ["choices", "shoe_size"], [x["loc"] for x in response.data["errors"]]
         )
+
+    def test_merge_needs_the_signed_consent(self):
+        choices = dict.fromkeys(self.conflicts(), "target")
+        response = self.merge(choices, consent_document=None)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(
+            ["consent_document"], [x["loc"] for x in response.data["errors"]]
+        )
+        # An id that isn't one of this user's staged uploads.
+        response = self.merge(
+            choices, consent_document="7f0c2d64-2f6b-4b8e-9a51-3c1f2b9e4d10"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Upload the signed merge consent first", str(response.data))
+        self.assertFalse(PatientMerge.objects.exists())
+
+    def test_merge_refuses_a_document_that_isnt_a_consent(self):
+        choices = dict.fromkeys(self.conflicts(), "target")
+        document = self.upload_consent(category="government_id")
+        response = self.merge(choices, consent_document=document)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Upload the signed merge consent first", str(response.data))
+        self.assertFalse(PatientMerge.objects.exists())
+        self.assertIsNone(PatientDocument.objects.get(external_id=document).patient)
+
+    def test_consent_is_filed_on_the_kept_record(self):
+        choices = dict.fromkeys(self.conflicts(), "target")
+        document = self.upload_consent()
+        response = self.merge(choices, consent_document=document)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        consent = PatientDocument.objects.get(external_id=document)
+        self.assertEqual(consent.patient_id, self.target.id)
+        self.assertEqual(consent.file.associating_id, str(self.target.external_id))
+        self.assertEqual(consent.file.file_category, "consent_attachment")
+        self.assertEqual(PatientMerge.objects.get().consent_document, consent)
 
     def test_restricted_records_are_blocked(self):
         Patient.objects.filter(id=self.source.id).update(restricted_alias="R-TEST01")

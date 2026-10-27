@@ -362,7 +362,11 @@ FIELDS = [
     MergeField(
         "concession",
         "Concession",
-        (D("concession"), D("concession_approved_by", "Approved by")),
+        (
+            D("concession"),
+            D("concessions", "Selected concessions"),
+            D("concession_approved_by", "Approved by"),
+        ),
     ),
     MergeField(
         "arrival_source",

@@ -206,12 +206,14 @@ def store_document(  # noqa: PLR0913
     patient=None,
     source="",
     document_date=None,
+    name="",
 ):
     """Saves the file as a Care FileUpload of the patient (or staged, with no
     patient yet) and records what it is."""
     with transaction.atomic():
         file = FileUpload(
-            name=f"{DocumentCategories(category).label} ({DocumentSides(side).label})",
+            name=name
+            or f"{DocumentCategories(category).label} ({DocumentSides(side).label})",
             internal_name=upload.name,
             associating_id=str(patient.external_id) if patient else "",
             file_type="patient",
