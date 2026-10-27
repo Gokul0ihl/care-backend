@@ -399,6 +399,10 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "Documentation of API endpoints of Care ",
     "VERSION": "1.0.0",
     "DISABLE_ERRORS_AND_WARNINGS": True,
+    "POSTPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.postprocess_schema_enums",
+        "hmis.mobile_schema.mobile_schema",
+    ],
 }
 
 # Simple JWT (JWT Authentication)

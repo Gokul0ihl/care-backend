@@ -100,14 +100,16 @@ class MobileLoginTests(APITestCase):
         self.assertEqual(response.data["message"], "Invalid OTP")
         self.assertEqual(MobileOTP.objects.get(phone_number=PHONE).failed_attempts, 1)
 
-    def test_number_with_no_patients_is_told_to_register(self):
+    def test_number_with_no_patients_gets_registration_proof(self):
         mobile = "9800000003"
         self.post("auth/login/send_otp", {"mobile": mobile})
         response = self.post(
             "auth/login/verify_otp", {"mobile": mobile, "otp": DEV_OTP}
         )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertIn("register at the hospital", response.data["message"])
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["data"]["is_new_user"])
+        self.assertTrue(response.data["data"]["registration_token"])
+        self.assertEqual(response.data["data"]["accounts"], [])
 
     def test_me_returns_only_the_tokens_patient(self):
         mother, child = self.sign_in()

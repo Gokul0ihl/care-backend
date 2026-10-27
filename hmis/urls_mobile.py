@@ -20,6 +20,10 @@ from hmis.views.mobile_appointments import (
     MobileAppointmentListCreateView,
     MobileAppointmentSlotsView,
 )
+from hmis.views.mobile_registration import (
+    CompleteRegistrationView,
+    RegistrationFacilitiesView,
+)
 
 
 def route(path, view, name):
@@ -47,6 +51,16 @@ urlpatterns = [
         r"appointments/(?P<booking_id>[0-9a-f-]{36})",
         MobileAppointmentDetailView,
         "mobile-appointment-detail",
+    ),
+    route(
+        "auth/registration/facilities",
+        RegistrationFacilitiesView,
+        "mobile-registration-facilities",
+    ),
+    route(
+        "auth/login/complete_registration",
+        CompleteRegistrationView,
+        "mobile-complete-registration",
     ),
     route("auth/login/send_otp", SendOtpView, "mobile-send-otp"),
     route("auth/login/verify_otp", VerifyOtpView, "mobile-verify-otp"),

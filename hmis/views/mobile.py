@@ -25,6 +25,13 @@ from hmis.mobile_auth import (
     rotate,
     start_session,
 )
+from hmis.mobile_registration import (
+    REGISTRATION_LIFETIME,
+    ProfileFields,
+    registration_proof,
+    update_profile,
+    validated,
+)
 from hmis.services import display_numbers
 
 GENDERS = {"male": "Male", "female": "Female"}
@@ -131,6 +138,7 @@ def app_user(patient, account_id, numbers=None):
     has_birth = patient.date_of_birth or patient.year_of_birth
     return {
         "id": account_id,
+        "title": patient.title,
         "first_name": first,
         "last_name": last,
         "email": patient.email,
@@ -139,12 +147,13 @@ def app_user(patient, account_id, numbers=None):
         "dob": patient.date_of_birth.isoformat() if patient.date_of_birth else None,
         "age": patient.age if has_birth else None,
         "gender": GENDERS.get(patient.gender, "Other" if patient.gender else ""),
+        "gender_code": patient.gender,
         "blood_group": BLOOD_GROUPS.get(patient.blood_group),
         "address_line1": patient.address or None,
-        "city": None,
-        "state": None,
+        "city": patient.city or None,
+        "state": patient.state or None,
         "postal_code": str(patient.pincode) if patient.pincode else None,
-        "country": None,
+        "country": (patient.meta.get("mobile_profile") or {}).get("country") or None,
         "profile_photo": None,
         "is_active": True,
         "patient_number": number["value"] if number else None,
@@ -176,10 +185,17 @@ class VerifyOtpView(PublicMobileView):
             Patient.objects.filter(phone_number=phone).order_by("created_date")
         )
         if not patients:
-            # Signing up in the app (complete_registration) isn't built yet.
-            raise exceptions.NotFound(
-                "No patient is registered with this number. "
-                "Please register at the hospital front desk."
+            token = registration_proof(phone)
+            return ok(
+                {
+                    "mobile": phone.removeprefix("+91"),
+                    "total_accounts": 0,
+                    "accounts": [],
+                    "is_new_user": True,
+                    "registration_token": token,
+                    "expires_in": int(REGISTRATION_LIFETIME.total_seconds()),
+                },
+                "OTP verified. Complete your profile.",
             )
         numbers = display_numbers([p.id for p in patients])
         accounts = []
@@ -219,6 +235,11 @@ class LogoutView(PublicMobileView):
 
 
 class MeView(MobileView):
+    def patch(self, request):
+        data = validated(ProfileFields, request.data, partial=True)
+        patient = update_profile(request.user, data)
+        return ok(app_user(patient, request.user.account.id), "Profile updated")
+
     def get(self, request):
         return ok(app_user(request.user.patient, request.user.account.id))
 
