@@ -32,7 +32,8 @@ from hmis.views.base import (
 
 class DocumentView(EmergencyAPIView):
     """Desk documents (D37, D43). POST is multipart: file, category, side,
-    capture_method and, for an existing patient, patient. Without a patient
+    capture_method, optional source, document_date and name and, for an
+    existing patient, patient. Without a patient
     the document is staged until a registration uses it."""
 
     parser_classes = [MultiPartParser]
@@ -83,6 +84,7 @@ class DocumentView(EmergencyAPIView):
             patient,
             spec.source,
             spec.document_date,
+            spec.name,
         )
         return Response(serialize_document(document))
 

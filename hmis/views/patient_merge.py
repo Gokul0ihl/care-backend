@@ -9,11 +9,13 @@ from care.emr.models import Patient
 from care.emr.resources.patient.spec import PatientRetrieveSpec
 from care.utils.lock import ObjectLocked
 from care.utils.shortcuts import get_object_or_404
+from hmis.constants import DocumentCategories
 from hmis.merge import (
     can_merge,
     merge_patients,
     merge_preview,
 )
+from hmis.services import attach_documents, staged_documents
 from hmis.specs import (
     PatientMergeSpec,
 )
@@ -59,9 +61,14 @@ class PatientMergeView(EmergencyAPIView):
         try:
             with transaction.atomic():
                 source, target = self.get_pair(spec.source, spec.target, lock=True)
+                consent = staged_consent(request.user, spec.consent_document)
                 merge = merge_patients(
                     source, target, spec.choices, spec.reason, request.user
                 )
+                # Filed after the merge, so it isn't counted among the moved records.
+                attach_documents([consent], target)
+                merge.consent_document = consent
+                merge.save(update_fields=["consent_document"])
                 transaction.on_commit(lock.release)
         except BaseException:
             lock.release()
@@ -73,3 +80,14 @@ class PatientMergeView(EmergencyAPIView):
                 "moved": merge.moved,
             }
         )
+
+
+def staged_consent(user, document_id):
+    """The signed merge consent this user uploaded for the merge, not yet filed on a patient."""
+    try:
+        (document,) = staged_documents(user, [document_id])
+    except ValidationError as e:
+        raise ValidationError("Upload the signed merge consent first") from e
+    if document.category != DocumentCategories.merge_consent:
+        raise ValidationError("Upload the signed merge consent first")
+    return document

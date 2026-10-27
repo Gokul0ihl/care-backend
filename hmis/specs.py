@@ -2,15 +2,16 @@ import datetime
 import re
 from typing import Literal
 
-from care.emr.resources.base import PhoneNumber
 from django.utils import timezone
 from pydantic import UUID4, BaseModel, Field, field_validator, model_validator
 
+from care.emr.resources.base import PhoneNumber
+from hmis.concessions import APPROVED_CONCESSIONS, CONCESSIONS, highest_concession
 from hmis.constants import (
-    APP_SERVER_USERNAME,
     ABHA_STATUSES,
     ALLERGY_SEVERITIES,
     ALLERGY_STATUSES,
+    APP_SERVER_USERNAME,
     ARRIVAL_MODES,
     ART_MAN_AGES,
     ART_WOMAN_AGES,
@@ -30,6 +31,7 @@ from hmis.constants import (
     MARITAL_STATUSES,
     MLC_NATURES,
     MOBILE_OWNERS,
+    NATIONALITY_CATEGORIES,
     NEWBORN_GENDERS,
     NEWBORN_GESTATION_WEEKS,
     NEWBORN_HEAD_CM,
@@ -37,7 +39,6 @@ from hmis.constants import (
     NEWBORN_MAX_BABIES,
     NEWBORN_REGISTRATION_DAYS,
     NEWBORN_WEIGHT_GRAMS,
-    NATIONALITY_CATEGORIES,
     PAYER_TYPES,
     PHONE_OWNERS,
     PREGNANCY_STATUSES,
@@ -73,6 +74,9 @@ def one_of(choices, *, blank=True):
         return value
 
     return check
+
+
+# Concessions the desk can only give with a named approver (billing.md §2).
 
 
 class BroughtBySpec(BaseModel):
@@ -323,6 +327,7 @@ class RegistrationSpec(BaseModel):
     policy_number: str = Field(default="", pattern=rf"^(?:{PAYER_ID})?$")
     policy_valid_till: datetime.date | None = None
     policy_holder_relationship: str = Field(default="", max_length=30)
+    concessions: list[str] | None = Field(default=None, max_length=5)
     concession: str = Field(default="", max_length=60)
     concession_approved_by: str = Field(default="", max_length=100)
 
@@ -532,7 +537,34 @@ class RegistrationSpec(BaseModel):
             raise ValueError("Enter the policy or card number")
         if self.payer_type == "Govt scheme" and not self.occupation:
             raise ValueError("Government schemes need the occupation")
+        # An explicit list (including []) takes precedence over the legacy scalar.
+        values = (
+            self.concessions
+            if self.concessions is not None
+            else ([self.concession] if self.concession not in ("", "None") else [])
+        )
+        if any(value not in CONCESSIONS for value in values):
+            raise ValueError("Choose valid concessions")
+        self.concessions = list(dict.fromkeys(values))
+        if (
+            any(value in APPROVED_CONCESSIONS for value in self.concessions)
+            and not self.concession_approved_by.strip()
+        ):
+            raise ValueError("Enter who approved the concession")
         return self
+
+    def apply_concessions(self, age):
+        if self.payer_type == "Self":
+            for value in self.concessions:
+                if age < CONCESSIONS[value][1]:
+                    err = f"The {value} concession needs age {CONCESSIONS[value][1]} or over"
+                    raise ValueError(err)
+            self.concession = highest_concession(self.concessions, age)
+        else:
+            self.concessions = []
+            self.concession = ""
+        if not any(value in APPROVED_CONCESSIONS for value in self.concessions):
+            self.concession_approved_by = ""
 
 
 def years_old(born, today):
@@ -716,6 +748,7 @@ class DeskRegisterSpec(BaseModel):
             raise ValueError("Enter the date of birth or the age")
         if not 0 <= age <= 120:  # noqa: PLR2004
             raise ValueError("Age must be between 0 and 120")
+        registration.apply_concessions(age)
         minor = age < 18  # noqa: PLR2004
         if minor and not dob:
             raise ValueError("Patients under 18 need an exact date of birth")
@@ -929,6 +962,9 @@ class DocumentUploadSpec(BaseModel):
     capture_method: CaptureMethods
     source: str = Field(default="", max_length=100)
     document_date: datetime.date | None = None
+    # The name the desk files it under (e.g. "ID — PAN card — 26/10/2026");
+    # left out, it is named after its category and side.
+    name: str = Field(default="", max_length=100)
     # Attaches to an existing patient; left out, the document is staged for a
     # registration.
     patient: UUID4 | None = None
@@ -936,6 +972,7 @@ class DocumentUploadSpec(BaseModel):
     @model_validator(mode="after")
     def validate_date(self):
         self.source = self.source.strip()
+        self.name = self.name.strip()
         if self.document_date and self.document_date > timezone.localdate():
             raise ValueError("The document date cannot be in the future")
         return self
@@ -1084,6 +1121,8 @@ class PatientMergeSpec(BaseModel):
     # Field key -> whose value to keep, for each conflicting field.
     choices: dict[str, Literal["source", "target"]] = Field(default_factory=dict)
     reason: str = Field(min_length=1, max_length=500)
+    # A staged merge_consent document: the signed consent to merge.
+    consent_document: UUID4
 
     @field_validator("reason", mode="before")
     @classmethod

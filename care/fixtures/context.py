@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.db import transaction
+from django.test import override_settings
 from rest_framework.test import APIClient
 
 import care.emr.utils.valueset_coding_type  # noqa: F401
@@ -46,6 +47,9 @@ def care_fixture_context(base_cls: type[CareFixtureBase] = CareFixtureBase):
 
         with (
             transaction.atomic(),
+            # APIClient sends Host: testserver, which a deployment's explicit
+            # DJANGO_ALLOWED_HOSTS would reject with a bare 400.
+            override_settings(ALLOWED_HOSTS=[*settings.ALLOWED_HOSTS, "testserver"]),
             patch("care.emr.api.viewsets.patient.PatientCreateLock", _NoOpLock),
             patch(
                 "care.emr.api.viewsets.encounter.FacilityEncounterCreateLock",

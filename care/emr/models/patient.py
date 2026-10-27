@@ -153,6 +153,7 @@ class Patient(EMRBaseModel):
     policy_number = models.CharField(max_length=24, blank=True, default="")
     policy_valid_till = models.DateField(null=True, blank=True)
     policy_holder_relationship = models.CharField(max_length=30, blank=True, default="")
+    concessions = models.JSONField(default=list, blank=True)
     concession = models.CharField(max_length=60, blank=True, default="")
     concession_approved_by = models.CharField(max_length=100, blank=True, default="")
 

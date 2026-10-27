@@ -252,6 +252,14 @@ class DocumentCategories(models.TextChoices):
     marriage_certificate = "marriage_certificate", "Marriage certificate"
     previous_prescription = "previous_prescription", "Previous prescription"
     referral_letter = "referral_letter", "Referral letter"
+    diagnostic_report = "diagnostic_report", "Diagnostic report"
+    discharge_summary = "discharge_summary", "Discharge summary"
+    c_form = "c_form", "C-Form (FRRO)"
+    corporate_letter = "corporate_letter", "Corporate authorisation letter"
+    birth_notification = "birth_notification", "Birth notification"
+    camp_card = "camp_card", "Camp card"
+    # Signed consent to merge two records of the same patient.
+    merge_consent = "merge_consent", "Merge consent"
     other = "other", "Other"
 
 
@@ -272,6 +280,7 @@ DOCUMENT_FILE_CATEGORY = {
     DocumentCategories.government_id: "identity_proof",
     DocumentCategories.passport: "identity_proof",
     DocumentCategories.visa: "identity_proof",
+    DocumentCategories.merge_consent: "consent_attachment",
 }
 DOCUMENT_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"]
 

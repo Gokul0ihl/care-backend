@@ -1,13 +1,13 @@
 import datetime
 from unittest import mock
 
-from care.emr.locks.billing import PatientCreateLock
-from care.emr.models import FileUpload, Patient
-from care.utils.tests.base import CareAPITestBase
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 
+from care.emr.locks.billing import PatientCreateLock
+from care.emr.models import FileUpload, Patient
+from care.utils.tests.base import CareAPITestBase
 from hmis.models import (
     ArtCouple,
     PatientDocument,
@@ -142,6 +142,42 @@ class DeskRegistrationTests(CareAPITestBase):
         self.assertIn(message, str(response.data))
         self.assertFalse(Patient.objects.exists())
         self.assertFalse(Patient.objects.filter(registered_at__isnull=False).exists())
+
+    def test_multiple_concessions_are_saved_and_highest_is_derived(self):
+        selected = ["Senior citizen — 15%", "Freedom fighter — 25%", "EWS / charity"]
+        response = self.register(
+            self.body(
+                patient={"date_of_birth": "1950-04-12"},
+                pregnancy_status="",
+                concessions=selected,
+                concession_approved_by="Centre Manager",
+            )
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        patient = Patient.objects.get(external_id=response.data["patient"]["id"])
+        self.assertEqual(patient.concessions, selected)
+        self.assertEqual(patient.concession, "Freedom fighter — 25%")
+        self.assertEqual(response.data["registration"]["concessions"], selected)
+
+    def test_multiple_concessions_require_eligibility_and_approval(self):
+        self.assert_rejected(
+            self.body(concessions=["Senior citizen — 15%"]), "needs age 60"
+        )
+        self.assert_rejected(
+            self.body(concessions=["EWS / charity"]), "approved the concession"
+        )
+        self.assert_rejected(
+            self.body(concessions=["Invented discount"]), "valid concessions"
+        )
+
+    def test_empty_concessions_clear_legacy_scalar(self):
+        response = self.register(
+            self.body(concessions=[], concession="Senior citizen — 15%")
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        patient = Patient.objects.get(external_id=response.data["patient"]["id"])
+        self.assertEqual(patient.concessions, [])
+        self.assertEqual(patient.concession, "")
 
     def test_register_creates_patient_and_registration(self):
         response = self.register(self.body())
@@ -654,6 +690,7 @@ class DeskRegistrationTests(CareAPITestBase):
                 "occupation",
             ),
             ({"is_vip": True}, "VIP flag needs"),
+            ({"concession": "EWS / charity"}, "approved the concession"),
             ({"consent_method": "Thumb impression"}, "witness"),
             ({"policy_valid_till": "2000-01-01"}, "has expired"),
             ({"alternate_phone_number": PHONE}, "must differ"),
@@ -1141,8 +1178,9 @@ class DeskRegistrationTests(CareAPITestBase):
         self.assertEqual(Patient.objects.count(), 1)
 
     def test_shared_desk_number_cannot_be_used_for_patient_otp_or_token(self):
-        from config.patient_otp_authentication import JWTTokenPatientAuthentication
         from rest_framework_simplejwt.exceptions import InvalidToken
+
+        from config.patient_otp_authentication import JWTTokenPatientAuthentication
 
         self.create_no_phone()
         self.client.force_authenticate(user=None)

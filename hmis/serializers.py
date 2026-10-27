@@ -123,6 +123,7 @@ REGISTRATION_FIELDS = [
     "policy_valid_till",
     "policy_holder_relationship",
     "concession",
+    "concessions",
     "concession_approved_by",
     "arrival_source",
     "lead_source",

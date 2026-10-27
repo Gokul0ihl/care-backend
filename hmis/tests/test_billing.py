@@ -2,6 +2,8 @@ from datetime import date
 from decimal import Decimal
 from io import StringIO
 
+from django.core.management import call_command
+
 from care.emr.models.charge_item_definition import ChargeItemDefinition
 from care.emr.models.facility_config import FacilityMonetoryConfig
 from care.emr.models.tag_config import TagConfig
@@ -13,8 +15,6 @@ from care.emr.resources.invoice.default_expression_evaluator import (
 )
 from care.utils.tests.base import CareAPITestBase
 from care.utils.time_util import care_now
-from django.core.management import call_command
-
 from hmis.billing import (
     CATALOGUE,
     PAYER_TAGS,
@@ -51,6 +51,7 @@ class BillingSetupTests(CareAPITestBase):
         patient.payer_type = payer_type
         patient.payer_name = payer_name
         patient.concession = kwargs.pop("concession", "")
+        patient.concessions = kwargs.pop("concessions", [])
         patient.save()
         sync_billing_tags(patient)
         patient.refresh_from_db()
@@ -131,6 +132,31 @@ class BillingSetupTests(CareAPITestBase):
         self.assertEqual(self.price("CON2", not_chosen), Decimal(900))
         ews = self.register(concession="EWS / charity")
         self.assertEqual(self.price("CON2", ews), Decimal(900))
+
+    def test_multiple_concessions_apply_only_the_highest_eligible_discount(self):
+        patient = self.register(
+            date_of_birth=date(1950, 1, 1),
+            concessions=[
+                "Defence veteran — 10%",
+                "Senior citizen — 15%",
+                "Freedom fighter — 25%",
+            ],
+        )
+        self.assertEqual(self.price("CON2", patient), Decimal(675))
+        patient.concessions = ["Senior citizen — 15%", "EWS / charity"]
+        patient.save()
+        sync_billing_tags(patient)
+        self.assertEqual(self.price("CON2", patient), Decimal(765))
+        # Even an invalid persisted age-based selection cannot discount a younger patient.
+        patient.date_of_birth = date(2000, 1, 1)
+        patient.save()
+        sync_billing_tags(patient)
+        self.assertEqual(self.price("CON2", patient), Decimal(900))
+        patient.concessions = []
+        patient.concession = ""
+        patient.save()
+        sync_billing_tags(patient)
+        self.assertEqual(self.price("CON2", patient), Decimal(900))
 
     def test_patient_not_registered_at_the_desk_is_not_tagged(self):
         patient = self.create_patient(facility_tags={})
