@@ -1,3 +1,4 @@
+from django.contrib.auth.hashers import make_password
 from django.db import models
 
 from care.emr.models.base import EMRBaseModel
@@ -242,6 +243,22 @@ class AppPatientLink(EMRBaseModel):
     matched = models.BooleanField(default=False)
 
 
+def unusable_patient_password():
+    return make_password(None)
+
+
+class MobileRegistration(models.Model):
+    """Latest expiring OTP proof per phone; token plaintext never persists."""
+
+    phone_number = models.CharField(max_length=16, unique=True)
+    token_digest = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Mobile registration {self.pk}"
+
+
 class PatientAccount(models.Model):
     """A Care patient as the patient mobile app sees them. The app expects a
     numeric id for every person, and Care's own Patient.id isn't exposed, so
@@ -252,6 +269,7 @@ class PatientAccount(models.Model):
     patient = models.OneToOneField(
         "emr.Patient", on_delete=models.PROTECT, related_name="mobile_account"
     )
+    password = models.CharField(max_length=128, default=unusable_patient_password)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

@@ -3,7 +3,7 @@
   "info": {
     "title": "POH patient mobile API",
     "version": "1.0.0",
-    "description": "Mobile team contract: OTP login, profile/session support and self-only in-person appointments with hospital approval. Direct registration is PLANNED and is not callable yet. Use the patient token from the chosen accounts[] entry, never staff credentials or service-account API keys. See docs/mobile-app-login.md and docs/mobile-appointments.md. No family booking, specialty, online payment or cancellation/reschedule APIs. Implemented OTP policy follows Care (10 sends/hour, 3 tries/code, 5 failures locks for 60 minutes); this differs from the KB prototype policy."
+    "description": "Mobile team contract: OTP sign-in, direct OTP-proven registration, self-profile read/update, refreshing patient sessions and self-only in-person appointments with hospital approval. Passwords collected at registration are hashed for future use; password sign-in is not exposed. Use patient access tokens, never staff credentials or service-account API keys. See docs/mobile-app-login.md and docs/mobile-appointments.md."
   },
   "servers": [
     {
@@ -87,7 +87,7 @@
             }
           },
           "404": {
-            "description": "Unknown, unavailable/private or another profile’s resource.",
+            "description": "Unknown, unavailable/private or another profile\u2019s resource.",
             "content": {
               "application/json": {
                 "schema": {
@@ -189,7 +189,7 @@
             }
           },
           "404": {
-            "description": "Unknown, unavailable/private or another profile’s resource.",
+            "description": "Unknown, unavailable/private or another profile\u2019s resource.",
             "content": {
               "application/json": {
                 "schema": {
@@ -278,7 +278,7 @@
             }
           },
           "404": {
-            "description": "Unknown, unavailable/private or another profile’s resource.",
+            "description": "Unknown, unavailable/private or another profile\u2019s resource.",
             "content": {
               "application/json": {
                 "schema": {
@@ -378,7 +378,7 @@
             }
           },
           "404": {
-            "description": "Unknown, unavailable/private or another profile’s resource.",
+            "description": "Unknown, unavailable/private or another profile\u2019s resource.",
             "content": {
               "application/json": {
                 "schema": {
@@ -410,7 +410,7 @@
           "Mobile appointments"
         ],
         "summary": "Submit own in-person appointment for staff approval",
-        "description": "Only request_id, slot_id and optional patient_notes are accepted. Patient is determined by access token. New submission holds one seat and returns 201 pending. An identical request_id+normalized payload replay returns 200 with the same booking’s latest status; changed payload returns 409. The receipt and booking commit atomically. No family, cancellation/reschedule request or online payment is provided.",
+        "description": "Only request_id, slot_id and optional patient_notes are accepted. Patient is determined by access token. New submission holds one seat and returns 201 pending. An identical request_id+normalized payload replay returns 200 with the same booking\u2019s latest status; changed payload returns 409. The receipt and booking commit atomically. No family, cancellation/reschedule request or online payment is provided.",
         "parameters": [],
         "responses": {
           "200": {
@@ -434,7 +434,7 @@
             }
           },
           "404": {
-            "description": "Unknown, unavailable/private or another profile’s resource.",
+            "description": "Unknown, unavailable/private or another profile\u2019s resource.",
             "content": {
               "application/json": {
                 "schema": {
@@ -503,7 +503,7 @@
           "Mobile appointments"
         ],
         "summary": "Read own appointment",
-        "description": "Another profile’s appointment returns 404. Pending requests expire at slot start. Approval audit is retained after later clinical changes; use status for UI state.",
+        "description": "Another profile\u2019s appointment returns 404. Pending requests expire at slot start. Approval audit is retained after later clinical changes; use status for UI state.",
         "parameters": [
           {
             "name": "booking_id",
@@ -538,7 +538,7 @@
             }
           },
           "404": {
-            "description": "Unknown, unavailable/private or another profile’s resource.",
+            "description": "Unknown, unavailable/private or another profile\u2019s resource.",
             "content": {
               "application/json": {
                 "schema": {
@@ -628,25 +628,31 @@
           "Mobile login"
         ],
         "summary": "Verify OTP and select a patient account",
-        "description": "Each live patient on the verified phone receives a separate token pair/user in accounts[], oldest first. Keep account selection when multiple entries are returned. Currently unknown numbers return 404; is_new_user is always false and no registration_token is issued.",
+        "description": "Verify OTP. Existing numbers receive one patient token pair/user per live patient. New numbers receive is_new_user:true, empty accounts, a registration_token and expires_in:600; no patient is created yet. Failed OTP attempts remain counted.",
         "security": [],
         "responses": {
           "200": {
-            "description": "OTP verified; choose one accounts[] entry.",
+            "description": "OTP verified: existing profile accounts, or a new-number registration proof.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MobileVerifyOtpResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No registered patient; register at hospital front desk.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MobileError"
+                },
+                "examples": {
+                  "newPatient": {
+                    "value": {
+                      "status": "success",
+                      "message": "OTP verified. Complete your profile.",
+                      "data": {
+                        "mobile": "9876501234",
+                        "total_accounts": 0,
+                        "accounts": [],
+                        "is_new_user": true,
+                        "registration_token": "<otp-verified-registration-proof>",
+                        "expires_in": 600
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -805,6 +811,67 @@
             }
           }
         }
+      },
+      "patch": {
+        "operationId": "mobileUpdateProfile",
+        "tags": [
+          "Mobile profile"
+        ],
+        "summary": "Update the signed-in patient profile",
+        "description": "Patient comes exclusively from the access token. Changes shared Care patient data, including staff views. Rechecks the live session and phone. No family IDs, mobile/password changes, photo upload or account deletion. Returns the updated user in the common envelope.",
+        "security": [
+          {
+            "MobilePatientAccess": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MobileProfileUpdate"
+              },
+              "example": {
+                "first_name": "Updated",
+                "last_name": "Example",
+                "city": "Test City",
+                "postal_code": "110001"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated patient profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileUserResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired or revoked patient session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid, unsupported or inconsistent profile fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/users/me/fcm-token": {
@@ -859,16 +926,53 @@
     },
     "/auth/login/complete_registration": {
       "post": {
-        "operationId": "mobileRegistrationPlanned",
+        "operationId": "mobileCompleteRegistration",
         "tags": [
-          "Mobile registration — PLANNED"
+          "Mobile registration"
         ],
-        "summary": "PLANNED — Complete new patient registration (unavailable)",
-        "description": "NOT IMPLEMENTED. This URL currently returns framework 404, which may not use the mobile envelope. Draft fields below are for mobile UI planning only. Requires new OTP-proof branch, pre-login facility catalogue and backend atomic patient/account/PRE/session creation. Intended success data is Account; HTTP success/replay statuses and token expiry remain undecided. Existing patients continue OTP login. See mobile-appointments.md registration section. Do not use staff app/patients or ship a service-account key on the phone.",
+        "summary": "Complete an OTP-verified new patient registration",
+        "description": "Creates patient, PRE identifier for selected facility, account with hashed password and patient session atomically. No staff author, payment, arrival or appointment. Returns 201. Consumed proof or number now registered: 409; repeat OTP sign-in to recover after a lost success response. Invalid/expired/phone-mismatched proof: 422. Creation lock busy: 423, retry shortly. Existing accounts cannot use this endpoint to change details.",
         "security": [],
         "responses": {
-          "404": {
-            "description": "Not implemented: framework 404; response format is not guaranteed."
+          "201": {
+            "description": "Patient registered and signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileRegistrationResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already registered or proof consumed. Sign in using OTP.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error; show errors[].field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Patient creation is busy; retry shortly.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
           }
         },
         "requestBody": {
@@ -876,11 +980,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MobilePlannedRegistration"
+                "$ref": "#/components/schemas/MobileRegistration"
               },
               "example": {
                 "mobile": "9876501234",
-                "registration_token": "<planned-proof>",
+                "registration_token": "<registration-proof-from-verify-otp>",
                 "facility": "11111111-1111-4111-8111-111111111111",
                 "title": "Ms",
                 "first_name": "Test",
@@ -893,8 +997,85 @@
               }
             }
           }
+        }
+      }
+    },
+    "/auth/registration/facilities": {
+      "get": {
+        "operationId": "mobileRegistrationFacilities",
+        "tags": [
+          "Mobile registration"
+        ],
+        "summary": "List public facilities eligible for registration",
+        "description": "Public pre-login catalogue of nondeleted public facilities with a nonempty unit code. Independent of appointment schedules. Paginated, searchable; returns id/name/address only.",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "description": ""
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": ""
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "description": ""
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileFacilityPageResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown, unavailable/private or another profile\u2019s resource.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid or unsupported field/query. See errors[].field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          }
         },
-        "x-implementation-status": "planned"
+        "security": []
       }
     }
   },
@@ -1544,29 +1725,20 @@
             "nullable": true
           },
           "city": {
-            "nullable": true,
-            "enum": [
-              null
-            ],
-            "description": "Currently always null."
+            "type": "string",
+            "nullable": true
           },
           "state": {
-            "nullable": true,
-            "enum": [
-              null
-            ],
-            "description": "Currently always null."
+            "type": "string",
+            "nullable": true
           },
           "postal_code": {
             "type": "string",
             "nullable": true
           },
           "country": {
-            "nullable": true,
-            "enum": [
-              null
-            ],
-            "description": "Currently always null."
+            "type": "string",
+            "nullable": true
           },
           "profile_photo": {
             "nullable": true,
@@ -1614,6 +1786,14 @@
             "enum": [
               true
             ]
+          },
+          "title": {
+            "type": "string",
+            "description": "Stored HMIS title, possibly empty for older patients."
+          },
+          "gender_code": {
+            "type": "string",
+            "description": "Stored Care gender enum for edit controls. Retains non_binary/transgender distinction while legacy gender display remains Other. Older records can contain other or empty; keep unchanged unless explicitly selecting a supported new value."
           }
         }
       },
@@ -1740,7 +1920,7 @@
               },
               "total_accounts": {
                 "type": "integer",
-                "minimum": 1
+                "minimum": 0
               },
               "accounts": {
                 "type": "array",
@@ -1750,9 +1930,18 @@
               },
               "is_new_user": {
                 "type": "boolean",
+                "description": "False: accounts contains existing profiles. True: complete registration using registration_token; accounts is empty."
+              },
+              "registration_token": {
+                "type": "string",
+                "description": "Present for new numbers only. Single-use OTP proof, not an access token."
+              },
+              "expires_in": {
+                "type": "integer",
                 "enum": [
-                  false
-                ]
+                  600
+                ],
+                "description": "Registration proof lifetime in seconds, present for new numbers only."
               }
             }
           }
@@ -1827,7 +2016,7 @@
           }
         }
       },
-      "MobilePlannedRegistration": {
+      "MobileRegistration": {
         "type": "object",
         "required": [
           "mobile",
@@ -1846,21 +2035,22 @@
           "mobile": {
             "type": "string",
             "description": "Send a 10-digit Indian mobile number. +91 and formatting are also normalized; shared desk numbers are refused.",
-            "example": "9876501234"
+            "example": "9876501234",
+            "maxLength": 16
           },
           "registration_token": {
             "type": "string",
-            "description": "PLANNED: expiring, single-use OTP proof bound to mobile; not a patient access token."
+            "description": "Single-use OTP proof bound to mobile, expires after 600 seconds. New OTP verification replaces the previous proof.",
+            "maxLength": 128
           },
           "facility": {
             "type": "string",
             "format": "uuid",
-            "description": "Eligible facility with unit code; pre-login catalogue route is still undecided."
+            "description": "Public nondeleted facility with a configured unit code; choose from GET auth/registration/facilities."
           },
           "title": {
             "type": "string",
             "enum": [
-              "Baby",
               "Master",
               "Mr",
               "Ms",
@@ -1920,13 +2110,130 @@
             "format": "password",
             "writeOnly": true,
             "minLength": 8,
-            "description": "Uppercase, lowercase, digit and one of !@#$%^&*(),.?\":{}|<>. Store only a Django hash; no password sign-in in this contract."
+            "description": "Uppercase, lowercase, digit and one of !@#$%^&*(),.?\":{}|<>. Store only a Django hash; no password sign-in in this contract.",
+            "maxLength": 128
           },
           "confirm_password": {
             "type": "string",
             "format": "password",
             "writeOnly": true,
-            "description": "Must match password; never stored."
+            "description": "Must match password; never stored.",
+            "maxLength": 128
+          }
+        },
+        "additionalProperties": false
+      },
+      "MobileRegistrationResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MobileAccount"
+          }
+        }
+      },
+      "MobileProfileUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "All fields optional. Omitted values preserved. Null not accepted. Empty strings clear optional contact/address/blood-group fields only. Mobile, password, facility, IDs and staff fields are rejected. Title must remain valid for the final DOB/gender; submit title together when needed.",
+        "properties": {
+          "first_name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 40,
+            "pattern": "^[A-Za-z]+(?: [A-Za-z]+)*$"
+          },
+          "last_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "pattern": "^[A-Za-z]+(?: [A-Za-z]+)*$"
+          },
+          "dob": {
+            "type": "string",
+            "format": "date",
+            "description": "1900-01-01 through hospital-local today; age at most 120."
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "male",
+              "female",
+              "non_binary",
+              "transgender"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "enum": [
+              "Master",
+              "Mr",
+              "Ms",
+              "Mrs",
+              "Mx",
+              "Dr"
+            ],
+            "description": "Must suit DOB and gender under HMIS allowed_titles rules."
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "blood_group": {
+            "type": "string",
+            "enum": [
+              "A+",
+              "A-",
+              "B+",
+              "B-",
+              "AB+",
+              "AB-",
+              "O+",
+              "O-",
+              ""
+            ],
+            "description": "Empty string clears to unknown."
+          },
+          "emergency_contact": {
+            "type": "string",
+            "maxLength": 16,
+            "description": "Indian mobile number; 10 digits or +91 normalized. Empty string clears."
+          },
+          "address_line1": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "city": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "state": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "postal_code": {
+            "type": "string",
+            "maxLength": 6,
+            "pattern": "^(?:[1-9][0-9]{5})?$",
+            "description": "Six-digit Indian PIN, or empty string to clear."
+          },
+          "country": {
+            "type": "string",
+            "maxLength": 60
           }
         }
       }
@@ -1939,15 +2246,15 @@
     },
     {
       "name": "Mobile profile",
-      "description": "Read own profile, store FCM token (push delivery is not implemented)."
+      "description": "Read/update own patient profile and store FCM token. Photo upload/deletion and account deletion are not implemented."
     },
     {
-      "name": "Mobile registration — PLANNED",
-      "description": "Design contract only. No complete_registration route or registration proof is implemented. Do not enable sign-up yet. Pre-login facility catalogue route and retry/status semantics remain undecided."
+      "name": "Mobile registration",
+      "description": "OTP-proof registration and public facility picker. Password hash stored for future use; login remains OTP-based."
     },
     {
       "name": "Mobile appointments",
-      "description": "Facility → doctor resource → live slot → pending booking → staff decision. UUID IDs; patient account ID is numeric and is never sent for booking."
+      "description": "Facility \u2192 doctor resource \u2192 live slot \u2192 pending booking \u2192 staff decision. UUID IDs; patient account ID is numeric and is never sent for booking."
     }
   ]
 }

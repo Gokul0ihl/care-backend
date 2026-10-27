@@ -35,7 +35,7 @@ class MobileSchemaTests(SimpleTestCase):
                 view = resolve(concrete).func.view_class
                 self.assertTrue(hasattr(view, method), full_path)
                 count += 1
-        self.assertEqual(count, 12)
+        self.assertEqual(count, 15)
 
     def test_patient_auth_and_public_login(self):
         paths = self.schema["paths"]
@@ -44,6 +44,7 @@ class MobileSchemaTests(SimpleTestCase):
             "/auth/login/verify_otp",
             "/auth/refresh",
             "/auth/logout",
+            "/auth/login/complete_registration",
         ):
             self.assertEqual(paths[MOBILE_PREFIX + path]["post"]["security"], [])
         self.assertEqual(
@@ -57,12 +58,22 @@ class MobileSchemaTests(SimpleTestCase):
             "bearer",
         )
 
-    def test_registration_is_explicitly_unavailable(self):
+    def test_registration_and_profile_update_are_documented(self):
         operation = self.schema["paths"][
             MOBILE_PREFIX + "/auth/login/complete_registration"
         ]["post"]
-        self.assertEqual(operation["x-implementation-status"], "planned")
-        self.assertEqual(set(operation["responses"]), {"404"})
+        self.assertNotIn("x-implementation-status", operation)
+        self.assertEqual(set(operation["responses"]), {"201", "409", "422", "423"})
+        self.assertEqual(
+            self.schema["paths"][MOBILE_PREFIX + "/auth/registration/facilities"][
+                "get"
+            ]["security"],
+            [],
+        )
+        self.assertEqual(
+            self.schema["paths"][MOBILE_PREFIX + "/users/me"]["patch"]["security"],
+            [{"MobilePatientAccess": []}],
+        )
 
     def test_openapi_contract_is_valid(self):
         validate_schema(self.contract)
