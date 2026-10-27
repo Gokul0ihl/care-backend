@@ -1,0 +1,1953 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "POH patient mobile API",
+    "version": "1.0.0",
+    "description": "Mobile team contract: OTP login, profile/session support and self-only in-person appointments with hospital approval. Direct registration is PLANNED and is not callable yet. Use the patient token from the chosen accounts[] entry, never staff credentials or service-account API keys. See docs/mobile-app-login.md and docs/mobile-appointments.md. No family booking, specialty, online payment or cancellation/reschedule APIs. Implemented OTP policy follows Care (10 sends/hour, 3 tries/code, 5 failures locks for 60 minutes); this differs from the KB prototype policy."
+  },
+  "servers": [
+    {
+      "url": "{origin}/api/hmis/mobile/api/v1",
+      "variables": {
+        "origin": {
+          "default": "http://localhost:9000",
+          "description": "Backend origin without trailing slash; use deployed HTTPS origin outside local development."
+        }
+      }
+    }
+  ],
+  "security": [
+    {
+      "MobilePatientAccess": []
+    }
+  ],
+  "paths": {
+    "/appointments/facilities": {
+      "get": {
+        "operationId": "mobileAppointmentFacilities",
+        "tags": [
+          "Mobile appointments"
+        ],
+        "summary": "List public facilities",
+        "description": "Only facilities with public, unexpired practitioner schedules for active doctors are included.",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "description": ""
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": ""
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "description": ""
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileFacilityPageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Patient access token required; refresh or sign in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown, unavailable/private or another profile’s resource.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid or unsupported field/query. See errors[].field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "MobilePatientAccess": []
+          }
+        ]
+      }
+    },
+    "/appointments/facilities/{facility_id}/doctors": {
+      "get": {
+        "operationId": "mobileAppointmentDoctors",
+        "tags": [
+          "Mobile appointments"
+        ],
+        "summary": "List doctors at a public facility",
+        "description": "No specialty cascade is provided. ID is a schedulable resource UUID; fees are unknown.",
+        "parameters": [
+          {
+            "name": "facility_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": ""
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "description": ""
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": ""
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "description": ""
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileDoctorPageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Patient access token required; refresh or sign in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown, unavailable/private or another profile’s resource.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid or unsupported field/query. See errors[].field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "MobilePatientAccess": []
+          }
+        ]
+      }
+    },
+    "/appointments/facilities/{facility_id}/doctors/{doctor_id}/slots": {
+      "get": {
+        "operationId": "mobileAppointmentSlots",
+        "tags": [
+          "Mobile appointments"
+        ],
+        "summary": "Read live, public appointment slots",
+        "description": "Materializes missing Care slots. GET again to refresh; no scraper polling. Select one returned slot ID. Full slots are available=false. Capacity and walk-in reserves are rechecked on POST.",
+        "parameters": [
+          {
+            "name": "facility_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": ""
+          },
+          {
+            "name": "doctor_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Doctor resource ID returned by the facility doctor list."
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Hospital calendar date: today through today + 90 days inclusive, Asia/Kolkata."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileSlotsDataResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Patient access token required; refresh or sign in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown, unavailable/private or another profile’s resource.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid or unsupported field/query. See errors[].field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "MobilePatientAccess": []
+          }
+        ]
+      }
+    },
+    "/appointments": {
+      "get": {
+        "operationId": "mobileAppointmentsMine",
+        "tags": [
+          "Mobile appointments"
+        ],
+        "summary": "List signed-in profile appointments",
+        "description": "Includes own staff/phone bookings. Other profiles are excluded even on a shared phone. Ordered by slot start descending. Omit upcoming for cancellation/rejection history. Due own pending requests are expired before reading.",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "description": ""
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": ""
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MobileAppointmentStatus"
+            },
+            "description": ""
+          },
+          {
+            "name": "upcoming",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "true: active bookings ending in the future; false: active bookings ending in the past. Does not mean clinical completion. Filters intersect."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileAppointmentPageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Patient access token required; refresh or sign in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown, unavailable/private or another profile’s resource.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid or unsupported field/query. See errors[].field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "MobilePatientAccess": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "mobileAppointmentSubmit",
+        "tags": [
+          "Mobile appointments"
+        ],
+        "summary": "Submit own in-person appointment for staff approval",
+        "description": "Only request_id, slot_id and optional patient_notes are accepted. Patient is determined by access token. New submission holds one seat and returns 201 pending. An identical request_id+normalized payload replay returns 200 with the same booking’s latest status; changed payload returns 409. The receipt and booking commit atomically. No family, cancellation/reschedule request or online payment is provided.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Identical submission replay; current appointment state, no duplicate seat.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileAppointmentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Patient access token required; refresh or sign in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown, unavailable/private or another profile’s resource.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Booking conflict or request ID reused with different details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid or unsupported field/query. See errors[].field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "New pending appointment request created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileAppointmentResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MobileCreateAppointment"
+              },
+              "example": {
+                "request_id": "44444444-4444-4444-8444-444444444444",
+                "slot_id": "33333333-3333-4333-8333-333333333333",
+                "patient_notes": "Test consultation note"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "MobilePatientAccess": []
+          }
+        ]
+      }
+    },
+    "/appointments/{booking_id}": {
+      "get": {
+        "operationId": "mobileAppointmentDetail",
+        "tags": [
+          "Mobile appointments"
+        ],
+        "summary": "Read own appointment",
+        "description": "Another profile’s appointment returns 404. Pending requests expire at slot start. Approval audit is retained after later clinical changes; use status for UI state.",
+        "parameters": [
+          {
+            "name": "booking_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": ""
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileAppointmentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Patient access token required; refresh or sign in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown, unavailable/private or another profile’s resource.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid or unsupported field/query. See errors[].field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "MobilePatientAccess": []
+          }
+        ]
+      }
+    },
+    "/auth/login/send_otp": {
+      "post": {
+        "operationId": "mobileSendOtp",
+        "tags": [
+          "Mobile login"
+        ],
+        "summary": "Send login OTP",
+        "description": "Login and Create Account share this call. Uses Care SMS sender and limits. A successful send does not mean an account exists. Development-only otp is omitted in production.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OTP sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileSendOtpResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input; use errors[].field for field errors.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "OTP rate limit/lockout; honor Retry-After when supplied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MobileSendOtp"
+              },
+              "example": {
+                "mobile": "9876501234"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login/verify_otp": {
+      "post": {
+        "operationId": "mobileVerifyOtp",
+        "tags": [
+          "Mobile login"
+        ],
+        "summary": "Verify OTP and select a patient account",
+        "description": "Each live patient on the verified phone receives a separate token pair/user in accounts[], oldest first. Keep account selection when multiple entries are returned. Currently unknown numbers return 404; is_new_user is always false and no registration_token is issued.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OTP verified; choose one accounts[] entry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileVerifyOtpResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No registered patient; register at hospital front desk.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input; use errors[].field for field errors.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "OTP rate limit/lockout; honor Retry-After when supplied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MobileVerifyOtp"
+              },
+              "example": {
+                "mobile": "9876501234",
+                "otp": "456123"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "operationId": "mobileRefresh",
+        "tags": [
+          "Mobile login"
+        ],
+        "summary": "Rotate patient tokens",
+        "description": "No bearer auth required. Save both new tokens. Previous refresh token has a 2-minute retry grace; reuse after grace revokes the session. Default refresh lifetime is 60 days.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Rotated tokens.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileRefreshResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Expired, revoked or wrong token type; sign in again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MobileRefresh"
+              },
+              "example": {
+                "refresh_token": "<patient_refresh_token>"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "mobileLogout",
+        "tags": [
+          "Mobile login"
+        ],
+        "summary": "Sign out this session",
+        "description": "Uses refresh token even when access expired. Always returns 200, including invalid tokens. Other profile sessions remain signed in.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Session ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileNullResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MobileLogout"
+              },
+              "example": {
+                "refresh_token": "<patient_refresh_token>"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/me": {
+      "get": {
+        "operationId": "mobileMe",
+        "tags": [
+          "Mobile profile"
+        ],
+        "summary": "Get signed-in patient profile",
+        "description": "Self only. Deleted/merged patient, revoked session or changed phone invalidates access. Patient tokens are refused by staff APIs.",
+        "security": [
+          {
+            "MobilePatientAccess": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Own profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileUserResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Patient access token required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/me/fcm-token": {
+      "post": {
+        "operationId": "mobileFcmToken",
+        "tags": [
+          "Mobile profile"
+        ],
+        "summary": "Store device FCM token",
+        "description": "Stores token on current patient session only; does not send push notifications.",
+        "security": [
+          {
+            "MobilePatientAccess": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FCM token saved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileNullResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Patient access token required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MobileFcmToken"
+              },
+              "example": {
+                "fcm_token": "<device_fcm_token>"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login/complete_registration": {
+      "post": {
+        "operationId": "mobileRegistrationPlanned",
+        "tags": [
+          "Mobile registration — PLANNED"
+        ],
+        "summary": "PLANNED — Complete new patient registration (unavailable)",
+        "description": "NOT IMPLEMENTED. This URL currently returns framework 404, which may not use the mobile envelope. Draft fields below are for mobile UI planning only. Requires new OTP-proof branch, pre-login facility catalogue and backend atomic patient/account/PRE/session creation. Intended success data is Account; HTTP success/replay statuses and token expiry remain undecided. Existing patients continue OTP login. See mobile-appointments.md registration section. Do not use staff app/patients or ship a service-account key on the phone.",
+        "security": [],
+        "responses": {
+          "404": {
+            "description": "Not implemented: framework 404; response format is not guaranteed."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MobilePlannedRegistration"
+              },
+              "example": {
+                "mobile": "9876501234",
+                "registration_token": "<planned-proof>",
+                "facility": "11111111-1111-4111-8111-111111111111",
+                "title": "Ms",
+                "first_name": "Test",
+                "last_name": "Patient",
+                "email": "test.patient@example.invalid",
+                "dob": "1995-06-15",
+                "gender": "female",
+                "password": "<user-entered-password>",
+                "confirm_password": "<same-user-entered-password>"
+              }
+            }
+          }
+        },
+        "x-implementation-status": "planned"
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "MobilePatientAccess": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Patient access token from existing OTP login/profile flow. Staff tokens and refresh tokens are rejected. Refresh on 401."
+      }
+    },
+    "schemas": {
+      "MobileFacility": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "address"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          }
+        }
+      },
+      "MobileDoctor": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "qualification",
+          "consultation_fee"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Facility-specific schedulable resource UUID, not staff User UUID."
+          },
+          "name": {
+            "type": "string"
+          },
+          "qualification": {
+            "type": "string",
+            "nullable": true
+          },
+          "consultation_fee": {
+            "type": "number",
+            "nullable": true,
+            "description": "Currently always null: unknown price, never an assertion of free care."
+          }
+        }
+      },
+      "MobileSlot": {
+        "type": "object",
+        "required": [
+          "id",
+          "start_datetime",
+          "end_datetime",
+          "seats_remaining",
+          "available"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "start_datetime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end_datetime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "seats_remaining": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "available": {
+            "type": "boolean"
+          }
+        }
+      },
+      "MobileAppointmentStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "confirmed",
+          "rejected",
+          "expired",
+          "cancelled",
+          "completed",
+          "noshow",
+          "rescheduled",
+          "proposed",
+          "waitlist"
+        ]
+      },
+      "MobileCreateAppointment": {
+        "type": "object",
+        "required": [
+          "request_id",
+          "slot_id"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Persist a new UUID per logical submission; reuse across network/401 retries."
+          },
+          "slot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_notes": {
+            "type": "string",
+            "maxLength": 500,
+            "default": "",
+            "description": "Outer whitespace is trimmed."
+          }
+        },
+        "additionalProperties": false
+      },
+      "MobileAppointment": {
+        "type": "object",
+        "required": [
+          "id",
+          "appointment_number",
+          "request_id",
+          "timezone",
+          "status",
+          "booking_status",
+          "approval_status",
+          "rejection_reason",
+          "reviewed_at",
+          "facility",
+          "doctor",
+          "slot_id",
+          "start_datetime",
+          "end_datetime",
+          "patient_notes",
+          "booking_channel",
+          "created_at",
+          "updated_at",
+          "consultation_type",
+          "consultation_fee",
+          "payment_option"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appointment_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MobileAppointmentStatus"
+          },
+          "booking_status": {
+            "type": "string"
+          },
+          "approval_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "expired",
+              null
+            ],
+            "nullable": true
+          },
+          "rejection_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "facility": {
+            "$ref": "#/components/schemas/MobileFacility"
+          },
+          "doctor": {
+            "type": "object",
+            "required": [
+              "id",
+              "name"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "slot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "start_datetime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end_datetime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "patient_notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "booking_channel": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "consultation_type": {
+            "type": "string"
+          },
+          "consultation_fee": {
+            "type": "number",
+            "nullable": true,
+            "description": "Always null in this release; fees are confirmed at hospital."
+          },
+          "payment_option": {
+            "type": "string",
+            "enum": [
+              "pay_at_hospital"
+            ]
+          }
+        }
+      },
+      "MobileSlotsData": {
+        "type": "object",
+        "required": [
+          "facility_id",
+          "doctor_id",
+          "date",
+          "timezone",
+          "items"
+        ],
+        "properties": {
+          "facility_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "doctor_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MobileSlot"
+            }
+          }
+        }
+      },
+      "MobileError": {
+        "type": "object",
+        "required": [
+          "status",
+          "message"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "error"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "field",
+                "message"
+              ],
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "MobileFacilityPage": {
+        "type": "object",
+        "required": [
+          "total",
+          "page",
+          "page_size",
+          "items"
+        ],
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MobileFacility"
+            }
+          }
+        }
+      },
+      "MobileDoctorPage": {
+        "type": "object",
+        "required": [
+          "total",
+          "page",
+          "page_size",
+          "items"
+        ],
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MobileDoctor"
+            }
+          }
+        }
+      },
+      "MobileAppointmentPage": {
+        "type": "object",
+        "required": [
+          "total",
+          "page",
+          "page_size",
+          "items"
+        ],
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MobileAppointment"
+            }
+          }
+        }
+      },
+      "MobileFacilityPageResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MobileFacilityPage"
+          }
+        }
+      },
+      "MobileDoctorPageResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MobileDoctorPage"
+          }
+        }
+      },
+      "MobileAppointmentPageResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MobileAppointmentPage"
+          }
+        }
+      },
+      "MobileAppointmentResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MobileAppointment"
+          }
+        }
+      },
+      "MobileSlotsDataResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MobileSlotsData"
+          }
+        }
+      },
+      "MobileSendOtp": {
+        "type": "object",
+        "required": [
+          "mobile"
+        ],
+        "properties": {
+          "mobile": {
+            "type": "string",
+            "description": "Send a 10-digit Indian mobile number. +91 and formatting are also normalized; shared desk numbers are refused.",
+            "example": "9876501234"
+          }
+        }
+      },
+      "MobileVerifyOtp": {
+        "type": "object",
+        "required": [
+          "mobile",
+          "otp"
+        ],
+        "properties": {
+          "mobile": {
+            "type": "string",
+            "description": "Send a 10-digit Indian mobile number. +91 and formatting are also normalized; shared desk numbers are refused.",
+            "example": "9876501234"
+          },
+          "otp": {
+            "type": "string",
+            "description": "Numeric OTP string; length is backend OTP_LENGTH (currently 6).",
+            "example": "456123"
+          }
+        }
+      },
+      "MobileRefresh": {
+        "type": "object",
+        "required": [
+          "refresh_token"
+        ],
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "description": "Patient refresh token from the chosen account. An access token cannot be used here."
+          }
+        }
+      },
+      "MobileLogout": {
+        "type": "object",
+        "required": [
+          "refresh_token"
+        ],
+        "properties": {
+          "refresh_token": {
+            "type": "string"
+          },
+          "fcm_token": {
+            "type": "string",
+            "description": "Accepted for compatibility; logout revokes the session, this field is ignored."
+          }
+        }
+      },
+      "MobileFcmToken": {
+        "type": "object",
+        "properties": {
+          "fcm_token": {
+            "type": "string",
+            "description": "Stored as a string, truncated to 512 characters. Empty or omitted clears it.",
+            "maxLength": 512
+          }
+        }
+      },
+      "MobileUser": {
+        "type": "object",
+        "required": [
+          "email",
+          "emergency_contact",
+          "dob",
+          "blood_group",
+          "address_line1",
+          "city",
+          "state",
+          "postal_code",
+          "country",
+          "profile_photo",
+          "patient_number",
+          "patient_number_label",
+          "id",
+          "first_name",
+          "last_name",
+          "mobile",
+          "age",
+          "gender",
+          "is_active"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "nullable": true
+          },
+          "emergency_contact": {
+            "type": "string",
+            "nullable": true
+          },
+          "dob": {
+            "type": "string",
+            "nullable": true,
+            "format": "date",
+            "description": "Null when only year of birth is known."
+          },
+          "blood_group": {
+            "type": "string",
+            "nullable": true
+          },
+          "address_line1": {
+            "type": "string",
+            "nullable": true
+          },
+          "city": {
+            "nullable": true,
+            "enum": [
+              null
+            ],
+            "description": "Currently always null."
+          },
+          "state": {
+            "nullable": true,
+            "enum": [
+              null
+            ],
+            "description": "Currently always null."
+          },
+          "postal_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "country": {
+            "nullable": true,
+            "enum": [
+              null
+            ],
+            "description": "Currently always null."
+          },
+          "profile_photo": {
+            "nullable": true,
+            "enum": [
+              null
+            ],
+            "description": "Currently always null."
+          },
+          "patient_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_number_label": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "integer",
+            "description": "Numeric PatientAccount ID, not a Care patient UUID."
+          },
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "mobile": {
+            "type": "string"
+          },
+          "age": {
+            "type": "integer",
+            "nullable": true
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "Male",
+              "Female",
+              "Other",
+              ""
+            ]
+          },
+          "is_active": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        }
+      },
+      "MobileTokens": {
+        "type": "object",
+        "required": [
+          "access_token",
+          "refresh_token",
+          "token_type",
+          "expires_in"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "refresh_token": {
+            "type": "string"
+          },
+          "token_type": {
+            "type": "string",
+            "enum": [
+              "Bearer"
+            ]
+          },
+          "expires_in": {
+            "type": "integer",
+            "description": "Access token lifetime in seconds (default 900)."
+          }
+        }
+      },
+      "MobileAccount": {
+        "type": "object",
+        "required": [
+          "access_token",
+          "refresh_token",
+          "token_type",
+          "expires_in",
+          "user"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "refresh_token": {
+            "type": "string"
+          },
+          "token_type": {
+            "type": "string",
+            "enum": [
+              "Bearer"
+            ]
+          },
+          "expires_in": {
+            "type": "integer",
+            "description": "Access token lifetime in seconds (default 900)."
+          },
+          "user": {
+            "$ref": "#/components/schemas/MobileUser"
+          }
+        }
+      },
+      "MobileSendOtpResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "required": [
+              "mobile"
+            ],
+            "properties": {
+              "mobile": {
+                "type": "string"
+              },
+              "otp": {
+                "type": "string",
+                "description": "Present only when SMS is disabled outside production; fixed development code."
+              }
+            }
+          }
+        }
+      },
+      "MobileVerifyOtpResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "required": [
+              "mobile",
+              "total_accounts",
+              "accounts",
+              "is_new_user"
+            ],
+            "properties": {
+              "mobile": {
+                "type": "string"
+              },
+              "total_accounts": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "accounts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MobileAccount"
+                }
+              },
+              "is_new_user": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              }
+            }
+          }
+        }
+      },
+      "MobileRefreshResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MobileTokens"
+          }
+        }
+      },
+      "MobileUserResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MobileUser"
+          }
+        }
+      },
+      "MobileNullResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "nullable": true,
+            "enum": [
+              null
+            ]
+          }
+        }
+      },
+      "MobilePlannedRegistration": {
+        "type": "object",
+        "required": [
+          "mobile",
+          "registration_token",
+          "facility",
+          "title",
+          "first_name",
+          "last_name",
+          "email",
+          "dob",
+          "gender",
+          "password",
+          "confirm_password"
+        ],
+        "properties": {
+          "mobile": {
+            "type": "string",
+            "description": "Send a 10-digit Indian mobile number. +91 and formatting are also normalized; shared desk numbers are refused.",
+            "example": "9876501234"
+          },
+          "registration_token": {
+            "type": "string",
+            "description": "PLANNED: expiring, single-use OTP proof bound to mobile; not a patient access token."
+          },
+          "facility": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Eligible facility with unit code; pre-login catalogue route is still undecided."
+          },
+          "title": {
+            "type": "string",
+            "enum": [
+              "Baby",
+              "Master",
+              "Mr",
+              "Ms",
+              "Mrs",
+              "Mx",
+              "Dr"
+            ],
+            "description": "Must suit DOB and gender under HMIS allowed_titles rules."
+          },
+          "first_name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 40,
+            "pattern": "^[A-Za-z]+(?: [A-Za-z]+)*$"
+          },
+          "last_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "pattern": "^[A-Za-z]+(?: [A-Za-z]+)*$"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "dob": {
+            "type": "string",
+            "format": "date",
+            "description": "1900-01-01 through hospital-local today; age at most 120."
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "male",
+              "female",
+              "non_binary",
+              "transgender"
+            ]
+          },
+          "blood_group": {
+            "type": "string",
+            "enum": [
+              "A+",
+              "A-",
+              "B+",
+              "B-",
+              "AB+",
+              "AB-",
+              "O+",
+              "O-"
+            ],
+            "description": "Optional; omitted becomes unknown."
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "writeOnly": true,
+            "minLength": 8,
+            "description": "Uppercase, lowercase, digit and one of !@#$%^&*(),.?\":{}|<>. Store only a Django hash; no password sign-in in this contract."
+          },
+          "confirm_password": {
+            "type": "string",
+            "format": "password",
+            "writeOnly": true,
+            "description": "Must match password; never stored."
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Mobile login",
+      "description": "Send OTP, verify and choose a patient account; refresh tokens rotate."
+    },
+    {
+      "name": "Mobile profile",
+      "description": "Read own profile, store FCM token (push delivery is not implemented)."
+    },
+    {
+      "name": "Mobile registration — PLANNED",
+      "description": "Design contract only. No complete_registration route or registration proof is implemented. Do not enable sign-up yet. Pre-login facility catalogue route and retry/status semantics remain undecided."
+    },
+    {
+      "name": "Mobile appointments",
+      "description": "Facility → doctor resource → live slot → pending booking → staff decision. UUID IDs; patient account ID is numeric and is never sent for booking."
+    }
+  ]
+}
