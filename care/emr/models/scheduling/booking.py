@@ -64,6 +64,16 @@ class TokenBooking(EMRBaseModel):
     guidance_since = models.CharField(max_length=20, blank=True, default="")
     chief_complaint = models.CharField(max_length=500, blank=True, default="")
 
+    # App booking review; blank for bookings that never required approval.
+    approval_status = models.CharField(
+        max_length=12, blank=True, default="", db_index=True
+    )
+    approval_reason = models.CharField(max_length=500, blank=True, default="")
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        User, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
+
     class Meta:
         constraints = [
             # A reschedule hands the number to the new booking and the old,

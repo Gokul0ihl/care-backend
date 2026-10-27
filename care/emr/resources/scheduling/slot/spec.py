@@ -132,6 +132,8 @@ class TokenBookingBaseReadSpec(TokenBookingBaseSpec):
     chief_complaint: str
     reminder_due_at: datetime.datetime | None = None
     reminder_sent_at: datetime.datetime | None = None
+    approval_status: str = ""
+    reviewed_at: datetime.datetime | None = None
 
     @classmethod
     def perform_extra_serialization(cls, mapping, obj):

@@ -1,6 +1,6 @@
-from care.emr.models.base import EMRBaseModel
 from django.db import models
 
+from care.emr.models.base import EMRBaseModel
 from hmis.constants import (
     CaptureMethods,
     DocumentCategories,
@@ -281,3 +281,27 @@ class PatientSession(models.Model):
 
     def __str__(self):
         return f"App session {self.id} of account {self.account_id}"
+
+
+class MobileAppointmentSubmission(models.Model):
+    """Durable idempotency receipt; the appointment itself lives in TokenBooking."""
+
+    account = models.ForeignKey(PatientAccount, on_delete=models.PROTECT)
+    request_id = models.UUIDField()
+    slot_id = models.UUIDField()
+    patient_notes = models.CharField(max_length=500, blank=True, default="")
+    booking = models.OneToOneField(
+        "emr.TokenBooking", on_delete=models.PROTECT, related_name="mobile_submission"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["account", "request_id"],
+                name="unique_mobile_appointment_request",
+            )
+        ]
+
+    def __str__(self):
+        return f"Mobile appointment submission {self.request_id}"

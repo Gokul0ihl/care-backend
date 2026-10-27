@@ -14,15 +14,15 @@ from hmis.views import (
     LabTariffView,
     LabTestDetailView,
     LabTestView,
-    PatientNumberView,
-    PatientNumberSearchView,
+    NewbornRegistrationView,
     PatientContactView,
     PatientMergeView,
-    PatientSummaryView,
-    NewbornRegistrationView,
-    PatientRegistrationView,
-    PincodeView,
+    PatientNumberSearchView,
+    PatientNumberView,
     PatientQuickRegistrationView,
+    PatientRegistrationView,
+    PatientSummaryView,
+    PincodeView,
     QuickFormLinkView,
     QuickFormPincodeView,
     QuickFormView,
@@ -34,6 +34,10 @@ from hmis.views import (
     StatutoryFlagView,
     UnitView,
 )
+from hmis.views.appointment_approvals import (
+    AppointmentRequestListView,
+    AppointmentRequestReviewView,
+)
 
 router = SimpleRouter()
 router.register(
@@ -41,6 +45,23 @@ router.register(
 )
 
 urlpatterns = [
+    path(
+        "facility/<uuid:facility_id>/appointment-requests/",
+        AppointmentRequestListView.as_view(),
+        name="appointment-requests",
+    ),
+    path(
+        "facility/<uuid:facility_id>/appointment-requests/<uuid:booking_id>/approve/",
+        AppointmentRequestReviewView.as_view(),
+        {"decision": "approved"},
+        name="appointment-request-approve",
+    ),
+    path(
+        "facility/<uuid:facility_id>/appointment-requests/<uuid:booking_id>/reject/",
+        AppointmentRequestReviewView.as_view(),
+        {"decision": "rejected"},
+        name="appointment-request-reject",
+    ),
     path("mobile/", include("hmis.urls_mobile")),
     path("app/patients/", AppPatientView.as_view(), name="app-patients"),
     path(

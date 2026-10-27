@@ -1,12 +1,12 @@
 import logging
 
-from care.emr.models import TokenBooking
-from care.utils.sms import send_text_message
-from care.utils.time_util import care_now
 from celery import Celery, current_app, shared_task
 from celery.schedules import crontab
 from django.utils import timezone
 
+from care.emr.models import TokenBooking
+from care.utils.sms import send_text_message
+from care.utils.time_util import care_now
 from hmis.contact import is_desk_phone
 from hmis.pincodes import refresh_from_api
 
@@ -50,6 +50,13 @@ def send_appointment_reminders():
 
 
 @shared_task
+def expire_app_appointment_requests():
+    from hmis.appointment_approvals import expire_pending_bookings
+
+    return expire_pending_bookings()
+
+
+@shared_task
 def refresh_pincode_directory():
     """Reloads India Post's PIN directory from data.gov.in. Skipped until
     DATA_GOV_IN_API_KEY is set; a failed download keeps the old table."""
@@ -64,6 +71,9 @@ def refresh_pincode_directory():
 def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(
         5 * 60, send_appointment_reminders.s(), name="send_appointment_reminders"
+    )
+    sender.add_periodic_task(
+        60, expire_app_appointment_requests.s(), name="expire_app_appointment_requests"
     )
     # data.gov.in publishes the directory monthly ("till last month").
     sender.add_periodic_task(

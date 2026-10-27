@@ -137,6 +137,8 @@ class TokenBookingViewSet(
         return instance.token_slot.resource.facility
 
     def authorize_update(self, request_obj, model_instance):
+        if model_instance.approval_status == "pending":
+            raise ValidationError("Review this booking through App requests first")
         resource = model_instance.token_slot.resource
         if not AuthorizationController.call(
             "can_write_booking",
@@ -210,7 +212,11 @@ class TokenBookingViewSet(
         return queryset
 
     @classmethod
-    def cancel_appointment_handler(cls, instance, request_data, user):
+    def cancel_appointment_handler(
+        cls, instance, request_data, user, *, allow_pending_review=False
+    ):
+        if instance.approval_status == "pending" and not allow_pending_review:
+            raise ValidationError("Review this booking through App requests first")
         request_data = CancelBookingSpec(**request_data)
         if instance.status == BookingStatusChoices.in_consultation:
             raise ValidationError("You cannot cancel an appointment In-Consultation")
