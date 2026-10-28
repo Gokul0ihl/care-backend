@@ -62,7 +62,7 @@ def load_fixtures(base):  # noqa: PLR0915, PLR0912
 
     facility = base.create_facility(
         geo_organization.id,
-        name="FACILITY WITH PATIENTS",
+        name="Lajpat Nagar",
         facility_type="Private Hospital",
     )
     facility_id = facility.id
@@ -162,7 +162,7 @@ def load_fixtures(base):  # noqa: PLR0915, PLR0912
 
     secondary = base.create_facility(
         geo_organization.id,
-        name="SECONDARY FACILITY",
+        name="Faridabad",
         facility_type="Private Hospital",
         is_public=True,
     )

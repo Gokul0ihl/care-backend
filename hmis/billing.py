@@ -136,6 +136,7 @@ CATALOGUE = [
     ("HBA1C", "H2", "HbA1c", 600, None),
     ("TSH", "H2", "Thyroid — TSH", 450, None),
     ("FBS", "H2", "Blood sugar — fasting", 120, None),
+    ("PPBS", "H2", "Blood sugar — post-prandial", 120, None),
     ("UR", "H2", "Urine routine", 200, None),
     ("VITD", "H2", "Vitamin D", 1400, None),
     ("HBSAG", "H2", "HBsAg", 450, "Sensitive: printed, sealed, handed over in person"),

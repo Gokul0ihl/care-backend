@@ -201,13 +201,16 @@ class PatientMerge(EMRBaseModel):
 
 class LabTestRule(EMRBaseModel):
     """POH's per-test rules for a lab test (an ActivityDefinition): how long the
-    patient fasts before the sample, and whether the report is sensitive, so it's
-    printed, sealed and handed over in person only (FO-19, D53)."""
+    patient fasts before the sample, whether the sample is taken after a meal
+    (post-prandial, e.g. PPBS), and whether the report is sensitive, so it's
+    printed, sealed and handed over in person only (FO-19, D53). A test needs
+    fasting or an after-meal sample, never both."""
 
     activity_definition = models.OneToOneField(
         "emr.ActivityDefinition", on_delete=models.CASCADE, related_name="poh_lab_rule"
     )
     fasting_hours = models.PositiveSmallIntegerField(null=True, blank=True)
+    after_meal = models.BooleanField(default=False)
     sensitive_report = models.BooleanField(default=False)
 
 

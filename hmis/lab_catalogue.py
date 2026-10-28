@@ -1,22 +1,24 @@
 """The lab test catalogue: each lab test is a Care ActivityDefinition (classification
 laboratory) linked to its tariff row (ChargeItemDefinition), the sample it needs
 (SpecimenDefinition) and the parameters it reports (ObservationDefinitions, LOINC).
-POH's own rules (fasting hours, sensitive report) sit beside it in LabTestRule.
+POH's own rules (fasting hours, after-meal sample, sensitive report) sit beside it
+in LabTestRule.
 
 The front desk reads the catalogue to book lab tests, and facility admins edit it
 from Settings → Lab tests in hmis_fe."""
 
 import re
 
-from care.emr.models import ActivityDefinition
-from care.emr.models.charge_item_definition import ChargeItemDefinition
-from care.emr.models.observation_definition import ObservationDefinition
-from care.emr.models.specimen_definition import SpecimenDefinition
 from django.db import transaction
 from pydantic import BaseModel, Field, field_validator, model_validator
 from rest_framework.exceptions import ValidationError
 
-from hmis.billing import slug_for
+from care.emr.models import ActivityDefinition
+from care.emr.models.charge_item_definition import ChargeItemDefinition
+from care.emr.models.observation_definition import ObservationDefinition
+from care.emr.models.resource_category import ResourceCategory
+from care.emr.models.specimen_definition import SpecimenDefinition
+from hmis.billing import CATALOGUE, ensure_definition, slug_for
 from hmis.models import LabTestRule
 
 SNOMED = "http://snomed.info/sct"
@@ -59,6 +61,8 @@ class LabTestWriteSpec(BaseModel):
     charge_item_definition: str
     specimen: CodingSpec
     fasting_hours: int | None = Field(default=None, ge=1, le=MAX_FASTING_HOURS)
+    # Taken after a meal (post-prandial), e.g. PPBS. The desk's "After meal" filter.
+    after_meal: bool = False
     sensitive_report: bool = False
     parameters: list[ParameterSpec] = Field(min_length=1, max_length=MAX_PARAMETERS)
 
@@ -83,6 +87,14 @@ class LabTestWriteSpec(BaseModel):
         if value.system != SPECIMEN_TYPES:
             raise ValueError("Choose the sample type from the list")
         return value
+
+    @model_validator(mode="after")
+    def fasting_or_after_meal(self):
+        if self.fasting_hours and self.after_meal:
+            raise ValueError(
+                "A test is either taken fasting or after a meal, not both"
+            )
+        return self
 
     @model_validator(mode="after")
     def unique_parameters(self):
@@ -195,6 +207,7 @@ def lab_tests(facility, status=None):
                 else None,
                 "specimen": specimen.type_collected if specimen else None,
                 "fasting_hours": rule.fasting_hours if rule else None,
+                "after_meal": rule.after_meal if rule else False,
                 "sensitive_report": rule.sensitive_report if rule else False,
                 "parameters": [
                     {**parameters[i].code, "name": parameters[i].title}
@@ -343,11 +356,13 @@ def save_lab_test(facility, spec, user=None, activity=None):
         activity_definition=activity,
         defaults={
             "fasting_hours": spec.fasting_hours,
+            "after_meal": spec.after_meal,
             "sensitive_report": spec.sensitive_report,
             "updated_by": user,
         },
         create_defaults={
             "fasting_hours": spec.fasting_hours,
+            "after_meal": spec.after_meal,
             "sensitive_report": spec.sensitive_report,
             "created_by": user,
             "updated_by": user,
@@ -359,7 +374,8 @@ def save_lab_test(facility, spec, user=None, activity=None):
 # The starting catalogue: the lab rows of the v11 tariff (billing.CATALOGUE, head H2),
 # with the sample, fasting hours and sensitivity from the front-office spec (KB Module 1
 # preparation engine, FO-19) and the LOINC parameters each reports. Admins edit it from
-# then on; setup_lab_catalogue only adds tests that aren't there yet.
+# then on; setup_lab_catalogue only adds tests that aren't there yet, and on startup
+# (--if-empty) only seeds a facility that has no lab tests at all.
 SAMPLE = {
     "BLD": "Whole blood",
     "SER": "Serum",
@@ -398,6 +414,7 @@ LAB_SEED = [
     ("HBA1C", "BLD", None, False, [("4548-4", "HbA1c"), ("27353-2", "Estimated average glucose")]),
     ("TSH", "SER", None, False, [("3016-3", "TSH")]),
     ("FBS", "PLAS", 8, False, [("1558-6", "Fasting blood glucose")]),
+    ("PPBS", "PLAS", None, False, [("1521-4", "Post-prandial blood glucose (2 h)")]),
     ("UR", "UR", None, False, [
         ("5778-6", "Colour"), ("5767-9", "Appearance"), ("5811-5", "Specific gravity"),
         ("5803-2", "pH"), ("5804-0", "Protein"), ("5792-7", "Glucose"), ("5797-6", "Ketones"),
@@ -427,21 +444,55 @@ LAB_SEED = [
     ("PT", "PLAS", None, False, [("5902-2", "Prothrombin time"), ("6301-6", "INR")]),
     ("HCV", "SER", None, True, [("16128-1", "Anti-HCV")]),
 ]
+# Seed tests whose sample is taken after a meal (the desk's "After meal" filter).
+AFTER_MEAL_SEED = {"PPBS"}
 
 
-def seed_lab_catalogue(facility, user=None):
+def has_lab_tests(facility):
+    """True once the facility has any POH lab test, active or retired."""
+    return ActivityDefinition.objects.filter(
+        facility=facility,
+        classification="laboratory",
+        slug__startswith=facility_slug(facility, "poh-lab-"),
+    ).exists()
+
+
+def seed_tariff_row(facility, code):
+    """The tariff row a seed test is billed by. A row missing from the tariff (a code
+    added to billing.CATALOGUE after setup_billing ran, such as PPBS) is created under
+    H2; rows that exist are returned as they are, so admin prices are never changed.
+    None when billing isn't set up at the facility (no H2 head)."""
+    row = ChargeItemDefinition.objects.filter(
+        facility=facility, slug=facility_slug(facility, slug_for(code))
+    ).first()
+    if row is not None:
+        return row
+    head = ResourceCategory.objects.filter(
+        facility=facility, slug=facility_slug(facility, slug_for("h2"))
+    ).first()
+    entry = next((item for item in CATALOGUE if item[0] == code), None)
+    if head is None or entry is None:
+        return None
+    _, _, title, price, description = entry
+    return ensure_definition(facility, head, code, title, price, description)
+
+
+@transaction.atomic
+def seed_lab_catalogue(facility, user=None, only_if_empty=False):
     """Adds the starting lab tests that the facility doesn't have yet. Tests already
-    there are left exactly as the admin set them. Needs setup_billing first, for the
-    tariff rows."""
+    there are left exactly as the admin set them. With only_if_empty (the startup
+    hook), a facility that already has any lab test is left alone entirely, so tests
+    an admin retired or replaced never come back. Needs setup_billing first, for the
+    tariff; returns how many tests were added."""
+    if only_if_empty and has_lab_tests(facility):
+        return 0
     added = 0
     for code, sample, fasting_hours, sensitive, parameters in LAB_SEED:
         if ActivityDefinition.objects.filter(
             slug=facility_slug(facility, lab_slug(code))
         ).exists():
             continue
-        charge_item = ChargeItemDefinition.objects.filter(
-            facility=facility, slug=facility_slug(facility, slug_for(code))
-        ).first()
+        charge_item = seed_tariff_row(facility, code)
         if charge_item is None:
             continue
         spec = LabTestCreateSpec(
@@ -451,6 +502,7 @@ def seed_lab_catalogue(facility, user=None):
             charge_item_definition=charge_item.slug,
             specimen={"system": SPECIMEN_TYPES, "code": sample, "display": SAMPLE[sample]},
             fasting_hours=fasting_hours,
+            after_meal=code in AFTER_MEAL_SEED,
             sensitive_report=sensitive,
             parameters=[
                 {"system": LOINC, "code": loinc, "display": name, "name": name}

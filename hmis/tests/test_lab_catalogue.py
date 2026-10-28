@@ -1,13 +1,13 @@
 from io import StringIO
 from unittest import mock
 
-from care.emr.models import ActivityDefinition
-from care.emr.models.observation_definition import ObservationDefinition
-from care.utils.tests.base import CareAPITestBase
 from django.core.management import call_command
 from django.urls import reverse
 from rest_framework import status
 
+from care.emr.models import ActivityDefinition
+from care.emr.models.observation_definition import ObservationDefinition
+from care.utils.tests.base import CareAPITestBase
 from hmis.billing import setup_billing
 from hmis.lab_catalogue import LAB_SEED, seed_lab_catalogue
 from hmis.models import LabTestRule
@@ -76,6 +76,51 @@ class LabCatalogueTests(CareAPITestBase):
         self.assertGreater(float(lipid["charge_item_definition"]["price"]), 0)
         self.assertTrue(rows["HIV"]["sensitive_report"])
         self.assertIsNone(rows["CBC"]["fasting_hours"])
+        self.assertTrue(rows["PPBS"]["after_meal"])
+        self.assertIsNone(rows["PPBS"]["fasting_hours"])
+        self.assertFalse(rows["FBS"]["after_meal"])
+
+    def test_startup_seed_only_fills_an_empty_facility(self):
+        out = StringIO()
+        call_command("setup_lab_catalogue", if_empty=True, stdout=out)
+        self.assertIn(f"{len(LAB_SEED)} lab tests added", out.getvalue())
+        # An admin retires a test and edits another; startup leaves both alone.
+        ActivityDefinition.objects.filter(slug__endswith="poh-lab-cbc").update(
+            status="retired"
+        )
+        ActivityDefinition.objects.filter(slug__endswith="poh-lab-tsh").delete()
+        call_command("setup_lab_catalogue", if_empty=True, stdout=StringIO())
+        rows = self.catalogue()
+        self.assertEqual(len(rows), len(LAB_SEED) - 1)
+        self.assertEqual(rows["CBC"]["status"], "retired")
+        self.assertNotIn("TSH", rows)
+
+    @mock.patch(VALIDATE)
+    def test_startup_seed_skips_a_facility_with_its_own_tests(self, validate):
+        self.client.post(self.url, {**self.body(), "code": "FERR"}, format="json")
+        self.assertEqual(seed_lab_catalogue(self.facility, only_if_empty=True), 0)
+        self.assertEqual(list(self.catalogue()), ["FERR"])
+
+    def test_startup_seed_adds_missing_tariff_rows_without_changing_prices(self):
+        from care.emr.models.charge_item_definition import ChargeItemDefinition
+
+        ChargeItemDefinition.objects.filter(slug__endswith="poh-ppbs").delete()
+        cbc = ChargeItemDefinition.objects.get(
+            facility=self.facility, slug__endswith="poh-cbc"
+        )
+        cbc.price_components = [{"monetary_component_type": "base", "amount": "999"}]
+        cbc.save()
+        seed_lab_catalogue(self.facility, only_if_empty=True)
+        rows = self.catalogue()
+        self.assertEqual(rows["PPBS"]["charge_item_definition"]["code"], "PPBS")
+        self.assertEqual(rows["CBC"]["charge_item_definition"]["price"], "999")
+
+    def test_startup_seed_never_fails_without_a_facility(self):
+        self.facility.unit_code = None
+        self.facility.save(update_fields=["unit_code"])
+        out = StringIO()
+        call_command("setup_lab_catalogue", if_empty=True, stdout=out)
+        self.assertIn("No facility has a unit code yet", out.getvalue())
 
     @mock.patch(VALIDATE)
     def test_create_and_update(self, validate):
@@ -129,6 +174,7 @@ class LabCatalogueTests(CareAPITestBase):
         for body in [
             {**self.body(), "code": "bad code"},
             {**self.body(fasting_hours=30), "code": "FERR"},
+            {**self.body(fasting_hours=8, after_meal=True), "code": "FERR"},
             {**self.body(parameters=[]), "code": "FERR"},
             {**self.body(charge_item_definition="missing"), "code": "FERR"},
         ]:
@@ -146,3 +192,15 @@ class LabCatalogueTests(CareAPITestBase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         response = self.client.get(self.url, {"facility": self.facility_id()})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @mock.patch(VALIDATE)
+    def test_after_meal_is_saved(self, validate):
+        response = self.client.post(
+            self.url, {**self.body(after_meal=True), "code": "PPG"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertTrue(response.json()["after_meal"])
+        response = self.client.put(
+            reverse("lab-test", args=["PPG"]), self.body(after_meal=False), format="json"
+        )
+        self.assertFalse(response.json()["after_meal"])
