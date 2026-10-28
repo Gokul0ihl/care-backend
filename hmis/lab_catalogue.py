@@ -1,7 +1,7 @@
 """The lab test catalogue: each lab test is a Care ActivityDefinition (classification
 laboratory) linked to its tariff row (ChargeItemDefinition), the sample it needs
 (SpecimenDefinition) and the parameters it reports (ObservationDefinitions, LOINC).
-POH's own rules (fasting hours, after-meal sample, sensitive report) sit beside it
+POH's own rules (fasting hours, after-meal sample, sensitive report, icon) sit beside it
 in LabTestRule.
 
 The front desk reads the catalogue to book lab tests, and facility admins edit it
@@ -36,6 +36,9 @@ SPECIMEN_VALUESET = "system-specimen_type-code"
 PARAMETER_VALUESET = "system-observation"
 
 CODE_PATTERN = r"^[A-Z0-9][A-Z0-9-]{0,19}$"
+# An icon key from hmis_fe's lab icon set (lib/lab-icons.ts), e.g. "blood". The app
+# owns the set, so the server only checks the key's shape.
+ICON_PATTERN = r"^[a-z0-9-]{0,40}$"
 MAX_FASTING_HOURS = 24
 MAX_PARAMETERS = 60
 
@@ -64,6 +67,8 @@ class LabTestWriteSpec(BaseModel):
     # Taken after a meal (post-prandial), e.g. PPBS. The desk's "After meal" filter.
     after_meal: bool = False
     sensitive_report: bool = False
+    # Blank: the app picks an icon from the test's code or sample.
+    icon: str = ""
     parameters: list[ParameterSpec] = Field(min_length=1, max_length=MAX_PARAMETERS)
 
     @field_validator("title")
@@ -72,6 +77,14 @@ class LabTestWriteSpec(BaseModel):
         value = value.strip()
         if not value:
             raise ValueError("Enter the test's name")
+        return value
+
+    @field_validator("icon")
+    @classmethod
+    def icon_key(cls, value):
+        value = value.strip()
+        if not re.match(ICON_PATTERN, value):
+            raise ValueError("Choose an icon from the list")
         return value
 
     @field_validator("status")
@@ -209,6 +222,7 @@ def lab_tests(facility, status=None):
                 "fasting_hours": rule.fasting_hours if rule else None,
                 "after_meal": rule.after_meal if rule else False,
                 "sensitive_report": rule.sensitive_report if rule else False,
+                "icon": rule.icon if rule else "",
                 "parameters": [
                     {**parameters[i].code, "name": parameters[i].title}
                     for i in activity.observation_result_requirements
@@ -358,12 +372,14 @@ def save_lab_test(facility, spec, user=None, activity=None):
             "fasting_hours": spec.fasting_hours,
             "after_meal": spec.after_meal,
             "sensitive_report": spec.sensitive_report,
+            "icon": spec.icon,
             "updated_by": user,
         },
         create_defaults={
             "fasting_hours": spec.fasting_hours,
             "after_meal": spec.after_meal,
             "sensitive_report": spec.sensitive_report,
+            "icon": spec.icon,
             "created_by": user,
             "updated_by": user,
         },

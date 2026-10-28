@@ -204,3 +204,19 @@ class LabCatalogueTests(CareAPITestBase):
             reverse("lab-test", args=["PPG"]), self.body(after_meal=False), format="json"
         )
         self.assertFalse(response.json()["after_meal"])
+
+    @mock.patch(VALIDATE)
+    def test_icon_is_saved(self, validate):
+        response = self.client.post(self.url, {**self.body(), "code": "FERR"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(response.json()["icon"], "")
+        response = self.client.put(
+            reverse("lab-test", args=["FERR"]), self.body(icon="blood"), format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["icon"], "blood")
+        response = self.client.put(
+            reverse("lab-test", args=["FERR"]), self.body(icon="<svg>"), format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["errors"][0]["loc"], ["icon"])
