@@ -35,7 +35,7 @@ class MobileSchemaTests(SimpleTestCase):
                 view = resolve(concrete).func.view_class
                 self.assertTrue(hasattr(view, method), full_path)
                 count += 1
-        self.assertEqual(count, 15)
+        self.assertEqual(count, 16)
 
     def test_patient_auth_and_public_login(self):
         paths = self.schema["paths"]
@@ -73,6 +73,18 @@ class MobileSchemaTests(SimpleTestCase):
         self.assertEqual(
             self.schema["paths"][MOBILE_PREFIX + "/users/me"]["patch"]["security"],
             [{"MobilePatientAccess": []}],
+        )
+
+    def test_profile_photo_upload_is_documented(self):
+        operation = self.schema["paths"][MOBILE_PREFIX + "/users/me/profile-photo"][
+            "post"
+        ]
+        self.assertEqual(operation["security"], [{"MobilePatientAccess": []}])
+        self.assertEqual(set(operation["responses"]), {"201", "401", "422", "429"})
+        schemas = self.schema["components"]["schemas"]
+        self.assertIn("profile_photo_id", schemas["MobileProfileUpdate"]["properties"])
+        self.assertEqual(
+            schemas["MobileUser"]["properties"]["profile_photo"]["format"], "uri"
         )
 
     def test_openapi_contract_is_valid(self):

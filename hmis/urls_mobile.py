@@ -9,6 +9,7 @@ from hmis.views.mobile import (
     FcmTokenView,
     LogoutView,
     MeView,
+    ProfilePhotoUploadView,
     RefreshView,
     SendOtpView,
     VerifyOtpView,
@@ -68,4 +69,7 @@ urlpatterns = [
     route("auth/logout", LogoutView, "mobile-logout"),
     route("users/me", MeView, "mobile-me"),
     route("users/me/fcm-token", FcmTokenView, "mobile-fcm-token"),
+    route(
+        "users/me/profile-photo", ProfilePhotoUploadView, "mobile-profile-photo"
+    ),
 ]

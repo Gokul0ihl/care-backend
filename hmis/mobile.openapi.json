@@ -3,7 +3,7 @@
   "info": {
     "title": "POH patient mobile API",
     "version": "1.0.0",
-    "description": "Mobile team contract: OTP sign-in, direct OTP-proven registration, self-profile read/update, refreshing patient sessions and self-only in-person appointments with hospital approval. Passwords collected at registration are hashed for future use; password sign-in is not exposed. Use patient access tokens, never staff credentials or service-account API keys. See docs/mobile-app-login.md and docs/mobile-appointments.md."
+    "description": "Mobile team contract: OTP sign-in, direct OTP-proven registration, self-profile read/update with a profile photo (presigned upload to the private patient bucket), refreshing patient sessions and self-only in-person appointments with hospital approval. Passwords collected at registration are hashed for future use; password sign-in is not exposed. Use patient access tokens, never staff credentials or service-account API keys. See docs/mobile-app-login.md and docs/mobile-appointments.md."
   },
   "servers": [
     {
@@ -818,7 +818,7 @@
           "Mobile profile"
         ],
         "summary": "Update the signed-in patient profile",
-        "description": "Patient comes exclusively from the access token. Changes shared Care patient data, including staff views. Rechecks the live session and phone. No family IDs, mobile/password changes, photo upload or account deletion. Returns the updated user in the common envelope.",
+        "description": "Patient comes exclusively from the access token. Changes shared Care patient data, including staff views. Rechecks the live session and phone. Set or remove the profile photo with profile_photo_id (see POST /users/me/profile-photo); text fields and the photo can be saved together. No family IDs, mobile/password changes or account deletion. Returns the updated user, with a fresh presigned profile_photo URL, in the common envelope.",
         "security": [
           {
             "MobilePatientAccess": []
@@ -831,11 +831,29 @@
               "schema": {
                 "$ref": "#/components/schemas/MobileProfileUpdate"
               },
-              "example": {
-                "first_name": "Updated",
-                "last_name": "Example",
-                "city": "Test City",
-                "postal_code": "110001"
+              "examples": {
+                "textFields": {
+                  "summary": "Text fields only",
+                  "value": {
+                    "first_name": "Updated",
+                    "last_name": "Example",
+                    "city": "Test City",
+                    "postal_code": "110001"
+                  }
+                },
+                "withPhoto": {
+                  "summary": "Text fields and a new photo",
+                  "value": {
+                    "city": "Test City",
+                    "profile_photo_id": "55555555-5555-4555-8555-555555555555"
+                  }
+                },
+                "removePhoto": {
+                  "summary": "Remove the photo",
+                  "value": {
+                    "profile_photo_id": null
+                  }
+                }
               }
             }
           }
@@ -862,7 +880,7 @@
             }
           },
           "422": {
-            "description": "Invalid, unsupported or inconsistent profile fields.",
+            "description": "Invalid, unsupported or inconsistent profile fields, or a profile_photo_id that is unknown, not uploaded yet, empty, over 5 MB or of a different type than requested.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1076,6 +1094,90 @@
           }
         },
         "security": []
+      }
+    },
+    "/users/me/profile-photo": {
+      "post": {
+        "operationId": "mobileProfilePhotoUpload",
+        "tags": [
+          "Mobile profile"
+        ],
+        "summary": "Start a profile photo upload",
+        "description": "Step 1 of 3. Returns a presigned PUT URL (10 minutes) for the private patient bucket and an upload_id. Step 2: PUT the image bytes to upload_url with the returned headers and no Authorization header. Step 3: PATCH /users/me with profile_photo_id = upload_id. Nothing changes on the profile until step 3; uploads never saved are deleted after 24 hours. At most 10 unsaved uploads per patient per 24 hours. Use after registration with the tokens it returns; registration itself takes no photo.",
+        "security": [
+          {
+            "MobilePatientAccess": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MobileProfilePhotoUpload"
+              },
+              "example": {
+                "mime_type": "image/jpeg"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Upload URL issued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileProfilePhotoUploadResponse"
+                },
+                "example": {
+                  "status": "success",
+                  "message": "Upload the photo, then save it",
+                  "data": {
+                    "upload_id": "55555555-5555-4555-8555-555555555555",
+                    "upload_url": "https://<bucket-endpoint>/<patient-bucket>/patient/<random-name>.jpg?X-Amz-Signature=...",
+                    "method": "PUT",
+                    "headers": {
+                      "Content-Type": "image/jpeg"
+                    },
+                    "expires_in": 600,
+                    "max_bytes": 5242880
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Patient access token required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Missing or unsupported mime_type, or unknown field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many unsaved uploads in the last 24 hours.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          }
+        }
       }
     }
   },
@@ -1741,11 +1843,10 @@
             "nullable": true
           },
           "profile_photo": {
+            "type": "string",
+            "format": "uri",
             "nullable": true,
-            "enum": [
-              null
-            ],
-            "description": "Currently always null."
+            "description": "Presigned GET URL for the current profile photo, valid for 1 hour; null when there is no photo. A new URL is signed on every response: cache the image, not the URL, and read GET /users/me again when it expires."
           },
           "patient_number": {
             "type": "string",
@@ -2234,6 +2335,101 @@
           "country": {
             "type": "string",
             "maxLength": 60
+          },
+          "profile_photo_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "upload_id from POST /users/me/profile-photo after the image has been PUT to upload_url. The backend checks the object in S3 (JPEG/PNG/WebP as requested, non-empty, at most 5 MB), makes it the profile photo and archives the previous one. null removes the photo. Only the patient's own unarchived uploads are accepted."
+          }
+        }
+      },
+      "MobileProfilePhotoUpload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mime_type"
+        ],
+        "properties": {
+          "mime_type": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ],
+            "description": "Content type of the image the app will upload. The PUT must send this exact Content-Type."
+          }
+        }
+      },
+      "MobileProfilePhotoUploadTicket": {
+        "type": "object",
+        "required": [
+          "upload_id",
+          "upload_url",
+          "method",
+          "headers",
+          "expires_in",
+          "max_bytes"
+        ],
+        "properties": {
+          "upload_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Send as profile_photo_id in PATCH /users/me once the upload has finished."
+          },
+          "upload_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Presigned S3 PUT URL for the private patient bucket. No Authorization header."
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "PUT"
+            ]
+          },
+          "headers": {
+            "type": "object",
+            "required": [
+              "Content-Type"
+            ],
+            "properties": {
+              "Content-Type": {
+                "type": "string"
+              }
+            },
+            "description": "Headers the PUT must send exactly."
+          },
+          "expires_in": {
+            "type": "integer",
+            "description": "upload_url lifetime in seconds (600)."
+          },
+          "max_bytes": {
+            "type": "integer",
+            "description": "Largest accepted image (5242880 bytes)."
+          }
+        }
+      },
+      "MobileProfilePhotoUploadResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MobileProfilePhotoUploadTicket"
           }
         }
       }

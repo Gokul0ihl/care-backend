@@ -10,7 +10,7 @@ import re
 
 from django.conf import settings
 from django.http import Http404
-from rest_framework import exceptions, status
+from rest_framework import exceptions, serializers, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -28,10 +28,12 @@ from hmis.mobile_auth import (
 from hmis.mobile_registration import (
     REGISTRATION_LIFETIME,
     ProfileFields,
+    StrictSerializer,
     registration_proof,
     update_profile,
     validated,
 )
+from hmis.profile_photo import PHOTO_TYPES, photo_url, start_upload
 from hmis.services import display_numbers
 
 GENDERS = {"male": "Male", "female": "Female"}
@@ -154,7 +156,7 @@ def app_user(patient, account_id, numbers=None):
         "state": patient.state or None,
         "postal_code": str(patient.pincode) if patient.pincode else None,
         "country": (patient.meta.get("mobile_profile") or {}).get("country") or None,
-        "profile_photo": None,
+        "profile_photo": photo_url(patient),
         "is_active": True,
         "patient_number": number["value"] if number else None,
         "patient_number_label": number["label"] if number else None,
@@ -242,6 +244,25 @@ class MeView(MobileView):
 
     def get(self, request):
         return ok(app_user(request.user.patient, request.user.account.id))
+
+
+class PhotoUploadFields(StrictSerializer):
+    mime_type = serializers.ChoiceField(
+        choices=list(PHOTO_TYPES),
+        error_messages={"invalid_choice": "Use a JPEG, PNG or WebP image."},
+    )
+
+
+class ProfilePhotoUploadView(MobileView):
+    """A presigned PUT for a new photo. The photo shows on the profile once its
+    upload_id is saved with PATCH /users/me."""
+
+    def post(self, request):
+        data = validated(PhotoUploadFields, request.data)
+        upload = start_upload(
+            request.user.patient, request.user.account, data["mime_type"]
+        )
+        return ok(upload, "Upload the photo, then save it", status.HTTP_201_CREATED)
 
 
 class FcmTokenView(MobileView):

@@ -67,6 +67,13 @@ def refresh_pincode_directory():
         logger.info("PIN directory refreshed: %s post offices", count)
 
 
+@shared_task
+def remove_stale_profile_photo_uploads():
+    from hmis.profile_photo import remove_stale_uploads
+
+    return remove_stale_uploads()
+
+
 @current_app.on_after_finalize.connect
 def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(
@@ -80,4 +87,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         crontab(day_of_month=5, hour=3, minute=0),
         refresh_pincode_directory.s(),
         name="refresh_pincode_directory",
+    )
+    sender.add_periodic_task(
+        crontab(hour=2, minute=30),
+        remove_stale_profile_photo_uploads.s(),
+        name="remove_stale_profile_photo_uploads",
     )

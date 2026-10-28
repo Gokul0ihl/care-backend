@@ -26,6 +26,7 @@ class FileCategoryChoices(str, Enum):
     unspecified = "unspecified"
     discharge_summary = "discharge_summary"
     consent_attachment = "consent_attachment"
+    profile_photo = "profile_photo"
 
 
 class FileUploadBaseSpec(EMRResource):

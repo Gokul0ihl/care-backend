@@ -27,6 +27,7 @@ from care.utils.models.validators import mobile_validator
 from hmis.constants import PatientNumberSeries
 from hmis.mobile_auth import session_usable, start_session
 from hmis.models import MobileRegistration, PatientAccount, PatientSession
+from hmis.profile_photo import set_photo
 from hmis.services import issue_patient_number
 from hmis.specs import LAST_NAME, NAME_PART, allowed_titles, years_old
 
@@ -149,6 +150,8 @@ class ProfileFields(PersonFields):
     )
     country = serializers.CharField(max_length=60, allow_blank=True)
     blood_group = serializers.ChoiceField(choices=[*BLOOD_GROUPS, ""], required=False)
+    # An upload_id from POST /users/me/profile-photo; null removes the photo.
+    profile_photo_id = serializers.UUIDField(allow_null=True)
 
     def validate_emergency_contact(self, value):
         if not value:
@@ -292,6 +295,9 @@ def update_profile(principal, data):
         )
         if patient is None or session is None or not session_usable(session):
             raise AuthenticationFailed("Session expired. Please sign in again.")
+        data = dict(data)
+        if "profile_photo_id" in data:
+            set_photo(patient, data.pop("profile_photo_id"))
         if {"title", "gender", "dob"} & data.keys():
             dob = data.get("dob", patient.date_of_birth)
             title = data.get("title", patient.title)
