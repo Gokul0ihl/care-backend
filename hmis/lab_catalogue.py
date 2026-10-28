@@ -8,6 +8,7 @@ The front desk reads the catalogue to book lab tests, and facility admins edit i
 from Settings → Lab tests in hmis_fe."""
 
 import re
+from typing import NamedTuple
 
 from django.db import transaction
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -15,8 +16,11 @@ from rest_framework.exceptions import ValidationError
 
 from care.emr.models import ActivityDefinition
 from care.emr.models.charge_item_definition import ChargeItemDefinition
+from care.emr.models.observation import Observation
 from care.emr.models.observation_definition import ObservationDefinition
 from care.emr.models.resource_category import ResourceCategory
+from care.emr.models.service_request import ServiceRequest
+from care.emr.models.specimen import Specimen
 from care.emr.models.specimen_definition import SpecimenDefinition
 from hmis.billing import CATALOGUE, ensure_definition, slug_for
 from hmis.models import LabTestRule
@@ -387,11 +391,12 @@ def save_lab_test(facility, spec, user=None, activity=None):
     return activity
 
 
-# The starting catalogue: the lab rows of the v11 tariff (billing.CATALOGUE, head H2),
-# with the sample, fasting hours and sensitivity from the front-office spec (KB Module 1
-# preparation engine, FO-19) and the LOINC parameters each reports. Admins edit it from
-# then on; setup_lab_catalogue only adds tests that aren't there yet, and on startup
-# (--if-empty) only seeds a facility that has no lab tests at all.
+# The starting catalogue: the ten tests of the front desk's Add Lab Tests design, each
+# billed by its row in the v11 tariff (billing.CATALOGUE, head H2), with the sample,
+# preparation and LOINC parameters each reports. Admins edit it from then on;
+# setup_lab_catalogue only adds tests that aren't there yet, on startup (--if-empty) only
+# seeds a facility that has no lab tests at all, and replace_lab_catalogue swaps a
+# facility's whole catalogue for this one.
 SAMPLE = {
     "BLD": "Whole blood",
     "SER": "Serum",
@@ -400,77 +405,72 @@ SAMPLE = {
     "SMN": "Seminal fluid",
 }
 
+
+class SeedTest(NamedTuple):
+    code: str
+    title: str
+    sample: str
+    parameters: list
+    fasting_hours: int | None = None
+    after_meal: bool = False
+    sensitive: bool = False
+    icon: str = ""
+
+
+LIPID_BASICS = [
+    ("2093-3", "Total cholesterol"), ("2571-8", "Triglycerides"), ("2085-9", "HDL cholesterol"),
+    ("13457-7", "LDL cholesterol"), ("13458-5", "VLDL cholesterol"),
+    ("9830-1", "Total cholesterol/HDL ratio"), ("43396-1", "Non-HDL cholesterol"),
+]
+
 LAB_SEED = [
-    ("CBC", "BLD", None, False, [
+    SeedTest("LFT", "Liver Function Test (LFT) / Liver profile", "SER", [
+        ("1975-2", "Bilirubin, total"), ("1968-7", "Bilirubin, direct"), ("1971-1", "Bilirubin, indirect"),
+        ("1920-8", "AST (SGOT)"), ("1742-6", "ALT (SGPT)"), ("16325-3", "AST/ALT ratio"),
+        ("6768-6", "Alkaline phosphatase"), ("2324-2", "GGT"), ("2885-2", "Total protein"),
+        ("1751-7", "Albumin"), ("10834-0", "Globulin"), ("1759-0", "A/G ratio"),
+    ], fasting_hours=8, icon="liver"),
+    SeedTest("KFT", "Kidney Function Test (KFT) / Renal function", "SER", [
+        ("3091-6", "Urea"), ("3094-0", "Blood urea nitrogen"), ("2160-0", "Creatinine"),
+        ("3097-3", "BUN/creatinine ratio"), ("3084-1", "Uric acid"), ("2951-2", "Sodium"),
+        ("2823-3", "Potassium"), ("2075-0", "Chloride"), ("17861-6", "Calcium"),
+        ("2777-1", "Phosphorus"), ("98979-8", "eGFR (CKD-EPI 2021)"),
+    ], fasting_hours=8, icon="kidney"),
+    SeedTest("PPBS", "Blood Sugar / Blood Glucose / Diabetes Test (PPBS)", "PLAS", [
+        ("1521-4", "Post-prandial blood glucose (2 h)"),
+    ], after_meal=True, icon="sugar"),
+    SeedTest("CBC", "Complete Blood Count (CBC)", "BLD", [
         ("718-7", "Haemoglobin"), ("4544-3", "Haematocrit (PCV)"), ("789-8", "RBC count"),
         ("787-2", "MCV"), ("785-6", "MCH"), ("786-4", "MCHC"), ("788-0", "RDW"),
-        ("6690-2", "Total WBC count"), ("777-3", "Platelet count"), ("32623-1", "MPV"),
-        ("770-8", "Neutrophils %"), ("736-9", "Lymphocytes %"), ("5905-5", "Monocytes %"),
-        ("713-8", "Eosinophils %"), ("706-2", "Basophils %"), ("751-8", "Absolute neutrophil count"),
-        ("731-0", "Absolute lymphocyte count"), ("742-7", "Absolute monocyte count"),
-        ("711-2", "Absolute eosinophil count"), ("704-7", "Absolute basophil count"),
-    ]),
-    ("LFT", "SER", 8, False, [
-        ("1975-2", "Bilirubin, total"), ("1968-7", "Bilirubin, direct"), ("1971-1", "Bilirubin, indirect"),
-        ("1920-8", "AST (SGOT)"), ("1742-6", "ALT (SGPT)"), ("6768-6", "Alkaline phosphatase"),
-        ("2324-2", "GGT"), ("2885-2", "Total protein"), ("1751-7", "Albumin"),
-        ("10834-0", "Globulin"), ("1759-0", "A/G ratio"),
-    ]),
-    ("KFT", "SER", None, False, [
-        ("3091-6", "Urea"), ("3094-0", "Blood urea nitrogen"), ("2160-0", "Creatinine"),
-        ("3084-1", "Uric acid"), ("2951-2", "Sodium"), ("2823-3", "Potassium"),
-        ("2075-0", "Chloride"), ("17861-6", "Calcium"), ("2777-1", "Phosphorus"),
-        ("98979-8", "eGFR (CKD-EPI 2021)"),
-    ]),
-    ("LIP", "SER", 10, False, [
-        ("2093-3", "Total cholesterol"), ("2571-8", "Triglycerides"), ("2085-9", "HDL cholesterol"),
-        ("13457-7", "LDL cholesterol"), ("13458-5", "VLDL cholesterol"),
-        ("9830-1", "Total cholesterol/HDL ratio"), ("43396-1", "Non-HDL cholesterol"),
-    ]),
-    ("HBA1C", "BLD", None, False, [("4548-4", "HbA1c"), ("27353-2", "Estimated average glucose")]),
-    ("TSH", "SER", None, False, [("3016-3", "TSH")]),
-    ("FBS", "PLAS", 8, False, [("1558-6", "Fasting blood glucose")]),
-    ("PPBS", "PLAS", None, False, [("1521-4", "Post-prandial blood glucose (2 h)")]),
-    ("UR", "UR", None, False, [
-        ("5778-6", "Colour"), ("5767-9", "Appearance"), ("5811-5", "Specific gravity"),
-        ("5803-2", "pH"), ("5804-0", "Protein"), ("5792-7", "Glucose"), ("5797-6", "Ketones"),
-        ("5770-3", "Bilirubin"), ("5794-3", "Blood"), ("5802-4", "Nitrite"),
-        ("5799-2", "Leukocyte esterase"), ("5818-0", "Urobilinogen"),
-        ("13945-1", "RBC (microscopy)"), ("5821-4", "Pus cells (microscopy)"),
-        ("5787-7", "Epithelial cells (microscopy)"),
-    ]),
-    ("VITD", "SER", None, False, [("62292-8", "25-OH vitamin D (D2 + D3)")]),
-    ("HBSAG", "SER", None, True, [("5196-1", "HBsAg")]),
-    ("VDRL", "SER", None, True, [("5292-8", "VDRL")]),
-    ("B12", "SER", None, False, [("2132-9", "Vitamin B12")]),
-    ("CRP", "SER", None, False, [("1988-5", "C-reactive protein")]),
-    ("DENG", "SER", None, False, [("91064-6", "Dengue NS1 antigen")]),
-    ("SEMEN", "SMN", None, False, [
-        ("3160-9", "Volume"), ("2752-4", "pH"), ("9780-8", "Sperm concentration"),
-        ("6800-7", "Motility"), ("10622-9", "Normal morphology"),
-    ]),
-    ("AMH", "SER", None, False, [("38476-8", "Anti-Müllerian hormone")]),
-    ("BHCG", "SER", None, False, [("21198-7", "Beta-hCG")]),
-    ("HIV", "SER", None, True, [("31201-7", "HIV 1 & 2 antibodies")]),
-    ("TORCH", "SER", None, False, [
-        ("8039-0", "Toxoplasma IgG"), ("8040-8", "Toxoplasma IgM"), ("8014-3", "Rubella IgG"),
-        ("8015-0", "Rubella IgM"), ("7852-7", "CMV IgG"), ("7853-5", "CMV IgM"),
-        ("31411-2", "HSV 1 & 2 IgG"), ("25435-9", "HSV IgM"),
-    ]),
-    ("PT", "PLAS", None, False, [("5902-2", "Prothrombin time"), ("6301-6", "INR")]),
-    ("HCV", "SER", None, True, [("16128-1", "Anti-HCV")]),
+        ("6690-2", "Total WBC count"), ("777-3", "Platelet count"), ("770-8", "Neutrophils %"),
+        ("736-9", "Lymphocytes %"),
+    ], icon="blood"),
+    SeedTest("LIP", "Lipid Profile / Lipid Test", "SER", [
+        *LIPID_BASICS, ("11054-4", "LDL/HDL ratio"), ("70218-3", "Triglycerides/HDL ratio"),
+    ], icon="heart"),
+    SeedTest("LIPADV", "Lipid Profile - Advanced / Complete Lipid Profile", "SER", [
+        *LIPID_BASICS, ("1869-7", "Apolipoprotein A1"), ("1884-6", "Apolipoprotein B"),
+        ("10835-7", "Lipoprotein (a)"),
+    ], icon="heart"),
+    SeedTest("B12", "Vitamin B12 / Cyanocobalamin", "SER", [
+        ("2132-9", "Vitamin B12"),
+    ], fasting_hours=6, icon="vitamin"),
+    SeedTest("URIC", "Uric Acid / Serum Uric Acid", "SER", [
+        ("3084-1", "Uric acid"),
+    ], fasting_hours=8, icon="bone"),
+    SeedTest("TSH", "Thyroid Profile Test / T3 T4 TSH", "SER", [
+        ("3053-6", "T3, total"), ("3026-2", "T4, total"), ("3016-3", "TSH"),
+    ], icon="thyroid"),
+    SeedTest("HBA1C", "HbA1c / Glycated Hemoglobin Test", "BLD", [
+        ("4548-4", "HbA1c"), ("59261-8", "HbA1c (IFCC)"),
+        ("27353-2", "Estimated average glucose"), ("53553-4", "Estimated average glucose (mmol/L)"),
+    ], icon="sugar"),
 ]
-# Seed tests whose sample is taken after a meal (the desk's "After meal" filter).
-AFTER_MEAL_SEED = {"PPBS"}
 
 
 def has_lab_tests(facility):
     """True once the facility has any POH lab test, active or retired."""
-    return ActivityDefinition.objects.filter(
-        facility=facility,
-        classification="laboratory",
-        slug__startswith=facility_slug(facility, "poh-lab-"),
-    ).exists()
+    return poh_lab_activities(facility).exists()
 
 
 def seed_tariff_row(facility, code):
@@ -493,6 +493,32 @@ def seed_tariff_row(facility, code):
     return ensure_definition(facility, head, code, title, price, description)
 
 
+def seed_spec(facility, test, charge_item):
+    return LabTestCreateSpec(
+        facility=str(facility.external_id),
+        code=test.code,
+        title=test.title,
+        charge_item_definition=charge_item.slug,
+        specimen={"system": SPECIMEN_TYPES, "code": test.sample, "display": SAMPLE[test.sample]},
+        fasting_hours=test.fasting_hours,
+        after_meal=test.after_meal,
+        sensitive_report=test.sensitive,
+        icon=test.icon,
+        parameters=[
+            {"system": LOINC, "code": loinc, "display": name, "name": name}
+            for loinc, name in test.parameters
+        ],
+    )
+
+
+def poh_lab_activities(facility):
+    return ActivityDefinition.objects.filter(
+        facility=facility,
+        classification="laboratory",
+        slug__startswith=facility_slug(facility, "poh-lab-"),
+    )
+
+
 @transaction.atomic
 def seed_lab_catalogue(facility, user=None, only_if_empty=False):
     """Adds the starting lab tests that the facility doesn't have yet. Tests already
@@ -503,28 +529,79 @@ def seed_lab_catalogue(facility, user=None, only_if_empty=False):
     if only_if_empty and has_lab_tests(facility):
         return 0
     added = 0
-    for code, sample, fasting_hours, sensitive, parameters in LAB_SEED:
+    for test in LAB_SEED:
         if ActivityDefinition.objects.filter(
-            slug=facility_slug(facility, lab_slug(code))
+            slug=facility_slug(facility, lab_slug(test.code))
         ).exists():
             continue
-        charge_item = seed_tariff_row(facility, code)
+        charge_item = seed_tariff_row(facility, test.code)
         if charge_item is None:
             continue
-        spec = LabTestCreateSpec(
-            facility=str(facility.external_id),
-            code=code,
-            title=charge_item.title,
-            charge_item_definition=charge_item.slug,
-            specimen={"system": SPECIMEN_TYPES, "code": sample, "display": SAMPLE[sample]},
-            fasting_hours=fasting_hours,
-            after_meal=code in AFTER_MEAL_SEED,
-            sensitive_report=sensitive,
-            parameters=[
-                {"system": LOINC, "code": loinc, "display": name, "name": name}
-                for loinc, name in parameters
-            ],
-        )
-        save_lab_test(facility, spec, user)
+        save_lab_test(facility, seed_spec(facility, test, charge_item), user)
         added += 1
     return added
+
+
+def unused(queryset, model, field):
+    """The definitions in queryset that no patient record refers to, counting records
+    Care has soft-deleted: deleting a definition would cascade to them."""
+    records = model._base_manager  # noqa: SLF001
+    used = records.filter(**{f"{field}__isnull": False}).values(field)
+    return queryset.exclude(id__in=used)
+
+
+@transaction.atomic
+def replace_lab_catalogue(facility, user=None):
+    """Swaps the facility's POH lab tests for the starting catalogue (LAB_SEED).
+
+    A test that isn't in it is deleted outright, with its sample definition. One that
+    a booking already uses can't be (ServiceRequest protects it), so it's retired. A
+    test that is in it is rewritten to match, keeping its tariff row and price as they
+    are, so bookings made against it stay linked; missing ones are added. Parameters
+    no test reports any more are deleted too. Nothing a patient record refers to (a
+    specimen or observation) is deleted. Needs setup_billing first. Returns the codes
+    in each outcome."""
+    seed = {test.code: test for test in LAB_SEED}
+    outcome = {"deleted": [], "retired": [], "replaced": [], "added": [], "no_tariff": []}
+    old_parameters = set()
+
+    for activity in poh_lab_activities(facility):
+        old_parameters.update(activity.observation_result_requirements)
+        code = code_from_slug(facility, activity.slug)
+        if code in seed:
+            continue
+        requests = ServiceRequest._base_manager  # noqa: SLF001
+        if requests.filter(activity_definition=activity).exists():
+            activity.status = "retired"
+            activity.updated_by = user
+            activity.save(update_fields=["status", "updated_by", "modified_date"])
+            outcome["retired"].append(code)
+            continue
+        specimens = SpecimenDefinition.objects.filter(id__in=activity.specimen_requirements)
+        # QuerySet.delete() deletes the rows; Model.delete() only soft-deletes them.
+        ActivityDefinition.objects.filter(id=activity.id).delete()
+        unused(specimens, Specimen, "specimen_definition").delete()
+        outcome["deleted"].append(code)
+
+    for test in LAB_SEED:
+        charge_item = seed_tariff_row(facility, test.code)
+        if charge_item is None:
+            outcome["no_tariff"].append(test.code)
+            continue
+        spec = seed_spec(facility, test, charge_item)
+        activity = ActivityDefinition.objects.filter(
+            slug=facility_slug(facility, lab_slug(test.code))
+        ).first()
+        save_lab_test(facility, spec, user, activity=activity)
+        outcome["replaced" if activity else "added"].append(test.code)
+
+    still_reported = set()
+    for parameters in poh_lab_activities(facility).values_list(
+        "observation_result_requirements", flat=True
+    ):
+        still_reported.update(parameters)
+    orphans = ObservationDefinition.objects.filter(
+        facility=facility, id__in=old_parameters - still_reported
+    )
+    unused(orphans, Observation, "observation_definition").delete()
+    return outcome

@@ -9,7 +9,7 @@ from care.emr.models import ActivityDefinition
 from care.emr.models.observation_definition import ObservationDefinition
 from care.utils.tests.base import CareAPITestBase
 from hmis.billing import setup_billing
-from hmis.lab_catalogue import LAB_SEED, seed_lab_catalogue
+from hmis.lab_catalogue import LAB_SEED, replace_lab_catalogue, seed_lab_catalogue
 from hmis.models import LabTestRule
 
 VALIDATE = "care.emr.registries.care_valueset.care_valueset.validate_valueset"
@@ -70,15 +70,17 @@ class LabCatalogueTests(CareAPITestBase):
         rows = self.catalogue(status="active")
         self.assertEqual(len(rows), len(LAB_SEED))
         lipid = rows["LIP"]
-        self.assertEqual(lipid["fasting_hours"], 10)
+        self.assertIsNone(lipid["fasting_hours"])
         self.assertEqual(lipid["specimen"]["code"], "SER")
-        self.assertEqual(len(lipid["parameters"]), 7)
+        self.assertEqual(len(lipid["parameters"]), 9)
+        self.assertEqual(lipid["icon"], "heart")
         self.assertGreater(float(lipid["charge_item_definition"]["price"]), 0)
-        self.assertTrue(rows["HIV"]["sensitive_report"])
+        self.assertEqual(rows["LFT"]["fasting_hours"], 8)
+        self.assertEqual(len(rows["LFT"]["parameters"]), 12)
         self.assertIsNone(rows["CBC"]["fasting_hours"])
         self.assertTrue(rows["PPBS"]["after_meal"])
         self.assertIsNone(rows["PPBS"]["fasting_hours"])
-        self.assertFalse(rows["FBS"]["after_meal"])
+        self.assertEqual(rows["URIC"]["charge_item_definition"]["price"], "600")
 
     def test_startup_seed_only_fills_an_empty_facility(self):
         out = StringIO()
@@ -115,6 +117,50 @@ class LabCatalogueTests(CareAPITestBase):
         self.assertEqual(rows["PPBS"]["charge_item_definition"]["code"], "PPBS")
         self.assertEqual(rows["CBC"]["charge_item_definition"]["price"], "999")
 
+    @mock.patch(VALIDATE)
+    def test_replace_swaps_the_catalogue(self, validate):
+        from care.emr.models.specimen_definition import SpecimenDefinition
+
+        seed_lab_catalogue(self.facility)
+        self.client.post(self.url, {**self.body(), "code": "FERR"}, format="json")
+        old_cbc = self.catalogue()["CBC"]["id"]
+        ActivityDefinition.objects.filter(slug__endswith="poh-lab-cbc").update(
+            title="Edited", status="retired"
+        )
+
+        out = StringIO()
+        call_command("replace_lab_catalogue", facility=self.facility_id(), stdout=out)
+        self.assertIn("Dry run", out.getvalue())
+        self.assertIn("deleted: FERR", out.getvalue())
+        self.assertIn("FERR", self.catalogue())
+
+        outcome = replace_lab_catalogue(self.facility)
+        self.assertEqual(outcome["deleted"], ["FERR"])
+        self.assertEqual(
+            sorted(outcome["replaced"]), sorted(test.code for test in LAB_SEED)
+        )
+        rows = self.catalogue()
+        self.assertEqual(sorted(rows), sorted(test.code for test in LAB_SEED))
+        self.assertEqual(rows["CBC"]["status"], "active")
+        self.assertEqual(rows["CBC"]["title"], "Complete Blood Count (CBC)")
+        self.assertEqual(rows["CBC"]["id"], old_cbc)
+        # FERR is gone for good, with its sample and its parameter.
+        self.assertFalse(
+            ActivityDefinition._base_manager.filter(  # noqa: SLF001
+                slug__endswith="poh-lab-ferr"
+            ).exists()
+        )
+        self.assertFalse(
+            SpecimenDefinition._base_manager.filter(  # noqa: SLF001
+                slug__endswith="poh-lab-ferr"
+            ).exists()
+        )
+        self.assertFalse(
+            ObservationDefinition._base_manager.filter(  # noqa: SLF001
+                slug__endswith="loinc-2276-4"
+            ).exists()
+        )
+
     def test_startup_seed_never_fails_without_a_facility(self):
         self.facility.unit_code = None
         self.facility.save(update_fields=["unit_code"])
@@ -124,7 +170,9 @@ class LabCatalogueTests(CareAPITestBase):
 
     @mock.patch(VALIDATE)
     def test_create_and_update(self, validate):
-        response = self.client.post(self.url, {**self.body(), "code": "ferr"}, format="json")
+        response = self.client.post(
+            self.url, {**self.body(), "code": "ferr"}, format="json"
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         row = response.json()
         self.assertEqual(row["code"], "FERR")
@@ -151,7 +199,9 @@ class LabCatalogueTests(CareAPITestBase):
         self.assertEqual(row["title"], "Serum ferritin")
         self.assertEqual(row["fasting_hours"], 8)
         self.assertTrue(row["sensitive_report"])
-        self.assertEqual([p["name"] for p in row["parameters"]], ["Ferritin (serum)", "Iron"])
+        self.assertEqual(
+            [p["name"] for p in row["parameters"]], ["Ferritin (serum)", "Iron"]
+        )
         # Only the new parameter goes to the terminology server.
         self.assertEqual(validate.call_count, 1)
         self.assertEqual(
@@ -159,13 +209,17 @@ class LabCatalogueTests(CareAPITestBase):
         )
         self.assertNotIn("FERR", self.catalogue(status="active"))
         self.assertIn("FERR", self.catalogue())
-        activity = ActivityDefinition.objects.get(id=LabTestRule.objects.get().activity_definition_id)
+        activity = ActivityDefinition.objects.get(
+            id=LabTestRule.objects.get().activity_definition_id
+        )
         self.assertEqual(activity.status, "retired")
 
     @mock.patch(VALIDATE)
     def test_duplicate_code_is_rejected(self, validate):
         self.client.post(self.url, {**self.body(), "code": "FERR"}, format="json")
-        response = self.client.post(self.url, {**self.body(), "code": "FERR"}, format="json")
+        response = self.client.post(
+            self.url, {**self.body(), "code": "FERR"}, format="json"
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["errors"][0]["loc"], ["code"])
 
@@ -181,7 +235,9 @@ class LabCatalogueTests(CareAPITestBase):
             response = self.client.post(self.url, body, format="json")
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, body)
         validate.side_effect = ValueError("not in the valueset")
-        response = self.client.post(self.url, {**self.body(), "code": "FERR"}, format="json")
+        response = self.client.post(
+            self.url, {**self.body(), "code": "FERR"}, format="json"
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["errors"][0]["loc"], ["specimen"])
 
@@ -201,13 +257,17 @@ class LabCatalogueTests(CareAPITestBase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertTrue(response.json()["after_meal"])
         response = self.client.put(
-            reverse("lab-test", args=["PPG"]), self.body(after_meal=False), format="json"
+            reverse("lab-test", args=["PPG"]),
+            self.body(after_meal=False),
+            format="json",
         )
         self.assertFalse(response.json()["after_meal"])
 
     @mock.patch(VALIDATE)
     def test_icon_is_saved(self, validate):
-        response = self.client.post(self.url, {**self.body(), "code": "FERR"}, format="json")
+        response = self.client.post(
+            self.url, {**self.body(), "code": "FERR"}, format="json"
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertEqual(response.json()["icon"], "")
         response = self.client.put(
