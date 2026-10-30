@@ -55,7 +55,7 @@ urllib3 = "==2.7.0"
 
 [dev-packages]
 boto3-stubs = { extras = ["s3", "boto3"], version = "==1.43.6" }
-coverage = "==7.13.0"
+coverage = "==7.16.2"
 debugpy = "==1.8.17"
 django-coverage-plugin = "==3.2.0"
 django-extensions = "==4.1"
