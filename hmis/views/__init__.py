@@ -45,6 +45,20 @@ from hmis.views.lab import (
 from hmis.views.newborn import (
     NewbornRegistrationView,
 )
+from hmis.views.outreach import (
+    CampEventView,
+    CampParticipantView,
+    CampPatientLookupView,
+    CampSessionDetailView,
+    CampSessionEndView,
+    CampSessionView,
+    OutreachEventDetailView,
+    OutreachEventParticipantsView,
+    OutreachEventView,
+    OutreachFormTemplateDetailView,
+    OutreachFormTemplateView,
+    OutreachMeView,
+)
 from hmis.views.patient_contact import (
     PatientContactView,
 )
@@ -143,4 +157,16 @@ __all__ = [
     "serialize_app_patient",
     "AppPatientView",
     "AppPatientDetailView",
+    "CampEventView",
+    "CampParticipantView",
+    "CampPatientLookupView",
+    "CampSessionDetailView",
+    "CampSessionEndView",
+    "CampSessionView",
+    "OutreachEventDetailView",
+    "OutreachEventParticipantsView",
+    "OutreachEventView",
+    "OutreachFormTemplateDetailView",
+    "OutreachFormTemplateView",
+    "OutreachMeView",
 ]

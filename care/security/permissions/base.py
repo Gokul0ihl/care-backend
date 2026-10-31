@@ -22,6 +22,7 @@ from care.security.permissions.observation_definition import (
     ObservationDefinitionPermissions,
 )
 from care.security.permissions.organization import OrganizationPermissions
+from care.security.permissions.outreach import OutreachPermissions
 from care.security.permissions.patient import PatientPermissions
 from care.security.permissions.patient_identifier_config import (
     PatientIdentifierConfigPermissions,
@@ -99,6 +100,7 @@ class PermissionController:
         ServiceAccountPermissions,
         ResourceCategoryPermissions,
         QuestionnaireResponseTemplatePermissions,
+        OutreachPermissions,
     ]
 
     cache = {}

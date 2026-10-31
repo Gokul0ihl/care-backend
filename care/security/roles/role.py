@@ -59,6 +59,12 @@ ADMIN_ROLE = Role(
     description="Admin",
     contexts=[RoleContext.FACILITY, RoleContext.GOVT_ORG],
 )
+# POH: camp mode only (hmis outreach). No access to the rest of the HMIS.
+CAMP_STAFF_ROLE = Role(
+    name="Camp Staff",
+    description="Captures people at approved outreach camps (camp mode only)",
+    contexts=[RoleContext.FACILITY],
+)
 
 ROLE_ORGANIZATION_ADMIN_ROLE = Role(
     name="Admin",
@@ -89,6 +95,7 @@ class RoleController:
         ADMIN_ROLE,
         VOLUNTEER_ROLE,
         PHARMACIST_ROLE,
+        CAMP_STAFF_ROLE,
         ROLE_ORGANIZATION_ADMIN_ROLE,
         ROLE_ORGANIZATION_MANAGER_ROLE,
         ROLE_ORGANIZATION_MEMBER_ROLE,
