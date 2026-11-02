@@ -113,6 +113,8 @@ class Patient(EMRBaseModel):
     identity_storage_consent = models.BooleanField(default=False)
     identity_card_type = models.CharField(max_length=20, blank=True, default="")
     identity_number_last4 = models.CharField(max_length=4, blank=True, default="")
+    # True when the ID was filled in with the desk's Capture Id dialog (photo scan), not typed.
+    capture_id_method = models.BooleanField(default=False)
     abha_status = models.CharField(max_length=10, blank=True, default="")
     abha_number = models.CharField(
         max_length=14, blank=True, default="", db_index=True

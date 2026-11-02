@@ -97,6 +97,7 @@ REGISTRATION_FIELDS = [
     "identity_storage_consent",
     "identity_card_type",
     "identity_number_last4",
+    "capture_id_method",
     "abha_status",
     "abha_number",
     "abha_address",

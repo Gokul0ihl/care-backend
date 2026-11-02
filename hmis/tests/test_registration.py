@@ -808,6 +808,29 @@ class DeskRegistrationTests(CareAPITestBase):
             with self.subTest(registration=registration):
                 self.assert_rejected(self.child_body(**registration), message)
 
+    def test_capture_id_method_is_saved_and_returned(self):
+        response = self.register(self.body())
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertFalse(response.data["registration"]["capture_id_method"])
+        Patient.objects.all().delete()
+        PatientCreateLock().release()
+
+        response = self.register(self.body(capture_id_method=True))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        patient = Patient.objects.get(external_id=response.data["patient"]["id"])
+        self.assertTrue(patient.capture_id_method)
+        self.assertTrue(response.data["registration"]["capture_id_method"])
+
+    def test_capture_id_method_needs_an_id_type(self):
+        self.assert_rejected(
+            self.body(
+                capture_id_method=True,
+                identity_card_type="",
+                identity_number_last4="",
+            ),
+            "captured ID needs its government ID type",
+        )
+
     def test_id_number_formats_cannot_be_bypassed(self):
         for card_type, bad in (
             ("aadhaar", "774A"),

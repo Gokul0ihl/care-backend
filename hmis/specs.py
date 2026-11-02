@@ -297,6 +297,8 @@ class RegistrationSpec(BaseModel):
     identity_storage_consent: bool = False
     identity_card_type: str = ""
     identity_number_last4: str = Field(default="", pattern=r"^(?:[A-Z0-9]{4})?$")
+    # Set by the frontend when the ID came from the Capture Id dialog.
+    capture_id_method: bool = False
     abha_status: str = ""
     abha_number: str = Field(default="", pattern=r"^(?:\d{14})?$")
     abha_address: str = Field(default="", max_length=60)
@@ -443,6 +445,8 @@ class RegistrationSpec(BaseModel):
             raise ValueError("The nationality does not match the registration type")
         if self.identity_number_last4 and not self.identity_card_type:
             raise ValueError("Choose the government ID type")
+        if self.capture_id_method and not self.identity_card_type:
+            raise ValueError("A captured ID needs its government ID type")
         indian = self.nationality_category in INDIAN_PASSPORT_HOLDERS
         validate_id_tail(
             self.identity_card_type, self.identity_number_last4, indian=indian
