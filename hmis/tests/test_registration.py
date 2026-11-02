@@ -811,25 +811,29 @@ class DeskRegistrationTests(CareAPITestBase):
     def test_capture_id_method_is_saved_and_returned(self):
         response = self.register(self.body())
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        self.assertFalse(response.data["registration"]["capture_id_method"])
+        self.assertEqual(
+            response.data["registration"]["capture_id_method"], "number_typed"
+        )
         Patient.objects.all().delete()
         PatientCreateLock().release()
 
-        response = self.register(self.body(capture_id_method=True))
+        response = self.register(self.body(capture_id_method="scanner"))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         patient = Patient.objects.get(external_id=response.data["patient"]["id"])
-        self.assertTrue(patient.capture_id_method)
-        self.assertTrue(response.data["registration"]["capture_id_method"])
+        self.assertEqual(patient.capture_id_method, "scanner")
+        self.assertEqual(response.data["registration"]["capture_id_method"], "scanner")
 
-    def test_capture_id_method_needs_an_id_type(self):
+    def test_capture_id_method_rules(self):
         self.assert_rejected(
             self.body(
-                capture_id_method=True,
+                capture_id_method="camera",
                 identity_card_type="",
                 identity_number_last4="",
             ),
             "captured ID needs its government ID type",
         )
+        self.assert_rejected(self.body(capture_id_method="fax"), "capture_id_method")
+        self.assert_rejected(self.body(capture_id_method=True), "capture_id_method")
 
     def test_id_number_formats_cannot_be_bypassed(self):
         for card_type, bad in (
