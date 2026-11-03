@@ -283,6 +283,8 @@ class DeskRegistrationTests(CareAPITestBase):
             "address_in_india": "Hotel Pacific, Saket",
             "whatsapp_number": None,
             "payer_type": "International",
+            "payer_name": "Bupa Global",
+            "policy_number": "BG-1234",
             **INTERNATIONAL,
         }
         self.assert_rejected(
@@ -309,6 +311,9 @@ class DeskRegistrationTests(CareAPITestBase):
             )
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        record = Patient.objects.get(external_id=response.data["patient"]["id"])
+        self.assertEqual(record.payer_name, "Bupa Global")
+        self.assertEqual(record.policy_number, "BG-1234")
 
     def foreign_body(self, patient=None, documents=None, **registration):
         """A foreign national as the International desk screen sends one: the
@@ -502,6 +507,8 @@ class DeskRegistrationTests(CareAPITestBase):
             "employee_id": "POH-1182",
             "whatsapp_owner": "Spouse",
             "mobile_owner": "Father",
+            "alternate_phone_number": "+919800000003",
+            "alternate_phone_owner": "Brother",
             "communication_channels": ["IVR"],
             "permanent_house": "12",
             "permanent_locality": "Fort",
@@ -521,6 +528,12 @@ class DeskRegistrationTests(CareAPITestBase):
             ({"staff_category": "Pilot"}, "'Pilot' is not one of"),
             ({"whatsapp_owner": "Cousin"}, "'Cousin' is not one of"),
             ({"whatsapp_number": None}, "Enter the WhatsApp number"),
+            ({"alternate_phone_owner": "Cousin"}, "'Cousin' is not one of"),
+            ({"alternate_phone_number": None}, "Enter the alternate mobile number"),
+            (
+                {"communication_channels": ["Email"]},
+                "Enter an email address for email communication",
+            ),
             (
                 {"permanent_district": "Pune"},
                 "Permanent address: The district and state do not match the PIN",
@@ -542,6 +555,8 @@ class DeskRegistrationTests(CareAPITestBase):
         self.assertEqual(record.staff_category, "Nurse")
         self.assertEqual(record.whatsapp_owner, "Spouse")
         self.assertEqual(record.mobile_owner, "Father")
+        self.assertEqual(record.alternate_phone_owner, "Brother")
+        self.assertEqual(response.data["registration"]["alternate_phone_owner"], "Brother")
         self.assertEqual(record.communication_channels, ["IVR"])
         self.assertEqual(record.permanent_pincode, "400001")
         self.assertEqual(response.data["registration"]["permanent_city"], "Mumbai")

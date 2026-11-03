@@ -74,6 +74,7 @@ REGISTRATION_FIELDS = [
     "whatsapp_number",
     "whatsapp_owner",
     "alternate_phone_number",
+    "alternate_phone_owner",
     "email",
     "house",
     "street",

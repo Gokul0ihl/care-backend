@@ -296,7 +296,9 @@ FIELDS = [
         (D("whatsapp_number"), D("whatsapp_owner", "Belongs to")),
     ),
     MergeField(
-        "alternate_phone_number", "Alternate phone", (D("alternate_phone_number"),)
+        "alternate_phone_number",
+        "Alternate phone",
+        (D("alternate_phone_number"), D("alternate_phone_owner", "Belongs to")),
     ),
     MergeField("email", "Email", (D("email"),)),
     MergeField(

@@ -88,6 +88,7 @@ class Patient(EMRBaseModel):
     whatsapp_number = models.CharField(max_length=16, blank=True, default="")
     whatsapp_owner = models.CharField(max_length=20, blank=True, default="")
     alternate_phone_number = models.CharField(max_length=16, blank=True, default="")
+    alternate_phone_owner = models.CharField(max_length=20, blank=True, default="")
     email = models.CharField(max_length=254, blank=True, default="")
     house = models.CharField(max_length=100, blank=True, default="")
     street = models.CharField(max_length=150, blank=True, default="")

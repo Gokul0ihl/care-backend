@@ -292,6 +292,7 @@ ART_MAN_AGES = (21, 55)
 DELIVERY_TYPES = [
     "Normal vaginal",
     "Assisted vaginal",
+    "Breech",
     "Elective caesarean",
     "Emergency caesarean",
 ]

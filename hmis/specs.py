@@ -234,6 +234,7 @@ REGISTRATION_CHOICES = {
     "mobile_owner": (MOBILE_OWNERS, False),
     "next_of_kin_title": (TITLES, True),
     "whatsapp_owner": (PHONE_OWNERS, True),
+    "alternate_phone_owner": (PHONE_OWNERS, True),
     "nationality_category": (NATIONALITY_CATEGORIES, False),
     "identity_card_type": (IDENTITY_CARD_TYPES, True),
     "abha_status": (ABHA_STATUSES, True),
@@ -269,6 +270,7 @@ class RegistrationSpec(BaseModel):
     whatsapp_number: PhoneNumber | None = Field(default=None, max_length=16)
     whatsapp_owner: str = ""
     alternate_phone_number: PhoneNumber | None = Field(default=None, max_length=16)
+    alternate_phone_owner: str = ""
     email: str = Field(default="", max_length=254)
     house: str = Field(default="", max_length=100)
     street: str = Field(default="", max_length=150)
@@ -398,6 +400,10 @@ class RegistrationSpec(BaseModel):
             )
         if self.whatsapp_owner and not self.whatsapp_number:
             raise ValueError("Enter the WhatsApp number its owner belongs to")
+        if "Email" in self.communication_channels and not self.email.strip():
+            raise ValueError("Enter an email address for email communication")
+        if self.alternate_phone_owner and not self.alternate_phone_number:
+            raise ValueError("Enter the alternate mobile number its owner belongs to")
         if self.staff_category and self.payer_type != "Staff":
             raise ValueError("The staff category is only for staff payers")
         if self.next_of_kin_title and not self.next_of_kin_name:
