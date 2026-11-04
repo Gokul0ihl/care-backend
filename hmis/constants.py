@@ -76,6 +76,9 @@ PHONE_OWNERS = [
     "Other",
 ]
 MOBILE_OWNERS = [*PHONE_OWNERS, "Parent", "Relative", "No phone"]
+# The alternative mobile's owner: the forms offer Self, Spouse, Son/Daughter,
+# Parent and Relative; the older values stay valid for records saved before.
+ALTERNATE_PHONE_OWNERS = [*PHONE_OWNERS, "Son/Daughter", "Parent", "Relative"]
 NATIONALITY_CATEGORIES = ["Indian resident", "NRI", "OCI-PIO", "Foreign", "Refugee"]
 IDENTITY_CARD_TYPES = [
     "aadhaar",

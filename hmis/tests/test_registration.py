@@ -508,7 +508,7 @@ class DeskRegistrationTests(CareAPITestBase):
             "whatsapp_owner": "Spouse",
             "mobile_owner": "Father",
             "alternate_phone_number": "+919800000003",
-            "alternate_phone_owner": "Brother",
+            "alternate_phone_owner": "Son/Daughter",
             "communication_channels": ["IVR"],
             "permanent_house": "12",
             "permanent_locality": "Fort",
@@ -555,8 +555,10 @@ class DeskRegistrationTests(CareAPITestBase):
         self.assertEqual(record.staff_category, "Nurse")
         self.assertEqual(record.whatsapp_owner, "Spouse")
         self.assertEqual(record.mobile_owner, "Father")
-        self.assertEqual(record.alternate_phone_owner, "Brother")
-        self.assertEqual(response.data["registration"]["alternate_phone_owner"], "Brother")
+        self.assertEqual(record.alternate_phone_owner, "Son/Daughter")
+        self.assertEqual(
+            response.data["registration"]["alternate_phone_owner"], "Son/Daughter"
+        )
         self.assertEqual(record.communication_channels, ["IVR"])
         self.assertEqual(record.permanent_pincode, "400001")
         self.assertEqual(response.data["registration"]["permanent_city"], "Mumbai")
