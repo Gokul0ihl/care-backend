@@ -178,8 +178,12 @@ def serialize_registration(patient):
         "couple": serialize_couple(patient),
         "birth": serialize_newborn(patient),
         "restricted": False,
-        "created_date": patient.registered_at,
-        "created_by": patient.registered_by.username if patient.registered_by else None,
+        # A camp pre-registration isn't desk-registered yet: when and by whom
+        # it was captured.
+        "created_date": patient.registered_at or patient.created_date,
+        "created_by": (patient.registered_by or patient.created_by).username
+        if (patient.registered_by or patient.created_by)
+        else None,
     }
 
 

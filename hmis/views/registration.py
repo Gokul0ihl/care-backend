@@ -18,6 +18,7 @@ from hmis.constants import (
 from hmis.contact import is_desk_phone
 from hmis.models import (
     ArtCouple,
+    CampParticipant,
     PatientDocument,
     RegistrationAllergy,
 )
@@ -223,7 +224,9 @@ class PatientRegistrationView(EmergencyAPIView):
         )
         if not can("can_view_patient_obj", request.user, patient):
             raise PermissionDenied("You do not have permission to view this patient")
-        if patient.registered_at is None:
+        # A camp pre-registration (outreach.create_camp_patient) has the desk
+        # columns already, so the desk's edit form opens with them.
+        if patient.registered_at is None and not patient.camp_patient_id:
             # The frontend reads 404 as "not registered at the desk".
             raise Http404("This patient has no desk registration")
         if is_restricted(patient) and not can_see_identity(request.user, patient):
@@ -274,6 +277,12 @@ class PatientRegistrationView(EmergencyAPIView):
                 replace_allergies=True,
             )
             attach_documents(documents, patient)
+            if spec.convert_to_uhid:
+                issue_patient_number(patient, facility)
+                # A camp capture counts as registered once they have a UHID.
+                CampParticipant.objects.filter(patient=patient, status="open").update(
+                    status="registered"
+                )
             patient.refresh_from_db()
             patient_data = PatientRetrieveSpec.serialize(patient).to_json()
             registration = serialize_registration(desk_patient(patient.external_id))

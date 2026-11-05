@@ -958,10 +958,16 @@ class DeskRegisterSpec(BaseModel):
 class DeskRegistrationUpdateSpec(DeskRegisterSpec):
     """Edits an existing patient's desk registration: the same body and rules
     as registering, without the couple or a pre-registration number, which
-    only apply when the patient is created."""
+    only apply when the patient is created. convert_to_uhid gives a
+    pre-registered patient (PRE-, e.g. captured at a camp) their permanent
+    UHID with the save."""
+
+    convert_to_uhid: bool = False
 
     @model_validator(mode="after")
     def validate_update(self):
+        if self.convert_to_uhid and not self.facility:
+            raise ValueError("Choose the facility that issues the UHID")
         if self.pre_registration:
             raise ValueError("A registered patient can't be pre-registered")
         if self.couple is not None:

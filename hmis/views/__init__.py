@@ -47,6 +47,8 @@ from hmis.views.newborn import (
 )
 from hmis.views.outreach import (
     CampEventView,
+    CampLoginView,
+    PatientCampVisitsView,
     CampParticipantView,
     CampPatientLookupView,
     CampSessionDetailView,
@@ -158,6 +160,8 @@ __all__ = [
     "AppPatientView",
     "AppPatientDetailView",
     "CampEventView",
+    "CampLoginView",
+    "PatientCampVisitsView",
     "CampParticipantView",
     "CampPatientLookupView",
     "CampSessionDetailView",

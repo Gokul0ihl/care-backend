@@ -1055,6 +1055,37 @@ class DeskRegistrationTests(CareAPITestBase):
         self.assertEqual(record.registered_by, self.user)
         self.assertIsNotNone(record.registered_at)
 
+    def test_update_converts_a_pre_registration_to_a_uhid(self):
+        self.register({**self.body(), "pre_registration": True})
+        patient = Patient.objects.get()
+
+        def systems():
+            return [
+                i.config.config["system"] for i in patient.patientidentifier_set.all()
+            ]
+
+        self.assertNotIn("care_emergency/uhid", systems())
+        response = self.update(patient, self.body(allergy_status="nka", allergies=[]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertNotIn("care_emergency/uhid", systems())
+        response = self.update(
+            patient,
+            {**self.body(allergy_status="nka", allergies=[]), "convert_to_uhid": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        # The UHID is issued and the PRE number stays on the record.
+        self.assertIn("care_emergency/uhid", systems())
+        self.assertIn("care_emergency/pre-registration", systems())
+        response = self.update(
+            patient,
+            {
+                **self.body(allergy_status="nka", allergies=[]),
+                "facility": None,
+                "convert_to_uhid": True,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_update_needs_write_access(self):
         self.register(self.body())
         patient = Patient.objects.get()

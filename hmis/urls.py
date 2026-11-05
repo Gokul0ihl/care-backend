@@ -8,6 +8,7 @@ from hmis.views import (
     AppPatientView,
     BreakGlassView,
     CampEventView,
+    CampLoginView,
     CampParticipantView,
     CampPatientLookupView,
     CampSessionDetailView,
@@ -27,6 +28,7 @@ from hmis.views import (
     OutreachFormTemplateDetailView,
     OutreachFormTemplateView,
     OutreachMeView,
+    PatientCampVisitsView,
     PatientContactView,
     PatientMergeView,
     PatientNumberSearchView,
@@ -130,6 +132,16 @@ urlpatterns = [
         name="outreach-form-template",
     ),
     path("outreach/camp/events/", CampEventView.as_view(), name="camp-events"),
+    path(
+        "patients/<uuid:patient_id>/camp-visits/",
+        PatientCampVisitsView.as_view(),
+        name="patient-camp-visits",
+    ),
+    path(
+        "outreach/camp/login/<uuid:event_id>/",
+        CampLoginView.as_view(),
+        name="camp-login",
+    ),
     path("outreach/camp/sessions/", CampSessionView.as_view(), name="camp-sessions"),
     path(
         "outreach/camp/sessions/<uuid:session_id>/",

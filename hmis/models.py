@@ -402,6 +402,31 @@ class OutreachEvent(EMRBaseModel):
         return self.number or f"{self.event_type} draft {self.external_id}"
 
 
+class OutreachEventLogin(models.Model):
+    """An email that opens a camp's capture link (camp mode, no password).
+    Each email signs in as its own account (user, made at its first sign-in,
+    hmis.outreach.camp_login), which can capture at this event only, so each
+    capture records which email made it."""
+
+    event = models.ForeignKey(
+        OutreachEvent, on_delete=models.CASCADE, related_name="logins"
+    )
+    email = models.EmailField(max_length=254)
+    user = models.ForeignKey(
+        "users.User", on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["event", "email"], name="hmis_unique_outreach_login_email"
+            )
+        ]
+
+    def __str__(self):
+        return self.email
+
+
 class OutreachEventDecision(models.Model):
     """Every approval or rejection, per version."""
 
@@ -574,28 +599,80 @@ class CampParticipant(EMRBaseModel):
         related_name="camp_visits",
     )
     kind = models.CharField(max_length=10)
+    title = models.CharField(max_length=8, blank=True, default="")
     first_name = models.CharField(max_length=40)
+    middle_name = models.CharField(max_length=40, blank=True, default="")
     last_name = models.CharField(max_length=40, blank=True, default="")
     gender = models.CharField(max_length=10)
     date_of_birth = models.DateField()
+    preferred_language = models.CharField(max_length=40, blank=True, default="")
+    # The patient record's nationality category (Indian resident, NRI, OCI-PIO,
+    # Foreign, Refugee); blank for an existing person and on older captures.
+    nationality = models.CharField(max_length=20, blank=True, default="")
+    blood_group = models.CharField(max_length=8, blank=True, default="")
+    # The participant's photo (taken at the camp or read from their ID).
+    photo = models.ForeignKey(
+        "emr.FileUpload",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
     mobile_isd = models.CharField(max_length=5, default="+91")
     mobile = models.CharField(max_length=12)
     mobile_belongs_to = models.CharField(max_length=10)
+    # Blank whatsapp means the mobile is also the WhatsApp number.
+    whatsapp = models.CharField(max_length=12, blank=True, default="")
+    alt_mobile_isd = models.CharField(max_length=5, blank=True, default="")
+    alt_mobile = models.CharField(max_length=12, blank=True, default="")
+    # Whose the alternative mobile is (ALT_BELONGS_TO), as on the desk form.
+    alt_mobile_belongs_to = models.CharField(max_length=20, blank=True, default="")
+    address = models.CharField(max_length=200, blank=True, default="")
+    country = models.CharField(max_length=60, blank=True, default="")
+    state = models.CharField(max_length=100, blank=True, default="")
+    city = models.CharField(max_length=100, blank=True, default="")
+    district = models.CharField(max_length=100, blank=True, default="")
     pincode = models.CharField(max_length=6)
     area = models.CharField(max_length=80, blank=True, default="")
+    permanent_same_as_current = models.BooleanField(default=False)
+    # {address, country, state, city, district, pincode}; empty when the same
+    # as the current address or not given.
+    permanent_address = models.JSONField(default=dict, blank=True)
     id_type = models.CharField(max_length=20, blank=True, default="")
     # Aadhaar is stored masked (XXXX XXXX 1234).
     id_number = models.CharField(max_length=30, blank=True, default="")
+    # nka (no known allergies), has or unknown; blank on older captures.
+    allergy_status = models.CharField(max_length=8, blank=True, default="")
+    allergen = models.CharField(max_length=60, blank=True, default="")
+    allergy_reaction = models.CharField(max_length=60, blank=True, default="")
+    allergy_severity = models.CharField(max_length=20, blank=True, default="")
     bp = models.CharField(max_length=7, blank=True, default="")
     rbs_mg_dl = models.PositiveSmallIntegerField(null=True, blank=True)
+    height_cm = models.DecimalField(
+        max_digits=4, decimal_places=1, null=True, blank=True
+    )
     weight_kg = models.DecimalField(
         max_digits=5, decimal_places=1, null=True, blank=True
     )
+    # Worked out from height and weight when both are given.
+    bmi = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
     finding = models.TextField()
     refer_to_department = models.CharField(max_length=80, blank=True, default="")
     consent_screening = models.BooleanField(default=False)
     consent_dpdp_notice = models.BooleanField(default=False)
+    consent_tariff = models.BooleanField(default=False)
+    consent_by = models.CharField(max_length=30, blank=True, default="")
+    # How consent was taken (CONSENT_METHODS); "tablet" on older captures.
     consent_channel = models.CharField(max_length=30, blank=True, default="")
+    consent_witness = models.CharField(max_length=40, blank=True, default="")
+    consent_file = models.ForeignKey(
+        "emr.FileUpload",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    # Channels the person may be contacted on; ["do_not_contact"] alone opts out.
     send_via = models.JSONField(default=list, blank=True)
     # {key: {"label", "type", "value"}}: the label and type as asked, so old
     # answers stay readable after the form changes.
@@ -636,6 +713,10 @@ class CampParticipantTest(models.Model):
     source = models.CharField(max_length=20)
     payment_status = models.CharField(max_length=6)
     report_status = models.CharField(max_length=20)
+    # Where the person has it done (the event's location unless changed), and
+    # the result when it's read at the camp (e.g. a T-score of -2.1).
+    location = models.CharField(max_length=8, blank=True, default="")
+    result = models.CharField(max_length=20, blank=True, default="")
 
     def __str__(self):
         return self.name

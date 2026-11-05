@@ -1,9 +1,15 @@
 """Outreach events (the main app) and camp mode. The rules are in hmis.outreach."""
 
+import json
+
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.response import Response
 
+from care.emr.models import Patient
+from care.emr.models.organization import FacilityOrganization
 from care.utils.shortcuts import get_object_or_404
 from hmis import outreach
 from hmis.models import (
@@ -12,7 +18,8 @@ from hmis.models import (
     OutreachEvent,
     OutreachFormTemplate,
 )
-from hmis.views.base import EmergencyAPIView, get_facility
+from hmis.restricted import can_see_identity, is_restricted
+from hmis.views.base import EmergencyAPIView, can, get_facility
 
 MANAGE = "can_manage_outreach_event"
 APPROVE = "can_approve_outreach_event"
@@ -220,6 +227,15 @@ def camp_event_row(event):
         "pincode": event.pincode,
         "tests": tests,
         "form_fields": [outreach.form_field_row(f) for f in event.form_fields.all()],
+        "captured_today": event.participants.filter(
+            deleted=False, captured_at__date=timezone.localdate()
+        ).count(),
+        # The facility's departments, for "Refer to".
+        "departments": sorted(
+            FacilityOrganization.objects.filter(
+                facility=event.facility, org_type="dept", active=True, deleted=False
+            ).values_list("name", flat=True)
+        ),
     }
 
 
@@ -228,6 +244,45 @@ def get_session(session_id, user):
         CampSession.objects.select_related("event__facility"), external_id=session_id
     )
     return outreach.open_session(session, user)
+
+
+class PatientCampVisitsView(EmergencyAPIView):
+    """A patient's camp visits (new or existing person), newest first, for
+    the patient page. Anyone who can view the patient can see them."""
+
+    def get(self, request, patient_id):
+        patient = get_object_or_404(Patient, external_id=patient_id, deleted=False)
+        if not can("can_view_patient_obj", request.user, patient):
+            raise PermissionDenied("You do not have permission to view this patient")
+        if is_restricted(patient) and not can_see_identity(request.user, patient):
+            raise PermissionDenied("This patient's camp visits are restricted")
+        visits = (
+            CampParticipant.objects.filter(patient=patient, deleted=False)
+            .select_related("event", "patient", "captured_by")
+            .prefetch_related("tests")
+            .order_by("-captured_at")
+        )
+        return Response({"results": [outreach.camp_visit_row(v) for v in visits]})
+
+
+class CampLoginView(EmergencyAPIView):
+    """Camp mode sign-in with the camp's email, before anyone is signed in."""
+
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request, event_id):
+        event = get_object_or_404(OutreachEvent, external_id=event_id, deleted=False)
+        if not outreach.EVENT_TYPES[event.event_type]["capture"]:
+            raise ValidationError("This camp link isn't valid")
+        return Response(outreach.camp_login_header(event))
+
+    def post(self, request, event_id):
+        return Response(
+            outreach.camp_login(
+                event_id, request.data.get("email"), request.META.get("REMOTE_ADDR")
+            )
+        )
 
 
 class CampEventView(EmergencyAPIView):
@@ -289,6 +344,8 @@ class CampSessionEndView(EmergencyAPIView):
 
 
 class CampParticipantView(EmergencyAPIView):
+    parser_classes = [JSONParser, MultiPartParser]
+
     def get(self, request, session_id):
         """People captured at the session's event, newest first."""
         session = get_session(session_id, request.user)
@@ -303,9 +360,23 @@ class CampParticipantView(EmergencyAPIView):
         )
 
     def post(self, request, session_id):
+        """JSON, or multipart with the participant as JSON in `data` and the
+        optional files `photo` and `consent_file`."""
         session = get_session(session_id, request.user)
-        spec = outreach.ParticipantIn.model_validate(request.data)
-        participant = outreach.capture_participant(session, request.user, spec)
+        files = {}
+        data = request.data
+        if request.content_type.startswith("multipart/"):
+            try:
+                data = json.loads(request.data.get("data") or "{}")
+            except json.JSONDecodeError as error:
+                raise ValidationError("data must be JSON") from error
+            files = {
+                key: request.FILES[key]
+                for key in ("photo", "consent_file")
+                if key in request.FILES
+            }
+        spec = outreach.ParticipantIn.model_validate(data)
+        participant = outreach.capture_participant(session, request.user, spec, files)
         return Response(
             outreach.participant_row(participant), status=status.HTTP_201_CREATED
         )
@@ -313,7 +384,11 @@ class CampParticipantView(EmergencyAPIView):
 
 class CampPatientLookupView(EmergencyAPIView):
     def get(self, request, session_id):
-        get_session(session_id, request.user)
+        session = get_session(session_id, request.user)
         return Response(
-            {"results": outreach.lookup_patients(request.query_params.get("q"))}
+            {
+                "results": outreach.lookup_patients(
+                    request.query_params.get("q"), session.event.facility
+                )
+            }
         )

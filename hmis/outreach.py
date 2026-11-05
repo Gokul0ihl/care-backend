@@ -8,21 +8,32 @@ needs approving again; capture pauses until it is."""
 
 import re
 import secrets
+import uuid
 from datetime import date, time
 from decimal import Decimal
 from typing import Any, Literal
 
+from django.conf import settings
+from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 from pydantic import BaseModel, Field
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework_simplejwt.tokens import RefreshToken
 
-from care.emr.models import ActivityDefinition
+from care.emr.models import ActivityDefinition, FileUpload
 from care.emr.models.organization import FacilityOrganizationUser
 from care.emr.models.patient import Patient
+from care.emr.resources.patient_identifier.default_expression_evaluator import (
+    evaluate_patient_instance_default_values,
+)
 from care.facility.models import Facility
 from care.security.authorization.base import AuthorizationHandler
+from care.users.models import User
+from hmis.constants import PatientNumberSeries
 from hmis.models import (
     CampParticipant,
     CampParticipantTest,
@@ -30,13 +41,15 @@ from hmis.models import (
     OutreachEvent,
     OutreachEventCostLine,
     OutreachEventDecision,
+    OutreachEventLogin,
     OutreachEventStaff,
     OutreachEventTest,
     OutreachFormField,
     OutreachFormTemplate,
     PatientNumberSequence,
+    RegistrationAllergy,
 )
-from hmis.services import unit_code
+from hmis.services import display_numbers, issue_patient_number, unit_code
 
 EVENT_TYPES = {
     "CAMP": {
@@ -112,8 +125,35 @@ FIELD_TYPES = [
 CHOICE_TYPES = {"single_choice", "dropdown", "checkboxes"}
 GENDERS = ["male", "female", "other"]
 BELONGS_TO = ["self", "spouse", "child", "parent", "relative"]
-ID_TYPES = ["aadhaar", "pan", "voter_id", "driving_licence", "passport"]
-SEND_VIA = ["whatsapp", "sms"]
+# The alternative mobile's owner, as the desk registration names them (ALT_MOBILE_OWNERS).
+ALT_BELONGS_TO = ["Self", "Spouse", "Son/Daughter", "Parent", "Relative"]
+# The camp spec's Government ID list (lib/outreach.ts ID_TYPES): Indian IDs, a
+# child's birth certificate, and the IDs a foreign national shows.
+ID_TYPES = [
+    "aadhaar",
+    "pan",
+    "passport",
+    "voter_id",
+    "driving_licence",
+    "nrega_job_card",
+    "birth_certificate",
+    "oci_card",
+    "unhcr_card",
+]
+SEND_VIA = ["whatsapp", "sms", "phone", "do_not_contact"]
+DO_NOT_CONTACT = "do_not_contact"
+TITLES = ["Mr", "Ms", "Mrs", "Dr", "Master", "Mx"]
+BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Unknown"]
+ALLERGY_STATUSES = ["nka", "has", "unknown"]
+ALLERGY_SEVERITIES = ["mild", "moderate", "severe", "life_threatening"]
+CONSENT_BY = ["The patient", "Spouse", "Parent", "Guardian", "Next of kin"]
+# How consent was taken, as on the desk registration (lib/desk-registration.ts).
+TABLET_SIGNATURE = "Signature"
+THUMB_IMPRESSION = "Thumb impression"
+CONSENT_METHODS = [TABLET_SIGNATURE, "Scanned form", THUMB_IMPRESSION]
+TEST_LOCATIONS = ["camp", "hospital"]
+IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"]
+FILE_MIME_TYPES = [*IMAGE_MIME_TYPES, "application/pdf"]
 MAX_FORM_FIELDS = 50
 MIN_OPTIONS = 2
 MAX_TEXT_LENGTH = 2000
@@ -204,8 +244,10 @@ def capabilities(user):
                 ),
             }
         )
+    login_user = OutreachEventLogin.objects.filter(user=user).exists()
     return {
-        "camp_only": not user.is_superuser and roles == {"Camp Staff"},
+        "camp_only": not user.is_superuser
+        and (roles == {"Camp Staff"} or (login_user and not roles)),
         "facilities": rows,
     }
 
@@ -264,6 +306,13 @@ class FormFieldIn(BaseModel):
     validation: dict[str, Any] = Field(default_factory=dict)
 
 
+MAX_LOGINS = 20
+
+
+def clean_emails(emails):
+    return [e.strip().lower() for e in emails if e.strip()]
+
+
 class EventIn(BaseModel):
     facility: str
     event_type: Literal["CAMP", "PES", "CME", "WEB"]
@@ -303,25 +352,64 @@ class EventIn(BaseModel):
     form_fields: list[FormFieldIn] = Field(
         default_factory=list, max_length=MAX_FORM_FIELDS
     )
+    login_emails: list[str] = Field(default_factory=list, max_length=MAX_LOGINS)
+
+
+class AddressIn(BaseModel):
+    address: str = Field(default="", max_length=200)
+    country: str = Field(default="", max_length=60)
+    state: str = Field(default="", max_length=100)
+    city: str = Field(default="", max_length=100)
+    district: str = Field(default="", max_length=100)
+    pincode: str = Field(default="", max_length=12)
+
+
+class TestPickIn(BaseModel):
+    id: str
+    location: Literal["camp", "hospital"] | None = None
+    result: str = Field(default="", max_length=20)
 
 
 class ParticipantIn(BaseModel):
     kind: Literal["new", "existing"] = "new"
     patient: str | None = None
+    title: str = Field(default="", max_length=8)
     first_name: str = Field(default="", max_length=40)
+    middle_name: str = Field(default="", max_length=40)
     last_name: str = Field(default="", max_length=40)
     gender: str = ""
     date_of_birth: date | None = None
     confirm_age_over_100: bool = False
+    preferred_language: str = Field(default="", max_length=40)
+    nationality: str = ""
+    blood_group: str = Field(default="", max_length=8)
     mobile_isd: str = Field(default="+91", max_length=5)
     mobile: str = Field(default="", max_length=12)
     mobile_belongs_to: str = "self"
+    whatsapp: str = Field(default="", max_length=12)
+    alt_mobile_isd: str = Field(default="+91", max_length=5)
+    alt_mobile: str = Field(default="", max_length=12)
+    alt_mobile_belongs_to: str = ""
+    address: str = Field(default="", max_length=200)
+    country: str = Field(default="", max_length=60)
+    state: str = Field(default="", max_length=100)
+    city: str = Field(default="", max_length=100)
+    district: str = Field(default="", max_length=100)
     pincode: str = Field(default="", max_length=6)
     area: str = Field(default="", max_length=80)
+    permanent_same_as_current: bool = False
+    permanent_address: AddressIn | None = None
     id_type: str = ""
     id_number: str = Field(default="", max_length=30)
+    allergy_status: str = ""
+    allergen: str = Field(default="", max_length=60)
+    allergy_reaction: str = Field(default="", max_length=60)
+    allergy_severity: str = ""
     bp: str = Field(default="", max_length=7)
     rbs_mg_dl: int | None = Field(default=None, ge=10, le=1000)
+    height_cm: Decimal | None = Field(
+        default=None, gt=0, le=250, max_digits=4, decimal_places=1
+    )
     weight_kg: Decimal | None = Field(
         default=None, gt=0, le=400, max_digits=5, decimal_places=1
     )
@@ -329,9 +417,22 @@ class ParticipantIn(BaseModel):
     refer_to_department: str = Field(default="", max_length=80)
     consent_screening: bool = False
     consent_dpdp_notice: bool = False
+    consent_tariff: bool = False
+    consent_by: str = ""
+    consent_method: str = ""
+    consent_witness: str = Field(default="", max_length=40)
     send_via: list[str] = Field(default_factory=list)
-    tests: list[str] = Field(default_factory=list, max_length=50)
+    # Test ids, or {id, location, result} for a result read at the camp.
+    tests: list[str | TestPickIn] = Field(default_factory=list, max_length=50)
     extra_answers: dict[str, Any] = Field(default_factory=dict)
+
+    def picks(self):
+        """The tests as {id: TestPickIn}, in order, without repeats."""
+        result = {}
+        for item in self.tests:
+            pick = TestPickIn(id=item) if isinstance(item, str) else item
+            result.setdefault(pick.id, pick)
+        return result
 
 
 # --- Event validation --------------------------------------------------------
@@ -408,6 +509,17 @@ def check_event(spec, facility, errors, event=None, submitting=False):  # noqa: 
         errors.add(
             "form_fields", "Only health camps and education sessions capture people"
         )
+    seen = set()
+    for i, raw in enumerate(spec.login_emails if kind["capture"] else []):
+        email = raw.strip().lower()
+        if not email:
+            continue
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            errors.add(["login_emails", i], "Enter a valid email address")
+        errors.check(email not in seen, ["login_emails", i], "Already added")
+        seen.add(email)
     if spec.has_coupon:
         clash = OutreachEvent.objects.filter(
             has_coupon=True, coupon_code=spec.coupon_code.strip().upper(), deleted=False
@@ -422,6 +534,12 @@ def check_event(spec, facility, errors, event=None, submitting=False):  # noqa: 
     if not submitting:
         return
 
+    if kind["capture"]:
+        errors.check(
+            clean_emails(spec.login_emails),
+            "login_emails",
+            "Add at least one email staff sign in to the camp with",
+        )
     errors.check(
         len(spec.description.strip()) >= MIN_DESCRIPTION,
         "description",
@@ -739,7 +857,23 @@ def write_event(spec, facility, user, event=None):
                 )
                 for i, f in enumerate(spec.form_fields)
             )
+        save_logins(event, clean_emails(spec.login_emails) if kind["capture"] else [])
     return event
+
+
+def save_logins(event, emails):
+    """The event's sign-in emails: kept ones keep their account, removed ones
+    lose access, new ones get an account at their first sign-in."""
+    emails = list(dict.fromkeys(emails))
+    event.logins.exclude(email__in=emails).delete()
+    have = set(event.logins.values_list("email", flat=True))
+    OutreachEventLogin.objects.bulk_create(
+        OutreachEventLogin(event=event, email=e) for e in emails if e not in have
+    )
+
+
+def login_emails(event):
+    return list(event.logins.order_by("id").values_list("email", flat=True))
 
 
 def event_spec(event):
@@ -773,6 +907,7 @@ def event_spec(event):
         for c in event.cost_lines.all()
     ]
     data["form_fields"] = [form_field_row(f) for f in event.form_fields.all()]
+    data["login_emails"] = login_emails(event)
     return EventIn.model_validate(data)
 
 
@@ -913,6 +1048,7 @@ def event_detail(event, user):
             for c in event.cost_lines.all()
         ],
         "form_fields": [form_field_row(f) for f in event.form_fields.all()],
+        "login_emails": login_emails(event),
         "costs": costs(event),
         "created_by": person(event.created_by),
         "created_date": event.created_date,
@@ -1101,12 +1237,16 @@ def camp_events(user):
         for f in user_facilities(user)
         if has_permission(user, f, "can_capture_camp_participant")
     ]
-    events = OutreachEvent.objects.filter(
-        facility__in=facilities,
-        status=APPROVED,
-        event_type__in=["CAMP", "PES"],
-        deleted=False,
-    ).select_related("facility")
+    events = (
+        OutreachEvent.objects.filter(
+            Q(facility__in=facilities) | Q(logins__user=user),
+            status=APPROVED,
+            event_type__in=["CAMP", "PES"],
+            deleted=False,
+        )
+        .select_related("facility")
+        .distinct()
+    )
     today = timezone.localdate()
 
     def order(event):
@@ -1119,13 +1259,24 @@ def camp_events(user):
     return sorted(events, key=order)
 
 
+def is_login_user(user, event):
+    """Signed in with one of the camp's emails (camp_login): capture at this
+    event only, while that email is still on the event."""
+    return event.logins.filter(user=user).exists()
+
+
+def require_capture(user, event):
+    if not is_login_user(user, event):
+        require(
+            user,
+            event.facility,
+            "can_capture_camp_participant",
+            "You can't capture at this facility",
+        )
+
+
 def start_session(event, user, device_label):
-    require(
-        user,
-        event.facility,
-        "can_capture_camp_participant",
-        "You can't capture at this facility",
-    )
+    require_capture(user, event)
     if event.status != APPROVED or not EVENT_TYPES[event.event_type]["capture"]:
         raise ValidationError(
             "People can only be captured at an approved camp or education session"
@@ -1144,13 +1295,80 @@ def open_session(session, user):
         raise ValidationError("This camp session has ended; choose the camp again")
     if session.event.status != APPROVED:
         raise ValidationError("This event is no longer approved, so capture is paused")
-    require(
-        user,
-        session.event.facility,
-        "can_capture_camp_participant",
-        "You can't capture at this facility",
-    )
+    require_capture(user, session.event)
     return session
+
+
+# --- Camp sign-in with the camp's email ------------------------------------------
+
+LOGIN_ATTEMPTS = 10
+LOGIN_WINDOW = 15 * 60
+
+
+def camp_login_header(event):
+    """What the sign-in page shows before anyone signs in."""
+    return {
+        "id": str(event.external_id),
+        "number": event.number,
+        "name": event.name,
+        "type_label": EVENT_TYPES[event.event_type]["label"],
+        "venue_name": event.venue_name,
+        "event_date": event.event_date,
+    }
+
+
+def camp_login_user(login):
+    """The account an email signs in as: one per email per event, with no
+    password and no facility role, so it can do nothing in the app except
+    capture at this event (is_login_user). Its name and email are the
+    email, which camp lists show as "captured by"."""
+    user = login.user
+    if user is None:
+        user = User(
+            username=f"camp-{uuid.uuid4().hex[:11]}",
+            first_name=login.email[:150],
+            email=login.email,
+            user_type="Staff",
+            phone_number="",
+        )
+        user.set_unusable_password()
+        user.save()
+        login.user = user
+        login.save(update_fields=["user"])
+    return user
+
+
+def email_error(msg):
+    errors = Errors()
+    errors.add("email", msg)
+    errors.raise_if_any()
+
+
+def camp_login(event_id, email, client):
+    """Signs in with one of the camp's emails: tokens for that email's
+    account. Ten wrong emails from one address lock that address out of the
+    camp for 15 minutes."""
+    key = f"hmis:camp-login:{event_id}:{client}"
+    if cache.get(key, 0) >= LOGIN_ATTEMPTS:
+        email_error("Too many tries. Wait 15 minutes and try again.")
+    event = OutreachEvent.objects.filter(external_id=event_id, deleted=False).first()
+    if event is None or not EVENT_TYPES[event.event_type]["capture"]:
+        raise ValidationError("This camp link isn't valid")
+    email = (email or "").strip().lower()
+    login = event.logins.filter(email=email).first() if email else None
+    if login is None:
+        cache.set(key, cache.get(key, 0) + 1, LOGIN_WINDOW)
+        email_error("This email can't open this camp")
+    if event.status != APPROVED:
+        raise ValidationError(
+            "This camp isn't approved yet, so it can't capture people"
+        )
+    with transaction.atomic():
+        login = OutreachEventLogin.objects.select_for_update().get(pk=login.pk)
+        user = camp_login_user(login)
+    refresh = RefreshToken.for_user(user)
+    User.objects.filter(pk=user.pk).update(last_login=timezone.now())
+    return {"access": str(refresh.access_token), "refresh": str(refresh)}
 
 
 def mask_aadhaar(number):
@@ -1229,6 +1447,65 @@ def check_answers(fields, answers, errors):  # noqa: PLR0912
     return stored
 
 
+# A camp's nationalities (as on the Domestic form), in the patient record's
+# nationality_category values.
+CAMP_NATIONALITIES = ["Indian resident", "NRI", "OCI-PIO"]
+
+
+PATIENT_TO_CAMP_GENDER = {"male": "male", "female": "female", "non_binary": "other"}
+
+
+HIDDEN_FOR_EXISTING = (
+    "preferred_language",
+    "nationality",
+    "blood_group",
+    "whatsapp",
+    "alt_mobile_isd",
+    "alt_mobile",
+    "alt_mobile_belongs_to",
+    "address",
+    "country",
+    "state",
+    "city",
+    "district",
+    "area",
+    "permanent_same_as_current",
+    "permanent_address",
+    "id_type",
+    "id_number",
+    "allergy_status",
+    "allergen",
+    "allergy_reaction",
+    "allergy_severity",
+)
+
+
+def take_patient_identity(spec, patient):
+    """An existing patient's identity and contact come from their hospital
+    record, not the form (Existing Person shows only the search). Returns
+    False when the record lacks a date or year of birth."""
+    first, _, last = (patient.name or "").strip().partition(" ")
+    phone = patient.phone_number or ""
+    born = patient.date_of_birth or (
+        date(patient.year_of_birth, 1, 1) if patient.year_of_birth else None
+    )
+    spec.title = patient.title if patient.title in TITLES else ""
+    spec.first_name = (patient.first_name or first)[:40]
+    spec.middle_name = (patient.middle_name or "")[:40]
+    spec.last_name = (patient.last_name or last)[:40]
+    spec.gender = PATIENT_TO_CAMP_GENDER.get(patient.gender, "other")
+    spec.date_of_birth = born
+    spec.mobile_isd = "+91" if phone.startswith("+91") or not phone else phone[:-10]
+    spec.mobile = phone[-10:]
+    spec.mobile_belongs_to = "self"
+    spec.pincode = str(patient.pincode or "")[:6]
+    # Fields the Existing Person form doesn't show: whatever was left from New
+    # Person or Capture Id is dropped, not saved on the visit.
+    for name in HIDDEN_FOR_EXISTING:
+        setattr(spec, name, ParticipantIn.model_fields[name].get_default())
+    return born is not None
+
+
 def check_participant(spec, event, errors):
     today = timezone.localdate()
     patient = None
@@ -1238,7 +1515,14 @@ def check_participant(spec, event, errors):
             if spec.patient
             else None
         )
-        errors.check(patient, "patient", "Find the patient by UHID or mobile")
+        errors.check(patient, "patient", "Find the patient by name, mobile or UHID")
+        if patient is not None:
+            errors.check(
+                take_patient_identity(spec, patient),
+                "patient",
+                "This patient's record has no date of birth; add it at the desk first",
+            )
+        return patient, check_visit(spec, event, errors)
     first = spec.first_name.strip()
     errors.check(
         len(first) >= MIN_NAME and NAME_RE.match(first),
@@ -1285,17 +1569,114 @@ def check_participant(spec, event, errors):
     errors.check(
         PIN_RE.match(spec.pincode), "pincode", "PIN code: 6 digits, not starting with 0"
     )
-    if spec.id_type or spec.id_number:
-        errors.check(spec.id_type in ID_TYPES, "id_type", "Choose the ID type")
-        errors.check(spec.id_number.strip(), "id_number", "Enter the ID number")
-        if spec.id_type == "aadhaar":
-            errors.check(
-                re.match(r"^\d{12}$", re.sub(r"\s", "", spec.id_number)),
-                "id_number",
-                "Aadhaar: 12 digits",
-            )
+    # A new person's mandatory details: everything below, and the title,
+    # language, nationality, address and locality in check_details.
+    errors.check(spec.id_type in ID_TYPES, "id_type", "Choose the government ID")
+    errors.check(spec.id_number.strip(), "id_number", "Enter the ID number")
+    if spec.id_type == "aadhaar":
+        errors.check(
+            re.match(r"^\d{12}$", re.sub(r"\s", "", spec.id_number)),
+            "id_number",
+            "Aadhaar: 12 digits",
+        )
+    check_details(spec, errors)
+    return patient, check_visit(spec, event, errors)
+
+
+def check_visit(spec, event, errors):
+    """What's checked for everyone captured: vitals, finding, consent and
+    tests. Returns the event's tests by id."""
+    errors.check(spec.bp, "bp", "Enter the BP")
     errors.check(not spec.bp or BP_RE.match(spec.bp), "bp", "BP as 150/94")
+    errors.check(spec.height_cm is not None, "height_cm", "Enter the height")
+    errors.check(spec.weight_kg is not None, "weight_kg", "Enter the weight")
     errors.check(spec.finding.strip(), "finding", "Enter the finding or concern")
+    check_consent(spec, errors)
+    offered = {str(t.external_id): t for t in event.tests.all()}
+    for i, test_id in enumerate(spec.picks()):
+        errors.check(
+            test_id in offered, ["tests", i], "Not a test offered at this event"
+        )
+    return offered
+
+
+def mobile_problem(isd, number):
+    if isd == "+91":
+        return (
+            None if re.match(r"^[6-9]\d{9}$", number) else "10 digits, starting 6 to 9"
+        )
+    if re.match(r"^\d{6,12}$", number):
+        return None
+    return f"6 to 12 digits for {isd}"
+
+
+def check_details(spec, errors):
+    """The identity, contact and allergy details beyond the camp's basics."""
+    errors.check(spec.title in TITLES, "title", "Choose the title")
+    errors.check(
+        spec.preferred_language.strip(),
+        "preferred_language",
+        "Choose the preferred language",
+    )
+    errors.check(
+        spec.nationality in CAMP_NATIONALITIES,
+        "nationality",
+        "Choose the nationality",
+    )
+    errors.check(spec.address.strip(), "address", "Enter the house, flat or building")
+    errors.check(spec.city.strip(), "city", "Choose the post office or locality")
+    for key in ("middle_name",):
+        value = getattr(spec, key).strip()
+        errors.check(
+            not value or NAME_RE.match(value), key, "Letters, spaces and dots only"
+        )
+    errors.check(
+        not spec.blood_group or spec.blood_group in BLOOD_GROUPS,
+        "blood_group",
+        "Choose the blood group",
+    )
+    if spec.whatsapp:
+        problem = mobile_problem(spec.mobile_isd, spec.whatsapp)
+        errors.check(not problem, "whatsapp", problem)
+    if spec.alt_mobile:
+        errors.check(
+            re.match(r"^\+\d{1,4}$", spec.alt_mobile_isd),
+            "alt_mobile_isd",
+            "Country code like +91",
+        )
+        problem = mobile_problem(spec.alt_mobile_isd, spec.alt_mobile)
+        errors.check(not problem, "alt_mobile", problem)
+        errors.check(
+            spec.alt_mobile_belongs_to in ALT_BELONGS_TO,
+            "alt_mobile_belongs_to",
+            "Choose whose number it is",
+        )
+    perm = spec.permanent_address
+    if perm and not spec.permanent_same_as_current and perm.pincode:
+        india = not perm.country.strip() or perm.country.strip().lower() == "india"
+        errors.check(
+            not india or PIN_RE.match(perm.pincode),
+            ["permanent_address", "pincode"],
+            "PIN code: 6 digits, not starting with 0",
+        )
+    errors.check(
+        not spec.allergy_status or spec.allergy_status in ALLERGY_STATUSES,
+        "allergy_status",
+        "Choose the allergy status",
+    )
+    if spec.allergy_status == "has":
+        errors.check(spec.allergen.strip(), "allergen", "Choose the allergen")
+        errors.check(
+            spec.allergy_reaction.strip(), "allergy_reaction", "Choose the reaction"
+        )
+        errors.check(
+            spec.allergy_severity in ALLERGY_SEVERITIES,
+            "allergy_severity",
+            "Choose the severity",
+        )
+
+
+def check_consent(spec, errors):
     errors.check(
         spec.consent_screening, "consent_screening", "Consent is needed to capture"
     )
@@ -1304,15 +1685,84 @@ def check_participant(spec, event, errors):
         "consent_dpdp_notice",
         "Read out the privacy notice and tick",
     )
+    errors.check(spec.consent_tariff, "consent_tariff", "Explain the tariff and tick")
+    errors.check(spec.consent_by in CONSENT_BY, "consent_by", "Who gives consent")
     errors.check(
-        all(v in SEND_VIA for v in spec.send_via), "send_via", "WhatsApp or SMS"
+        spec.consent_method in CONSENT_METHODS,
+        "consent_method",
+        "Choose how consent was taken",
     )
-    offered = {str(t.external_id): t for t in event.tests.all()}
-    for i, test_id in enumerate(spec.tests):
+    if spec.consent_method == THUMB_IMPRESSION:
+        witness = spec.consent_witness.strip()
         errors.check(
-            test_id in offered, ["tests", i], "Not a test offered at this event"
+            witness and NAME_RE.match(witness),
+            "consent_witness",
+            "Enter the witness's name",
         )
-    return patient, offered
+    errors.check(
+        all(v in SEND_VIA for v in spec.send_via),
+        "send_via",
+        "WhatsApp, SMS, phone call or do not contact",
+    )
+    errors.check(
+        DO_NOT_CONTACT not in spec.send_via or len(set(spec.send_via)) == 1,
+        "send_via",
+        "Do not contact can't be chosen with a channel",
+    )
+
+
+def check_files(spec, files, errors):
+    """The photo (an image) and the consent form (needed unless signed on the
+    tablet), each within the upload limit."""
+    limit = settings.MAX_FILE_UPLOAD_SIZE * 1024 * 1024
+    for key, types in (("photo", IMAGE_MIME_TYPES), ("consent_file", FILE_MIME_TYPES)):
+        upload = files.get(key)
+        if upload is None:
+            continue
+        errors.check(
+            upload.size <= limit,
+            key,
+            f"Files can be up to {settings.MAX_FILE_UPLOAD_SIZE} MB",
+        )
+        errors.check(
+            upload.content_type in types,
+            key,
+            "Upload a JPEG, PNG or WebP"
+            if key == "photo"
+            else "Upload a JPEG, PNG, WebP or PDF",
+        )
+    if (
+        spec.consent_method in CONSENT_METHODS
+        and spec.consent_method != TABLET_SIGNATURE
+    ):
+        errors.check(
+            files.get("consent_file"), "consent_file", "Upload the consent form"
+        )
+
+
+def bmi_of(height_cm, weight_kg):
+    if not height_cm or not weight_kg:
+        return None
+    metres = Decimal(height_cm) / 100
+    return (Decimal(weight_kg) / (metres * metres)).quantize(Decimal("0.1"))
+
+
+def store_participant_file(participant, user, upload, category, name):
+    file = FileUpload(
+        name=name,
+        internal_name=upload.name,
+        associating_id=str(participant.external_id),
+        file_type="camp_participant",
+        file_category=category,
+        meta={"mime_type": upload.content_type},
+        created_by=user,
+        updated_by=user,
+    )
+    file.save()
+    file.files_manager.put_object(file, upload.read())
+    file.upload_completed = True
+    file.save(skip_internal_name=True)
+    return file
 
 
 def free_used(event, test):
@@ -1324,13 +1774,135 @@ def free_used(event, test):
     ).count()
 
 
-def capture_participant(session, user, spec):
+# Camp values as the desk registration stores them on Care's Patient.
+PATIENT_GENDERS = {"male": "male", "female": "female", "other": "non_binary"}
+PATIENT_BLOOD_GROUPS = {
+    "A+": "A_positive",
+    "A-": "A_negative",
+    "B+": "B_positive",
+    "B-": "B_negative",
+    "AB+": "AB_positive",
+    "AB-": "AB_negative",
+    "O+": "O_positive",
+    "O-": "O_negative",
+}
+PATIENT_MOBILE_OWNERS = {
+    "self": "Self",
+    "spouse": "Spouse",
+    "child": "Son",
+    "parent": "Parent",
+    "relative": "Relative",
+}
+PATIENT_ALLERGY_STATUSES = {"nka": "nka", "has": "has", "unknown": "unable"}
+PATIENT_CHANNELS = {"whatsapp": "WhatsApp", "sms": "SMS", "phone": "Phone call"}
+PATIENT_ALLERGY_SEVERITIES = {"mild", "moderate", "severe", "life_threatening"}
+
+
+def create_camp_patient(event, spec, user, number):
+    """A new person captured at a camp becomes a Care patient with a PRE-
+    number (pre-registration) at the camp's facility, so they're in the
+    hospital's patient list. The desk converts them to a UHID when it
+    completes their registration (Edit Patient). Called inside the capture's
+    transaction. Care's PatientCreateLock isn't taken: it guards staff-entered
+    identifiers, which a camp has none of, and it refuses (rather than waits
+    for) a second capture saved at the same moment."""
+    facility = event.facility
+    first = spec.first_name.strip()
+    middle = spec.middle_name.strip()
+    last = spec.last_name.strip()
+    address = spec.address.strip()
+    perm = spec.permanent_address
+    permanent = perm if perm and not spec.permanent_same_as_current else None
+    has_allergy = spec.allergy_status == "has"
+    channels = [PATIENT_CHANNELS[x] for x in spec.send_via if x in PATIENT_CHANNELS]
+    patient = Patient.objects.create(
+        name=" ".join(x for x in (first, middle, last) if x),
+        title=spec.title,
+        first_name=first,
+        middle_name=middle,
+        last_name=last,
+        gender=PATIENT_GENDERS.get(spec.gender, spec.gender),
+        date_of_birth=spec.date_of_birth,
+        phone_number=f"{spec.mobile_isd}{spec.mobile}",
+        mobile_owner=PATIENT_MOBILE_OWNERS.get(spec.mobile_belongs_to, ""),
+        whatsapp_number=f"{spec.mobile_isd}{spec.whatsapp}"
+        if spec.whatsapp and spec.whatsapp != spec.mobile
+        else "",
+        alternate_phone_number=f"{spec.alt_mobile_isd}{spec.alt_mobile}"
+        if spec.alt_mobile
+        else "",
+        alternate_phone_owner=spec.alt_mobile_belongs_to if spec.alt_mobile else "",
+        address=address,
+        house=address[:100],
+        city=spec.city.strip(),
+        district=spec.district.strip(),
+        state=spec.state.strip(),
+        pincode=int(spec.pincode) if spec.pincode.isdigit() else None,
+        permanent_address=permanent.address.strip() if permanent else address,
+        permanent_house=permanent.address.strip()[:100] if permanent else "",
+        permanent_city=permanent.city.strip() if permanent else "",
+        permanent_district=permanent.district.strip() if permanent else "",
+        permanent_state=permanent.state.strip() if permanent else "",
+        permanent_pincode=permanent.pincode.strip() if permanent else "",
+        permanent_country=permanent.country.strip() if permanent else "",
+        blood_group=PATIENT_BLOOD_GROUPS.get(spec.blood_group, "unknown"),
+        preferred_language=spec.preferred_language.strip()[:30],
+        nationality_category=spec.nationality,
+        allergy_status=PATIENT_ALLERGY_STATUSES.get(spec.allergy_status, ""),
+        arrival_source="Health camp",
+        camp_name=event.name[:100],
+        camp_patient_id=number,
+        consent_given_by=spec.consent_by,
+        consent_method=spec.consent_method,
+        consent_witness=spec.consent_witness.strip()[:40]
+        if spec.consent_method == THUMB_IMPRESSION
+        else "",
+        general_consent=True,
+        data_processing_consent=True,
+        tariff_consent=True,
+        do_not_contact=DO_NOT_CONTACT in spec.send_via,
+        communication_channels=[] if DO_NOT_CONTACT in spec.send_via else channels,
+        registration_facility=facility,
+        created_by=user,
+        updated_by=user,
+    )
+    evaluate_patient_instance_default_values(patient)
+    issue_patient_number(patient, facility, PatientNumberSeries.pre_registration)
+    if has_allergy and spec.allergen.strip():
+        severity = spec.allergy_severity.lower().replace(" ", "_").replace("-", "_")
+        RegistrationAllergy.objects.create(
+            patient=patient,
+            substance=spec.allergen.strip()[:100],
+            reaction=spec.allergy_reaction.strip()[:100],
+            severity=severity if severity in PATIENT_ALLERGY_SEVERITIES else "mild",
+        )
+    return patient
+
+
+def capture_participant(session, user, spec, files=None):
+    """Captures a person; files may hold the photo and the consent form
+    (uploads keyed photo and consent_file). A new person is also created as
+    a pre-registered Care patient (create_camp_patient)."""
+    files = files or {}
     event = session.event
     errors = Errors()
     patient, offered = check_participant(spec, event, errors)
+    check_files(spec, files, errors)
     fields = list(event.form_fields.all())
     answers = check_answers(fields, spec.extra_answers, errors)
     errors.raise_if_any()
+    perm = spec.permanent_address
+    permanent = (
+        {k: v.strip() for k, v in perm.model_dump().items()}
+        if perm and not spec.permanent_same_as_current
+        else {}
+    )
+    has_allergy = spec.allergy_status == "has"
+    send_via = (
+        [DO_NOT_CONTACT]
+        if DO_NOT_CONTACT in spec.send_via
+        else sorted(set(spec.send_via))
+    )
 
     first = spec.first_name.strip()
     with transaction.atomic():
@@ -1348,32 +1920,60 @@ def capture_participant(session, user, spec):
         id_number = spec.id_number.strip()
         if spec.id_type == "aadhaar" and id_number:
             id_number = mask_aadhaar(id_number)
+        number = allocate_participant_number(event)
         participant = CampParticipant.objects.create(
-            number=allocate_participant_number(event),
+            number=number,
             event=event,
             session=session,
-            patient=patient,
+            patient=patient or create_camp_patient(event, spec, user, number),
             kind=spec.kind,
+            title=spec.title,
             first_name=first,
+            middle_name=spec.middle_name.strip(),
             last_name=spec.last_name.strip(),
             gender=spec.gender,
             date_of_birth=spec.date_of_birth,
+            preferred_language=spec.preferred_language.strip(),
+            nationality=spec.nationality,
+            blood_group=spec.blood_group,
             mobile_isd=spec.mobile_isd,
             mobile=spec.mobile,
             mobile_belongs_to=spec.mobile_belongs_to,
+            whatsapp=spec.whatsapp if spec.whatsapp != spec.mobile else "",
+            alt_mobile_isd=spec.alt_mobile_isd if spec.alt_mobile else "",
+            alt_mobile=spec.alt_mobile,
+            alt_mobile_belongs_to=spec.alt_mobile_belongs_to if spec.alt_mobile else "",
+            address=spec.address.strip(),
+            country=spec.country.strip(),
+            state=spec.state.strip(),
+            city=spec.city.strip(),
+            district=spec.district.strip(),
             pincode=spec.pincode,
             area=spec.area.strip(),
+            permanent_same_as_current=spec.permanent_same_as_current,
+            permanent_address=permanent,
             id_type=spec.id_type if id_number else "",
             id_number=id_number,
+            allergy_status=spec.allergy_status,
+            allergen=spec.allergen.strip() if has_allergy else "",
+            allergy_reaction=spec.allergy_reaction.strip() if has_allergy else "",
+            allergy_severity=spec.allergy_severity if has_allergy else "",
             bp=spec.bp,
             rbs_mg_dl=spec.rbs_mg_dl,
+            height_cm=spec.height_cm,
             weight_kg=spec.weight_kg,
+            bmi=bmi_of(spec.height_cm, spec.weight_kg),
             finding=spec.finding.strip(),
             refer_to_department=spec.refer_to_department.strip(),
             consent_screening=True,
             consent_dpdp_notice=True,
-            consent_channel="tablet",
-            send_via=sorted(set(spec.send_via)),
+            consent_tariff=True,
+            consent_by=spec.consent_by,
+            consent_channel=spec.consent_method,
+            consent_witness=spec.consent_witness.strip()
+            if spec.consent_method == THUMB_IMPRESSION
+            else "",
+            send_via=send_via,
             extra_answers=answers,
             form_version=event.version,
             status="registered" if patient else "open",
@@ -1382,8 +1982,26 @@ def capture_participant(session, user, spec):
             created_by=user,
             updated_by=user,
         )
+        updates = []
+        # Existing Person has no photo field; a photo left from New Person is dropped.
+        if files.get("photo") and spec.kind != "existing":
+            participant.photo = store_participant_file(
+                participant, user, files["photo"], "profile_photo", "Photo"
+            )
+            updates.append("photo")
+        if files.get("consent_file") and spec.consent_method != TABLET_SIGNATURE:
+            participant.consent_file = store_participant_file(
+                participant,
+                user,
+                files["consent_file"],
+                "consent_attachment",
+                "Consent form",
+            )
+            updates.append("consent_file")
+        if updates:
+            participant.save(update_fields=updates)
         rows = []
-        for test_id in dict.fromkeys(spec.tests):
+        for test_id, pick in spec.picks().items():
             test = offered[test_id]
             fee_type, rate, source = (
                 test.fee_type,
@@ -1410,6 +2028,8 @@ def capture_participant(session, user, spec):
                     source=source,
                     payment_status="due" if fee_type == "paid" else "free",
                     report_status="pending" if test.lab_test_id else "given_at_camp",
+                    location=pick.location or test.location,
+                    result=pick.result.strip(),
                 )
             )
     return participant
@@ -1424,35 +2044,95 @@ def catalogue_rate(activity):
     return None if price is None else Decimal(str(price))
 
 
+def participant_patient_number(participant):
+    """The linked patient's UHID or, until they have one, PRE number:
+    {"label", "value"}."""
+    if participant.patient_id is None:
+        return None
+    return display_numbers([participant.patient_id]).get(participant.patient_id)
+
+
+def camp_visit_row(participant):
+    """A camp visit for the patient page: the participant and its camp."""
+    event = participant.event
+    return {
+        **participant_row(participant),
+        "event": {
+            "id": str(event.external_id),
+            "number": event.number,
+            "name": event.name,
+            "type_label": EVENT_TYPES[event.event_type]["label"],
+            "venue_name": event.venue_name,
+            "event_date": event.event_date,
+        },
+    }
+
+
+def captured_by(user):
+    """Who captured: their name and email (a camp email account's name is
+    its email)."""
+    if user is None:
+        return None
+    return {**person(user), "email": user.email or ""}
+
+
 def participant_row(participant):
     return {
         "id": str(participant.external_id),
         "number": participant.number,
         "kind": participant.kind,
+        "patient_number": participant_patient_number(participant),
         "patient": str(participant.patient.external_id)
         if participant.patient
         else None,
+        "title": participant.title,
         "first_name": participant.first_name,
+        "middle_name": participant.middle_name,
         "last_name": participant.last_name,
         "gender": participant.gender,
         "date_of_birth": participant.date_of_birth,
+        "preferred_language": participant.preferred_language,
+        "nationality": participant.nationality,
+        "blood_group": participant.blood_group,
+        "has_photo": participant.photo_id is not None,
         "mobile_isd": participant.mobile_isd,
         "mobile": participant.mobile,
         "mobile_belongs_to": participant.mobile_belongs_to,
+        "whatsapp": participant.whatsapp,
+        "alt_mobile_isd": participant.alt_mobile_isd,
+        "alt_mobile": participant.alt_mobile,
+        "alt_mobile_belongs_to": participant.alt_mobile_belongs_to,
+        "address": participant.address,
+        "country": participant.country,
+        "state": participant.state,
+        "city": participant.city,
+        "district": participant.district,
         "pincode": participant.pincode,
         "area": participant.area,
+        "permanent_same_as_current": participant.permanent_same_as_current,
+        "permanent_address": participant.permanent_address,
         "id_type": participant.id_type,
         "id_number": participant.id_number,
+        "allergy_status": participant.allergy_status,
+        "allergen": participant.allergen,
+        "allergy_reaction": participant.allergy_reaction,
+        "allergy_severity": participant.allergy_severity,
         "bp": participant.bp,
         "rbs_mg_dl": participant.rbs_mg_dl,
+        "height_cm": money(participant.height_cm),
         "weight_kg": money(participant.weight_kg),
+        "bmi": money(participant.bmi),
         "finding": participant.finding,
         "refer_to_department": participant.refer_to_department,
+        "consent_by": participant.consent_by,
+        "consent_method": participant.consent_channel,
+        "consent_witness": participant.consent_witness,
+        "has_consent_file": participant.consent_file_id is not None,
         "send_via": participant.send_via,
         "extra_answers": participant.extra_answers,
         "status": participant.status,
         "verification_code": participant.verification_code,
-        "captured_by": person(participant.captured_by),
+        "captured_by": captured_by(participant.captured_by),
         "captured_at": participant.captured_at,
         "tests": [
             {
@@ -1462,15 +2142,21 @@ def participant_row(participant):
                 "source": t.source,
                 "payment_status": t.payment_status,
                 "report_status": t.report_status,
+                "location": t.location,
+                "result": t.result,
             }
             for t in participant.tests.all()
         ],
     }
 
 
-def lookup_patients(query):
-    """Existing patients for camp capture, by exact UHID or exact mobile.
-    Returns only what the capture form needs."""
+NAME_SEARCH_RE = re.compile(r"^[A-Za-z][A-Za-z .]{2,}$")
+
+
+def lookup_patients(query, facility=None):
+    """Existing patients for camp capture, by exact UHID, exact mobile or
+    (3 letters or more) name. A name search covers only patients registered
+    at the camp's facility. Returns only what the capture form needs."""
     from care.emr.models.patient import PatientIdentifier
     from hmis.services import display_numbers
 
@@ -1486,7 +2172,12 @@ def lookup_patients(query):
         ids = PatientIdentifier.objects.filter(value__iexact=query).values_list(
             "patient_id", flat=True
         )
-        patients = Patient.objects.filter(id__in=ids, deleted=False)[:10]
+        patients = list(Patient.objects.filter(id__in=ids, deleted=False)[:10])
+        name = " ".join(query.split())
+        if not patients and facility is not None and NAME_SEARCH_RE.match(name):
+            patients = Patient.objects.filter(
+                name__icontains=name, registration_facility=facility, deleted=False
+            ).order_by("name")[:10]
     patients = list(patients)
     numbers = display_numbers([p.id for p in patients])
     rows = []

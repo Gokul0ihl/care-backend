@@ -1,11 +1,15 @@
+import json
 from datetime import timedelta
 
+from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 
+from care.emr.models import Patient
 from care.utils.tests.base import CareAPITestBase
-from hmis.models import CampParticipant, OutreachEvent
+from hmis.models import CampParticipant, OutreachEvent, OutreachEventLogin
 
 MANAGE = "can_manage_outreach_event"
 APPROVE = "can_approve_outreach_event"
@@ -56,6 +60,7 @@ class OutreachTests(CareAPITestBase):
             "discount_registration_pct": 100,
             "discount_consultation_pct": 50,
             "discount_tests_pct": 20,
+            "login_emails": ["Camp.Desk@example.com", "nurse.two@example.com"],
             "tests": [
                 {
                     "name": "RBS",
@@ -130,15 +135,28 @@ class OutreachTests(CareAPITestBase):
 
     def person(self, **kwargs):
         return {
+            "title": "Ms",
             "first_name": "Test",
             "last_name": "Person",
             "gender": "female",
             "date_of_birth": "1980-01-01",
+            "preferred_language": "English",
+            "nationality": "Indian resident",
+            "id_type": "pan",
+            "id_number": "ABCDE1234F",
             "mobile": "9000000001",
+            "address": "1 Test Road",
+            "city": "Test Locality",
             "pincode": "110001",
             "finding": "High sugar",
+            "bp": "120/80",
+            "height_cm": "165",
+            "weight_kg": "70",
             "consent_screening": True,
             "consent_dpdp_notice": True,
+            "consent_tariff": True,
+            "consent_by": "The patient",
+            "consent_method": "Signature",
             "extra_answers": {"diabetic_family": True},
             **kwargs,
         }
@@ -160,11 +178,14 @@ class OutreachTests(CareAPITestBase):
         self.assertEqual(event["coupon_code"], "TEST26")
 
     def test_submit_checks_everything_and_numbers_the_event(self):
-        event = self.create_event(description="short", tests=[], staff=[])
+        event = self.create_event(
+            description="short", tests=[], staff=[], login_emails=[" "]
+        )
         response = self.act(event["id"], "submit", self.staff)
         self.assertEqual(response.status_code, 400)
         self.assertTrue(
-            {("description",), ("tests",), ("staff",)} <= self.locs(response)
+            {("description",), ("tests",), ("staff",), ("login_emails",)}
+            <= self.locs(response)
         )
 
         self.as_user(self.staff)
@@ -291,6 +312,229 @@ class OutreachTests(CareAPITestBase):
         self.as_user(self.camp_staff)
         self.assertEqual(self.capture(session["id"]).status_code, 400)
 
+    def camp_login(self, event_id, email):
+        self.client.force_authenticate(user=None)
+        return self.client.post(
+            reverse("camp-login", args=[event_id]), {"email": email}, format="json"
+        )
+
+    def test_camp_email_signs_in_to_this_camp_only(self):
+        cache.clear()
+        self.as_user(self.staff)
+        response = self.client.post(
+            reverse("outreach-events"),
+            self.event_body(
+                login_emails=["not-an-email", "a@example.com", "A@example.com"]
+            ),
+            format="json",
+        )
+        self.assertEqual(
+            self.locs(response), {("login_emails", "0"), ("login_emails", "2")}
+        )
+
+        draft = self.create_event(coupon_code="DRAFT1")
+        event = self.approved_event()
+        self.assertEqual(
+            self.client.get(reverse("outreach-event", args=[event["id"]])).json()[
+                "login_emails"
+            ],
+            ["camp.desk@example.com", "nurse.two@example.com"],
+        )
+
+        # The sign-in page shows the camp before anyone signs in.
+        self.client.force_authenticate(user=None)
+        header = self.client.get(reverse("camp-login", args=[event["id"]])).json()
+        self.assertEqual(header["name"], "Diabetes screening camp")
+        self.assertEqual(header["number"], event["number"] or header["number"])
+
+        wrong = self.camp_login(event["id"], "someone@example.com")
+        self.assertEqual(wrong.status_code, 400)
+        self.assertEqual(self.locs(wrong), {("email",)})
+        self.assertEqual(
+            self.camp_login(draft["id"], "camp.desk@example.com").status_code, 400
+        )
+
+        response = self.camp_login(event["id"], "  CAMP.desk@example.com ")
+        self.assertEqual(response.status_code, 200, response.json())
+        tokens = response.json()
+        self.assertTrue(tokens["access"] and tokens["refresh"])
+
+        def account(email):
+            return OutreachEventLogin.objects.get(
+                event__external_id=event["id"], email=email
+            ).user
+
+        login_user = account("camp.desk@example.com")
+        self.assertFalse(login_user.has_usable_password())
+        # Signing in again is the same account; another email is another one.
+        self.camp_login(event["id"], "camp.desk@example.com")
+        self.assertEqual(account("camp.desk@example.com"), login_user)
+        second = self.camp_login(event["id"], "nurse.two@example.com").json()
+        self.assertNotEqual(account("nurse.two@example.com"), login_user)
+
+        # The camp's account captures at this camp, and nowhere else.
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+        session = self.client.post(
+            reverse("camp-sessions"), {"event": event["id"]}, format="json"
+        )
+        self.assertEqual(session.status_code, 201, session.json())
+        captured = self.client.post(
+            reverse("camp-participants", args=[session.json()["id"]]),
+            self.person(),
+            format="json",
+        )
+        self.assertEqual(captured.status_code, 201, captured.json())
+        self.assertEqual(
+            captured.json()["captured_by"]["email"], "camp.desk@example.com"
+        )
+        # The second email captures as itself, in its own session.
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {second['access']}")
+        other_session = self.client.post(
+            reverse("camp-sessions"), {"event": event["id"]}, format="json"
+        ).json()
+        by_second = self.client.post(
+            reverse("camp-participants", args=[other_session["id"]]),
+            self.person(first_name="Second", mobile="9000000002"),
+            format="json",
+        )
+        self.assertEqual(by_second.status_code, 201, by_second.json())
+        listed = self.client.get(
+            reverse("camp-participants", args=[other_session["id"]])
+        ).json()["results"]
+        self.assertEqual(
+            [p["captured_by"]["email"] for p in listed],
+            ["nurse.two@example.com", "camp.desk@example.com"],
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+        self.assertEqual(
+            [
+                e["id"]
+                for e in self.client.get(reverse("camp-events")).json()["results"]
+            ],
+            [event["id"]],
+        )
+        self.assertTrue(self.client.get(reverse("outreach-me")).json()["camp_only"])
+        other = self.approved_event(coupon_code="OTHER1")
+        self.client.force_authenticate(user=None)
+        self.assertEqual(
+            self.client.post(
+                reverse("camp-sessions"), {"event": other["id"]}, format="json"
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.get(
+                reverse("outreach-events"), {"facility": str(self.facility.external_id)}
+            ).status_code,
+            403,
+        )
+        self.client.credentials()
+
+    def test_existing_person_takes_identity_from_the_record(self):
+        event = self.approved_event()
+        session = self.start_session(event["id"]).json()
+        first = self.capture(session["id"], first_name="Testrecord", last_name="Person")
+        self.assertEqual(first.status_code, 201, first.json())
+        patient_id = first.json()["patient"]
+
+        def lookup(q):
+            return self.client.get(
+                reverse("camp-patient-lookup", args=[session["id"]]), {"q": q}
+            ).json()["results"]
+
+        self.assertEqual([p["id"] for p in lookup("testrec")], [patient_id])
+        self.assertEqual(lookup("te"), [])
+        self.assertEqual([p["id"] for p in lookup("9000000001")], [patient_id])
+
+        # At the next camp only the visit is sent: no names, birth date, mobile or PIN.
+        later = self.approved_event(coupon_code="LATER1")
+        session = self.start_session(later["id"]).json()
+        response = self.capture(
+            session["id"],
+            kind="existing",
+            patient=patient_id,
+            first_name="",
+            last_name="",
+            gender="",
+            date_of_birth=None,
+            mobile="",
+            pincode="",
+            # Left over from New Person: not shown, so not saved.
+            address="1 Hidden Road",
+            id_type="pan",
+            id_number="ABCDE1234F",
+            allergy_status="has",
+            allergen="Dust",
+            blood_group="O+",
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        row = CampParticipant.objects.get(external_id=response.json()["id"])
+        self.assertEqual(
+            (
+                row.address,
+                row.id_type,
+                row.id_number,
+                row.allergy_status,
+                row.allergen,
+                row.blood_group,
+            ),
+            ("", "", "", "", "", ""),
+        )
+        self.assertEqual(
+            (
+                row.first_name,
+                row.gender,
+                str(row.date_of_birth),
+                row.mobile,
+                row.pincode,
+            ),
+            ("Testrecord", "female", "1980-01-01", "9000000001", "110001"),
+        )
+        self.assertEqual(str(row.patient.external_id), patient_id)
+        self.assertEqual(
+            self.locs(self.capture(session["id"], kind="existing", patient=None)),
+            {("patient",)},
+        )
+
+    def test_patient_page_lists_camp_visits(self):
+        event = self.approved_event()
+        session = self.start_session(event["id"]).json()
+        first = self.capture(
+            session["id"],
+            tests=[
+                {"id": t["id"], "result": "-2.1"} for t in session["event"]["tests"][:1]
+            ],
+        ).json()
+        later = self.approved_event(coupon_code="LATER1")
+        session = self.start_session(later["id"]).json()
+        self.capture(
+            session["id"], kind="existing", patient=first["patient"], bp="130/85"
+        )
+
+        self.as_user(self.admin)
+        url = reverse("patient-camp-visits", args=[first["patient"]])
+        visits = self.client.get(url).json()["results"]
+        self.assertEqual(
+            [(v["event"]["id"], v["kind"], v["bp"]) for v in visits],
+            [(later["id"], "existing", "130/85"), (event["id"], "new", "120/80")],
+        )
+        self.assertEqual(visits[1]["tests"][0]["result"], "-2.1")
+        self.assertEqual(visits[1]["patient_number"]["label"], "Pre-registration")
+
+        outsider = self.create_user()
+        self.as_user(outsider)
+        self.assertEqual(self.client.get(url).status_code, 403)
+
+    def test_camp_email_sign_in_locks_out_after_ten_wrong_tries(self):
+        cache.clear()
+        event = self.approved_event()
+        for _ in range(10):
+            self.camp_login(event["id"], "wrong@example.com")
+        response = self.camp_login(event["id"], "camp.desk@example.com")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Too many tries", json.dumps(response.json()))
+        cache.clear()
+
     def test_session_belongs_to_its_user(self):
         event = self.approved_event()
         session = self.start_session(event["id"]).json()
@@ -311,3 +555,179 @@ class OutreachTests(CareAPITestBase):
         self.assertEqual(
             OutreachEvent.objects.get(external_id=event["id"]).status, "closed"
         )
+
+    def test_capture_keeps_the_full_details(self):
+        event = self.approved_event()
+        session = self.start_session(event["id"]).json()
+        self.assertEqual(session["event"]["captured_today"], 0)
+        self.assertIn("departments", session["event"])
+        rbs = next(t["id"] for t in session["event"]["tests"] if t["name"] == "RBS")
+        response = self.capture(
+            session["id"],
+            title="Ms",
+            middle_name="Fake",
+            preferred_language="Hindi",
+            blood_group="O+",
+            alt_mobile="9000000009",
+            alt_mobile_belongs_to="Spouse",
+            address="1 Test Lane",
+            city="Testpur",
+            permanent_address={"address": "2 Other Lane", "pincode": "110002"},
+            allergy_status="has",
+            allergen="Latex",
+            allergy_reaction="Hives",
+            allergy_severity="mild",
+            send_via=["whatsapp", "phone"],
+            tests=[{"id": rbs, "result": " 112 ", "location": "camp"}],
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        row = response.json()
+        self.assertEqual(row["title"], "Ms")
+        self.assertEqual(row["bmi"], "25.7")
+        self.assertEqual(row["alt_mobile_isd"], "+91")
+        self.assertEqual(row["permanent_address"]["address"], "2 Other Lane")
+        self.assertEqual(row["allergen"], "Latex")
+        self.assertEqual(row["consent_method"], "Signature")
+        self.assertEqual(row["tests"][0]["result"], "112")
+        self.assertEqual(row["tests"][0]["location"], "camp")
+        self.as_user(self.camp_staff)
+        detail = self.client.get(reverse("camp-session", args=[session["id"]]))
+        self.assertEqual(detail.json()["event"]["captured_today"], 1)
+
+    def test_new_person_becomes_a_pre_registered_patient(self):
+        event = self.approved_event()
+        session = self.start_session(event["id"]).json()
+        response = self.capture(
+            session["id"],
+            title="Ms",
+            middle_name="Fake",
+            blood_group="O+",
+            alt_mobile="9000000009",
+            alt_mobile_belongs_to="Spouse",
+            address="1 Test Lane",
+            city="Testpur",
+            allergy_status="has",
+            allergen="Latex",
+            allergy_reaction="Hives",
+            allergy_severity="mild",
+            send_via=["whatsapp"],
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        row = response.json()
+        self.assertEqual(row["patient_number"]["label"], "Pre-registration")
+        self.assertTrue(row["patient_number"]["value"].startswith("PRE-LN-"))
+        # Captured, not yet registered at the hospital.
+        self.assertEqual(row["status"], "open")
+        patient = Patient.objects.get(external_id=row["patient"])
+        self.assertEqual(patient.name, "Test Fake Person")
+        self.assertEqual(patient.registration_facility, self.facility)
+        self.assertIsNone(patient.registered_at)
+        self.assertEqual(patient.camp_patient_id, row["number"])
+        self.assertEqual(patient.arrival_source, "Health camp")
+        self.assertEqual(patient.alternate_phone_owner, "Spouse")
+        self.assertEqual(patient.blood_group, "O_positive")
+        self.assertEqual(patient.communication_channels, ["WhatsApp"])
+        self.assertEqual(patient.desk_allergies.get().substance, "Latex")
+        # The desk's edit form opens with the camp's details.
+        self.as_user(self.admin)
+        desk = self.client.get(
+            reverse("desk-registration-detail", args=[patient.external_id])
+        )
+        self.assertEqual(desk.status_code, 200)
+        self.assertEqual(desk.json()["house"], "1 Test Lane")
+        self.assertEqual(desk.json()["created_by"], self.camp_staff.username)
+        self.assertEqual(patient.nationality_category, "Indian resident")
+
+    def test_new_person_needs_the_mandatory_details(self):
+        event = self.approved_event()
+        session = self.start_session(event["id"]).json()
+        response = self.capture(
+            session["id"],
+            title="",
+            preferred_language="",
+            nationality="Foreign",
+            id_type="",
+            id_number="",
+            mobile_isd="91",
+            address=" ",
+            city="",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(
+            {
+                ("title",),
+                ("preferred_language",),
+                ("nationality",),
+                ("id_type",),
+                ("id_number",),
+                ("mobile_isd",),
+                ("address",),
+                ("city",),
+            }
+            <= self.locs(response)
+        )
+
+    def test_capture_checks_vitals_allergies_consent_and_contact(self):
+        event = self.approved_event()
+        session = self.start_session(event["id"]).json()
+        response = self.capture(
+            session["id"],
+            bp="",
+            height_cm=None,
+            weight_kg=None,
+            allergy_status="has",
+            consent_tariff=False,
+            consent_by="",
+            consent_method="Thumb impression",
+            send_via=["do_not_contact", "sms"],
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(
+            {
+                ("bp",),
+                ("height_cm",),
+                ("weight_kg",),
+                ("allergen",),
+                ("allergy_reaction",),
+                ("allergy_severity",),
+                ("consent_tariff",),
+                ("consent_by",),
+                ("consent_witness",),
+                ("consent_file",),
+                ("send_via",),
+            }
+            <= self.locs(response)
+        )
+
+    def test_capture_takes_the_photo_and_paper_consent_as_multipart(self):
+        event = self.approved_event()
+        session = self.start_session(event["id"]).json()
+        url = reverse("camp-participants", args=[session["id"]])
+        body = self.person(consent_method="Scanned form")
+        response = self.client.post(url, {"data": json.dumps(body)}, format="multipart")
+        self.assertIn(("consent_file",), self.locs(response))
+        response = self.client.post(
+            url,
+            {
+                "data": json.dumps(body),
+                "photo": SimpleUploadedFile("p.txt", b"x", "text/plain"),
+                "consent_file": SimpleUploadedFile(
+                    "c.pdf", b"%PDF-1.4", "application/pdf"
+                ),
+            },
+            format="multipart",
+        )
+        self.assertIn(("photo",), self.locs(response))
+        response = self.client.post(
+            url,
+            {
+                "data": json.dumps(body),
+                "consent_file": SimpleUploadedFile(
+                    "c.pdf", b"%PDF-1.4", "application/pdf"
+                ),
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        self.assertTrue(response.json()["has_consent_file"])
+        self.assertFalse(response.json()["has_photo"])
