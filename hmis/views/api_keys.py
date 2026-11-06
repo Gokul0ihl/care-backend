@@ -10,6 +10,8 @@ from care.utils.shortcuts import get_object_or_404
 from hmis.api_keys import key_state, new_key
 from hmis.constants import (
     APP_SERVER_USERNAME,
+    PLATFORM_USERNAME,
+    ApiKeyScopes,
 )
 from hmis.models import (
     ApiKey,
@@ -34,6 +36,7 @@ def serialize_api_key(api_key):
         "expires_at": api_key.expires_at,
         "revoked_at": api_key.revoked_at,
         "last_used_at": api_key.last_used_at,
+        "scope": api_key.scope,
     }
 
 
@@ -60,10 +63,22 @@ class ApiKeyView(EmergencyAPIView):
     def post(self, request):
         check_key_admin(request)
         spec = ApiKeyCreateSpec.model_validate(request.data)
-        user = User.objects.filter(username=spec.username, deleted=False).first()
-        if user is None and spec.username == APP_SERVER_USERNAME:
+        is_platform = spec.scope == ApiKeyScopes.platform_admin
+        username = spec.username or (
+            PLATFORM_USERNAME if is_platform else APP_SERVER_USERNAME
+        )
+        if is_platform and username != PLATFORM_USERNAME:
+            # Portal keys act as the role-less portal account, never a person.
+            msg = f"A portal key must act as {PLATFORM_USERNAME}"
+            raise username_error(msg)
+        user = User.objects.filter(username=username, deleted=False).first()
+        if user is None and username == APP_SERVER_USERNAME:
             raise username_error(
                 "The app server account isn't set up yet; run setup_app_server"
+            )
+        if user is None and username == PLATFORM_USERNAME:
+            raise username_error(
+                "The portal account isn't set up yet; run setup_platform_user"
             )
         if user is None or not user.is_active:
             raise username_error("No active user has this username")
@@ -77,6 +92,7 @@ class ApiKeyView(EmergencyAPIView):
             prefix=prefix,
             key_hash=key_hash,
             expires_at=spec.expires_at,
+            scope=spec.scope,
             created_by=request.user,
             updated_by=request.user,
         )

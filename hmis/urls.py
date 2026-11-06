@@ -52,6 +52,18 @@ from hmis.views.appointment_approvals import (
     AppointmentRequestListView,
     AppointmentRequestReviewView,
 )
+from hmis.views.branding import (
+    AdminBrandingDiscardView,
+    AdminBrandingLogoView,
+    AdminBrandingPublishView,
+    AdminBrandingView,
+    PublicBrandingView,
+)
+from hmis.views.platform_admin import (
+    AdminOverviewView,
+    AdminWhoAmIView,
+    SettingsAuditView,
+)
 
 router = SimpleRouter()
 router.register(
@@ -84,6 +96,33 @@ urlpatterns = [
         name="app-patient",
     ),
     path("api-keys/", ApiKeyView.as_view(), name="api-keys"),
+    # The IHL config portal (hmis/platform_admin.py). Keep everything it may
+    # reach under admin/: its key's scope allows that prefix only.
+    path("admin/whoami/", AdminWhoAmIView.as_view(), name="admin-whoami"),
+    path("admin/overview/", AdminOverviewView.as_view(), name="admin-overview"),
+    path(
+        "admin/settings-audit/",
+        SettingsAuditView.as_view(),
+        name="admin-settings-audit",
+    ),
+    path("admin/branding/", AdminBrandingView.as_view(), name="admin-branding"),
+    path(
+        "admin/branding/publish/",
+        AdminBrandingPublishView.as_view(),
+        name="admin-branding-publish",
+    ),
+    path(
+        "admin/branding/discard/",
+        AdminBrandingDiscardView.as_view(),
+        name="admin-branding-discard",
+    ),
+    path(
+        "admin/branding/logos/<str:kind>/",
+        AdminBrandingLogoView.as_view(),
+        name="admin-branding-logo",
+    ),
+    # Public: the HMIS frontend reads it before sign-in (hmis/branding.py).
+    path("branding/", PublicBrandingView.as_view(), name="branding"),
     path(
         "api-keys/<uuid:key_id>/revoke/",
         ApiKeyRevokeView.as_view(),

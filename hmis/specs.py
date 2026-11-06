@@ -12,7 +12,6 @@ from hmis.constants import (
     ALLERGY_SEVERITIES,
     ALLERGY_STATUSES,
     ALTERNATE_PHONE_OWNERS,
-    APP_SERVER_USERNAME,
     ARRIVAL_MODES,
     ART_MAN_AGES,
     ART_WOMAN_AGES,
@@ -53,6 +52,7 @@ from hmis.constants import (
     UNIT_CODE_PATTERN,
     VISA_EXEMPT,
     VISA_TYPES,
+    ApiKeyScopes,
     CaptureMethods,
     ConsultationTypes,
     DocumentCategories,
@@ -1151,14 +1151,17 @@ class PatientMergeSpec(BaseModel):
 
 class ApiKeyCreateSpec(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    # The user the key acts as; its requests get this user's roles. The patient
-    # app's server account unless another client needs its own user.
-    username: str = Field(default=APP_SERVER_USERNAME, min_length=1, max_length=150)
+    # The user the key acts as; its requests get this user's roles. Left out:
+    # the patient app's server account, or ihl-platform for a platform_admin key.
+    username: str | None = Field(default=None, min_length=1, max_length=150)
     expires_at: datetime.datetime | None = None
+    scope: ApiKeyScopes = ApiKeyScopes.full
 
     @field_validator("name", "username")
     @classmethod
     def strip(cls, value):
+        if value is None:
+            return value
         value = value.strip()
         if not value:
             raise ValueError("This field is required")

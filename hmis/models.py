@@ -5,6 +5,7 @@ from django.db import models
 
 from care.emr.models.base import EMRBaseModel
 from hmis.constants import (
+    ApiKeyScopes,
     CaptureMethods,
     DocumentCategories,
     DocumentSides,
@@ -235,6 +236,60 @@ class ApiKey(EMRBaseModel):
     expires_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
+    # platform_admin keys (the IHL config portal) only reach /api/hmis/admin/.
+    scope = models.CharField(
+        max_length=20, choices=ApiKeyScopes.choices, default=ApiKeyScopes.full
+    )
+
+
+class SettingChange(models.Model):
+    """One change to a setting made through /api/hmis/admin/ (the IHL config
+    portal). Secret values are masked before they get here. Care's audit_log
+    only writes to the log, so the portal's settings history lives here."""
+
+    section = models.CharField(max_length=50)  # e.g. branding, gateway.sms
+    key = models.CharField(max_length=100)
+    old_value = models.JSONField(null=True, blank=True)
+    new_value = models.JSONField(null=True, blank=True)
+    # The account that made the call: ihl-platform for the portal.
+    changed_by = models.ForeignKey(
+        "users.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    # Who really did it: the portal sends the IHL staff email as X-Portal-Actor.
+    actor_label = models.CharField(max_length=254, blank=True, default="")
+    facility = models.ForeignKey(
+        "facility.Facility", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    created_date = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["section", "created_date"])]
+
+    def __str__(self):
+        return f"{self.section}.{self.key}"
+
+
+class Branding(models.Model):
+    """The hospital group's name, logos, colours and print header (one row,
+    pk=1). The IHL config portal edits the draft and publishes it; the HMIS
+    frontend reads the published copy from GET /api/hmis/branding/ on load.
+    Logo values are object keys in the facility bucket (hmis/branding.py)."""
+
+    draft = models.JSONField(default=dict)
+    published = models.JSONField(null=True, blank=True)
+    # Goes up on every publish; the frontend uses it to drop its cached copy.
+    version = models.PositiveIntegerField(default=0)
+    published_at = models.DateTimeField(null=True, blank=True)
+    published_by = models.ForeignKey(
+        "users.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        "users.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+
+    def __str__(self):
+        return f"Branding v{self.version}"
 
 
 class AppPatientLink(EMRBaseModel):
