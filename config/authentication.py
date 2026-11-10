@@ -11,9 +11,28 @@ from rest_framework_simplejwt.exceptions import InvalidToken
 logger = logging.getLogger(__name__)
 
 
+def token_issued_before_revocation(user, token) -> bool:
+    """True when an admin signed the user out after this token was issued."""
+    valid_after = getattr(user, "tokens_valid_after", None)
+    if not valid_after:
+        return False
+    issued_at = token.get("iat")
+    if issued_at is None:
+        return True
+    return issued_at < valid_after.timestamp()
+
+
 class CustomJWTAuthentication(JWTAuthentication):
     def authenticate_header(self, request):
         return ""
+
+    def get_user(self, validated_token):
+        user = super().get_user(validated_token)
+        if token_issued_before_revocation(user, validated_token):
+            raise InvalidToken(
+                {"detail": "Session has been signed out, please relogin to continue"}
+            )
+        return user
 
     def get_validated_token(self, raw_token):
         from config.auth_views import ACCESS_TOKEN_INVALIDATION_PREFIX

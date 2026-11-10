@@ -15,20 +15,22 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from care.emr.api.viewsets.base import EMRModelViewSet
+from care.emr.api.viewsets.user_access import UserAccessAdminMixin
 from care.emr.models import Organization
-from care.emr.models.organization import OrganizationUser
+from care.emr.models.organization import FacilityOrganizationUser, OrganizationUser
 from care.emr.resources.common.mail_type import MailTypeChoices
 from care.emr.resources.organization.spec import OrganizationTypeChoices
 from care.emr.resources.user.spec import (
     CurrentUserRetrieveSpec,
     UserCreateSpec,
-    UserRetrieveSpec,
-    UserSpec,
+    UserDetailSpec,
+    UserListSpec,
     UserUpdateSpec,
 )
 from care.emr.utils.reset_password import send_password_reset_email
+from care.security.access_audit import record_access_event, role_summary
 from care.security.authorization import AuthorizationController
-from care.security.models import RoleModel
+from care.security.models import AccessAuditAction, RoleModel
 from care.users.models import User
 from care.utils.file_uploads.cover_image import delete_cover_image, upload_cover_image
 from care.utils.filters.default_filter import DefaultBooleanFilter
@@ -89,18 +91,78 @@ class UserFilter(filters.FilterSet):
     is_service_account = DefaultBooleanFilter(
         field_name="is_service_account", default=False
     )
+    is_active = filters.BooleanFilter(field_name="is_active")
+    is_superuser = filters.BooleanFilter(field_name="is_superuser")
+    mfa_enabled = filters.BooleanFilter(method="filter_mfa_enabled")
+    role = filters.UUIDFilter(method="filter_role")
+    facility = filters.UUIDFilter(method="filter_facility")
+    facility_organization = filters.UUIDFilter(method="filter_facility_organization")
+    organization = filters.UUIDFilter(method="filter_organization")
+
+    def filter_mfa_enabled(self, queryset, name, value):
+        if value:
+            return queryset.filter(mfa_settings__totp__enabled=True)
+        # exclude() on a JSON key drops rows where the key is missing, which is
+        # exactly the users who never set up two-factor; exclude by id instead.
+        return queryset.exclude(
+            id__in=User.objects.filter(mfa_settings__totp__enabled=True).values("id")
+        )
+
+    def filter_role(self, queryset, name, value):
+        return queryset.filter(
+            id__in=OrganizationUser.objects.filter(role__external_id=value).values(
+                "user_id"
+            )
+        ) | queryset.filter(
+            id__in=FacilityOrganizationUser.objects.filter(
+                role__external_id=value
+            ).values("user_id")
+        )
+
+    def filter_facility(self, queryset, name, value):
+        return queryset.filter(
+            id__in=FacilityOrganizationUser.objects.filter(
+                organization__facility__external_id=value,
+                organization__facility__deleted=False,
+            ).values("user_id")
+        )
+
+    def filter_facility_organization(self, queryset, name, value):
+        return queryset.filter(
+            id__in=FacilityOrganizationUser.objects.filter(
+                organization__external_id=value
+            ).values("user_id")
+        )
+
+    def filter_organization(self, queryset, name, value):
+        return queryset.filter(
+            id__in=OrganizationUser.objects.filter(
+                organization__external_id=value
+            ).values("user_id")
+        )
 
 
-class UserViewSet(EMRModelViewSet):
+class UserViewSet(UserAccessAdminMixin, EMRModelViewSet):
     database_model = User
     pydantic_model = UserCreateSpec
     pydantic_update_model = UserUpdateSpec
-    pydantic_read_model = UserSpec
-    pydantic_retrieve_model = UserRetrieveSpec
+    pydantic_read_model = UserListSpec
+    pydantic_retrieve_model = UserDetailSpec
     lookup_field = "username"
     filterset_class = UserFilter
-    filter_backends = [filters.DjangoFilterBackend, drf_filters.SearchFilter]
+    filter_backends = [
+        filters.DjangoFilterBackend,
+        drf_filters.SearchFilter,
+        drf_filters.OrderingFilter,
+    ]
     search_fields = ["first_name", "last_name", "username"]
+    ordering_fields = [
+        "first_name",
+        "last_name",
+        "username",
+        "last_login",
+        "date_joined",
+    ]
 
     def get_queryset(self):
         return super().get_queryset().filter(deleted=False)
@@ -108,6 +170,15 @@ class UserViewSet(EMRModelViewSet):
     def perform_create(self, instance):
         with transaction.atomic():
             super().perform_create(instance)
+            record_access_event(
+                AccessAuditAction.user_created,
+                self.request.user,
+                target_user=instance,
+                new_value={
+                    "username": instance.username,
+                    "is_service_account": instance.is_service_account,
+                },
+            )
 
             # Authorize and add Roles
             for role_org in instance._role_orgs:  # noqa SLF001
@@ -133,6 +204,14 @@ class UserViewSet(EMRModelViewSet):
                     organization=role_org_obj,
                     user=instance,
                     role=requested_role,
+                )
+                record_access_event(
+                    AccessAuditAction.role_assigned,
+                    self.request.user,
+                    target_user=instance,
+                    role=requested_role,
+                    scope=role_org_obj,
+                    new_value={"role": role_summary(requested_role)},
                 )
             if not instance.is_service_account and not instance.has_usable_password():
                 try:
@@ -161,11 +240,18 @@ class UserViewSet(EMRModelViewSet):
             raise PermissionDenied("You do not have permission to create Users")
 
     def perform_destroy(self, instance):
-        if instance.last_login:
-            instance.deleted = True
-            instance.save(update_fields=["deleted"])
-        else:
-            instance.delete()
+        with transaction.atomic():
+            record_access_event(
+                AccessAuditAction.user_deleted,
+                self.request.user,
+                target_user=instance,
+                old_value={"username": instance.username},
+            )
+            if instance.last_login:
+                instance.deleted = True
+                instance.save(update_fields=["deleted"])
+            else:
+                instance.delete()
 
     def authorize_destroy(self, instance):
         if not self.request.user.is_superuser:

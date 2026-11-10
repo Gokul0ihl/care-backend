@@ -99,6 +99,24 @@ class TokenRefreshSerializer(serializers.Serializer):
         if cache.get(REFRESH_TOKEN_INVALIDATION_PREFIX + attrs["refresh"]):
             raise PermissionDenied("Invalid Token")
 
+        from config.authentication import token_issued_before_revocation
+
+        token_user = User.objects.filter(external_id=refresh["user_id"]).first()
+        if (
+            token_user is None
+            or not token_user.is_active
+            or token_user.deleted
+            or token_issued_before_revocation(token_user, refresh)
+        ):
+            raise PermissionDenied("Invalid Token")
+
+        from care.security.policy import session_too_old
+
+        if session_too_old(refresh):
+            raise PermissionDenied(
+                "Session has reached its time limit, please sign in again"
+            )
+
         data = {"access": str(refresh.access_token)}
 
         if api_settings.ROTATE_REFRESH_TOKENS:

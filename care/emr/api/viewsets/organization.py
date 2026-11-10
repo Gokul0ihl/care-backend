@@ -26,9 +26,16 @@ from care.emr.resources.organization.spec import (
     OrganizationWriteSpec,
 )
 from care.emr.resources.role.spec import RoleReadSpec
+from care.security.access_audit import assignment_value, record_access_event
 from care.security.authorization import AuthorizationController
-from care.security.models import PermissionModel, RoleModel, RolePermission
+from care.security.models import (
+    AccessAuditAction,
+    PermissionModel,
+    RoleModel,
+    RolePermission,
+)
 from care.security.permissions.organization import OrganizationPermissions
+from care.security.policy import apply_default_expiry, check_direct_grant_allowed
 from care.utils.filters.default_filter import DefaultBooleanFilter
 from care.utils.pagination.care_pagination import CareLimitOffsetPagination
 from care.utils.shortcuts import get_object_or_404
@@ -380,7 +387,47 @@ class OrganizationUsersViewSet(EMRModelViewSet):
 
     def perform_create(self, instance):
         instance.organization = self.get_organization_obj()
-        super().perform_create(instance)
+        apply_default_expiry(instance)
+        with transaction.atomic():
+            super().perform_create(instance)
+            record_access_event(
+                AccessAuditAction.role_assigned,
+                self.request.user,
+                target_user=instance.user,
+                role=instance.role,
+                scope=instance.organization,
+                new_value=assignment_value(instance),
+            )
+
+    def perform_update(self, instance):
+        old = type(instance).objects.select_related("role").get(id=instance.id)
+        old_value = assignment_value(old)
+        with transaction.atomic():
+            super().perform_update(instance)
+            instance.refresh_from_db()
+            new_value = assignment_value(instance)
+            if old_value != new_value:
+                record_access_event(
+                    AccessAuditAction.role_changed,
+                    self.request.user,
+                    target_user=instance.user,
+                    role=instance.role,
+                    scope=instance.organization,
+                    old_value=old_value,
+                    new_value=new_value,
+                )
+
+    def perform_destroy(self, instance):
+        with transaction.atomic():
+            super().perform_destroy(instance)
+            record_access_event(
+                AccessAuditAction.role_revoked,
+                self.request.user,
+                target_user=instance.user,
+                role=instance.role,
+                scope=instance.organization,
+                old_value=assignment_value(instance),
+            )
 
     def validate_data(self, instance, model_obj=None):
         if model_obj:
@@ -405,6 +452,8 @@ class OrganizationUsersViewSet(EMRModelViewSet):
     def authorize_update(self, request_obj, model_instance):
         organization = self.get_organization_obj()
         requested_role = get_object_or_404(RoleModel, external_id=request_obj.role)
+        if requested_role != model_instance.role:
+            check_direct_grant_allowed(self.request.user, requested_role)
         if not AuthorizationController.call(
             "can_manage_organization_users_obj",
             self.request.user,
@@ -446,6 +495,7 @@ class OrganizationUsersViewSet(EMRModelViewSet):
             return
         organization = self.get_organization_obj()
         requested_role = get_object_or_404(RoleModel, external_id=instance.role)
+        check_direct_grant_allowed(self.request.user, requested_role)
 
         if not AuthorizationController.call(
             "can_manage_organization_users_obj",

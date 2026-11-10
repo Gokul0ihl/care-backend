@@ -1,3 +1,6 @@
+import datetime
+
+from django.utils import timezone
 from pydantic import UUID4, field_validator
 
 from care.emr.models.organization import FacilityOrganizationUser
@@ -15,6 +18,19 @@ class FacilityOrganizationUserBaseSpec(EMRResource):
 
 class FacilityOrganizationUserUpdateSpec(FacilityOrganizationUserBaseSpec):
     role: UUID4
+    # Optional end of access. Send null to make the role permanent again.
+    expires_at: datetime.datetime | None = None
+
+    @field_validator("expires_at")
+    @classmethod
+    def validate_expires_at(cls, expires_at):
+        if expires_at is not None and expires_at <= timezone.now():
+            raise ValueError("Expiry must be in the future")
+        return expires_at
+
+    def apply_expiry(self, obj):
+        if "expires_at" in self.model_fields_set:
+            obj.expires_at = self.expires_at
 
     @field_validator("role")
     @classmethod
@@ -25,6 +41,7 @@ class FacilityOrganizationUserUpdateSpec(FacilityOrganizationUserBaseSpec):
 
     def perform_extra_deserialization(self, is_update, obj):
         obj.role = RoleModel.objects.get(external_id=self.role)
+        self.apply_expiry(obj)
 
 
 class FacilityOrganizationUserWriteSpec(FacilityOrganizationUserUpdateSpec):
@@ -41,10 +58,12 @@ class FacilityOrganizationUserWriteSpec(FacilityOrganizationUserUpdateSpec):
         if not is_update:
             obj.user = User.objects.get(external_id=self.user)
             obj.role = RoleModel.objects.get(external_id=self.role)
+        self.apply_expiry(obj)
 
 
 class FacilityOrganizationUserReadSpec(FacilityOrganizationUserBaseSpec):
     id: UUID4
+    expires_at: datetime.datetime | None = None
 
     user: dict
     role: dict
