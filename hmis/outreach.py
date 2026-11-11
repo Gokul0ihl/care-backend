@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from care.emr.models import ActivityDefinition, FileUpload
+from care.emr.models import ActivityDefinition, FileUpload, Questionnaire
 from care.emr.models.organization import FacilityOrganizationUser
 from care.emr.models.patient import Patient
 from care.emr.resources.patient_identifier.default_expression_evaluator import (
@@ -353,6 +353,8 @@ class EventIn(BaseModel):
         default_factory=list, max_length=MAX_FORM_FIELDS
     )
     login_emails: list[str] = Field(default_factory=list, max_length=MAX_LOGINS)
+    # Slug of the CARE questionnaire built for the event; blank for none.
+    questionnaire: str = Field(default="", max_length=50)
 
 
 class AddressIn(BaseModel):
@@ -509,6 +511,22 @@ def check_event(spec, facility, errors, event=None, submitting=False):  # noqa: 
         errors.add(
             "form_fields", "Only health camps and education sessions capture people"
         )
+    if spec.questionnaire:
+        if not kind["capture"]:
+            errors.add(
+                "questionnaire",
+                "Only health camps and education sessions capture people",
+            )
+        else:
+            form = Questionnaire.objects.filter(slug=spec.questionnaire).first()
+            if not form:
+                errors.add(
+                    "questionnaire",
+                    "The form wasn't found. Open the form builder and choose it again.",
+                )
+            elif form.status != "active":
+                # CARE takes answers only to an active questionnaire.
+                errors.add("questionnaire", "Publish the form before using it")
     seen = set()
     for i, raw in enumerate(spec.login_emails if kind["capture"] else []):
         email = raw.strip().lower()
@@ -778,6 +796,11 @@ def write_event(spec, facility, user, event=None):
             event.status = DRAFT
         for name, value in values.items():
             setattr(event, name, value)
+        event.questionnaire = (
+            Questionnaire.objects.filter(slug=spec.questionnaire).first()
+            if spec.questionnaire and kind["capture"]
+            else None
+        )
         event.updated_by = user
         try:
             event.save()
@@ -908,6 +931,7 @@ def event_spec(event):
     ]
     data["form_fields"] = [form_field_row(f) for f in event.form_fields.all()]
     data["login_emails"] = login_emails(event)
+    data["questionnaire"] = questionnaire_slug(event) or ""
     return EventIn.model_validate(data)
 
 
@@ -1011,6 +1035,11 @@ def participant_counts(events):
     return {row["event_id"]: row["n"] for row in rows}
 
 
+def questionnaire_slug(event):
+    """The slug of the event's form (a CARE questionnaire), or None."""
+    return event.questionnaire.slug if event.questionnaire_id else None
+
+
 def event_detail(event, user):
     facility = event.facility
     tests = list(event.tests.select_related("lab_test"))
@@ -1048,6 +1077,7 @@ def event_detail(event, user):
             for c in event.cost_lines.all()
         ],
         "form_fields": [form_field_row(f) for f in event.form_fields.all()],
+        "questionnaire": questionnaire_slug(event),
         "login_emails": login_emails(event),
         "costs": costs(event),
         "created_by": person(event.created_by),

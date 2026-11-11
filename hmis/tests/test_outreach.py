@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 
-from care.emr.models import Patient
+from care.emr.models import Patient, Questionnaire
 from care.utils.tests.base import CareAPITestBase
 from hmis.models import CampParticipant, OutreachEvent, OutreachEventLogin
 
@@ -731,3 +731,61 @@ class OutreachTests(CareAPITestBase):
         self.assertEqual(response.status_code, 201, response.json())
         self.assertTrue(response.json()["has_consent_file"])
         self.assertFalse(response.json()["has_photo"])
+
+    def make_questionnaire(self, slug="camp-form-test-v1", status="active"):
+        return Questionnaire.objects.create(
+            slug=slug,
+            title="Camp form",
+            version="1.0",
+            subject_type="patient",
+            status=status,
+            questions=[],
+        )
+
+    def test_event_links_its_form(self):
+        form = self.make_questionnaire()
+        event = self.create_event(questionnaire=form.slug)
+        self.assertEqual(event["questionnaire"], form.slug)
+        self.assertEqual(OutreachEvent.objects.get(external_id=event["id"]).questionnaire, form)
+        newer = self.make_questionnaire("camp-form-test-v2")
+        response = self.client.put(
+            reverse("outreach-event", args=[event["id"]]),
+            self.event_body(questionnaire=newer.slug),
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()["questionnaire"], newer.slug)
+        response = self.client.put(
+            reverse("outreach-event", args=[event["id"]]),
+            self.event_body(),
+            format="json",
+        )
+        self.assertIsNone(response.json()["questionnaire"])
+
+    def test_event_form_must_exist_and_capture(self):
+        self.as_user(self.staff)
+        response = self.client.post(
+            reverse("outreach-events"),
+            self.event_body(questionnaire="no-such-form"),
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(("questionnaire",), self.locs(response))
+        draft = self.make_questionnaire("camp-form-draft-v1", status="draft")
+        response = self.client.post(
+            reverse("outreach-events"),
+            self.event_body(questionnaire=draft.slug),
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(("questionnaire",), self.locs(response))
+        form = self.make_questionnaire()
+        response = self.client.post(
+            reverse("outreach-events"),
+            self.event_body(
+                event_type="CME", form_fields=[], questionnaire=form.slug
+            ),
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(("questionnaire",), self.locs(response))

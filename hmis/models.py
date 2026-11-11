@@ -387,6 +387,15 @@ class OutreachEvent(EMRBaseModel):
         "users.User", on_delete=models.PROTECT, null=True, blank=True, related_name="+"
     )
     decision_remarks = models.TextField(blank=True, default="")
+    # The capture form built in the form builder: a CARE questionnaire. Each
+    # saved change is a new questionnaire, so answers keep the form they had.
+    questionnaire = models.ForeignKey(
+        "emr.Questionnaire",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
 
     class Meta:
         constraints = [
