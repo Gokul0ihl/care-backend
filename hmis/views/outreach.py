@@ -226,7 +226,10 @@ def camp_event_row(event):
         "address": event.address,
         "pincode": event.pincode,
         "tests": tests,
-        "form_fields": [outreach.form_field_row(f) for f in event.form_fields.all()],
+        # The event's form (or older question list) as capture's extra questions.
+        "form_fields": [
+            outreach.form_field_row(f) for f in outreach.capture_fields(event)
+        ],
         "captured_today": event.participants.filter(
             deleted=False, captured_at__date=timezone.localdate()
         ).count(),

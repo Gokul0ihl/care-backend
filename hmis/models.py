@@ -609,11 +609,13 @@ class CampParticipant(EMRBaseModel):
     )
     kind = models.CharField(max_length=10)
     title = models.CharField(max_length=8, blank=True, default="")
-    first_name = models.CharField(max_length=40)
-    middle_name = models.CharField(max_length=40, blank=True, default="")
-    last_name = models.CharField(max_length=40, blank=True, default="")
+    first_name = models.CharField(max_length=50)
+    middle_name = models.CharField(max_length=50, blank=True, default="")
+    last_name = models.CharField(max_length=50, blank=True, default="")
     gender = models.CharField(max_length=10)
     date_of_birth = models.DateField()
+    # True when only an age was given: date_of_birth is then 1 July of that year.
+    date_of_birth_approximate = models.BooleanField(default=False)
     preferred_language = models.CharField(max_length=40, blank=True, default="")
     # The patient record's nationality category (Indian resident, NRI, OCI-PIO,
     # Foreign, Refugee); blank for an existing person and on older captures.
@@ -673,7 +675,7 @@ class CampParticipant(EMRBaseModel):
     consent_by = models.CharField(max_length=30, blank=True, default="")
     # How consent was taken (CONSENT_METHODS); "tablet" on older captures.
     consent_channel = models.CharField(max_length=30, blank=True, default="")
-    consent_witness = models.CharField(max_length=40, blank=True, default="")
+    consent_witness = models.CharField(max_length=50, blank=True, default="")
     consent_file = models.ForeignKey(
         "emr.FileUpload",
         on_delete=models.SET_NULL,

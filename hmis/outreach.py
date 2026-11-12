@@ -11,6 +11,7 @@ import secrets
 import uuid
 from datetime import date, time
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any, Literal
 
 from django.conf import settings
@@ -27,6 +28,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from care.emr.models import ActivityDefinition, FileUpload, Questionnaire
 from care.emr.models.organization import FacilityOrganizationUser
 from care.emr.models.patient import Patient
+from care.emr.resources.patient.spec import approximate_date_of_birth
 from care.emr.resources.patient_identifier.default_expression_evaluator import (
     evaluate_patient_instance_default_values,
 )
@@ -50,6 +52,7 @@ from hmis.models import (
     RegistrationAllergy,
 )
 from hmis.services import display_numbers, issue_patient_number, unit_code
+from hmis.specs import LAST_NAME, NAME_PART
 
 EVENT_TYPES = {
     "CAMP": {
@@ -57,7 +60,7 @@ EVENT_TYPES = {
         "venue": True,
         "online": False,
         "tests": True,
-        "coupon": "required",
+        "coupon": "optional",
         "capture": True,
         "cme": False,
     },
@@ -166,6 +169,56 @@ CONFIRM_AGE = 100
 PIN_RE = re.compile(r"^[1-9]\d{5}$")
 COUPON_RE = re.compile(r"^[A-Z0-9]{4,12}$")
 NAME_RE = re.compile(r"^[A-Za-z][A-Za-z .]*$")
+# A name part as the desk's Domestic form takes it (hmis.specs): letters, an
+# apostrophe inside a word (D'Souza), single spaces; 2-50 (last name 1-50).
+NAME_PART_RE = re.compile(NAME_PART)
+LAST_NAME_RE = re.compile(LAST_NAME)
+NAME_MESSAGE = "Letters, an apostrophe inside a word and single spaces"
+MAX_NAME = 50
+MINOR_AGE = 18
+# Full formats of the government IDs a camp takes (as the desk's checks), by
+# camp ID type. Spaces and hyphens are ignored; Aadhaar also has a check digit.
+ID_FORMATS = {
+    "pan": (r"[A-Z]{5}\d{4}[A-Z]", "PAN like ABCDE1234F"),
+    "passport": (r"[A-Z0-9]{6,15}", "Passport: 6 to 15 letters and digits"),
+    "voter_id": (r"[A-Z]{3}\d{7}", "Voter ID like ABC1234567"),
+    "driving_licence": (r"[A-Z]{2}\d{13}", "Driving licence like DL0420110012345"),
+    "oci_card": (r"[A-Z0-9]{6,15}", "OCI card: 6 to 15 letters and digits"),
+}
+VERHOEFF_D = [
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [1, 2, 3, 4, 0, 6, 7, 8, 9, 5],
+    [2, 3, 4, 0, 1, 7, 8, 9, 5, 6], [3, 4, 0, 1, 2, 8, 9, 5, 6, 7],
+    [4, 0, 1, 2, 3, 9, 5, 6, 7, 8], [5, 9, 8, 7, 6, 0, 4, 3, 2, 1],
+    [6, 5, 9, 8, 7, 1, 0, 4, 3, 2], [7, 6, 5, 9, 8, 2, 1, 0, 4, 3],
+    [8, 7, 6, 5, 9, 3, 2, 1, 0, 4], [9, 8, 7, 6, 5, 4, 3, 2, 1, 0],
+]  # fmt: skip
+VERHOEFF_P = [
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [1, 5, 7, 6, 2, 8, 3, 0, 9, 4],
+    [5, 8, 0, 3, 7, 9, 6, 1, 4, 2], [8, 9, 1, 6, 0, 4, 3, 5, 2, 7],
+    [9, 4, 5, 3, 1, 2, 6, 8, 7, 0], [4, 2, 8, 6, 5, 7, 3, 9, 0, 1],
+    [2, 7, 9, 3, 8, 0, 6, 4, 1, 5], [7, 0, 4, 6, 9, 1, 3, 2, 5, 8],
+]  # fmt: skip
+
+
+def valid_aadhaar(number):
+    """12 digits, not starting 0 or 1, with a correct Verhoeff check digit."""
+    if not re.fullmatch(r"[2-9]\d{11}", number):
+        return False
+    check = 0
+    for i, digit in enumerate(reversed(number)):
+        check = VERHOEFF_D[check][VERHOEFF_P[i % 8][int(digit)]]
+    return check == 0
+
+
+def id_number_problem(id_type, raw):
+    """Why an ID number doesn't fit its type, or ""; as the desk checks it."""
+    number = re.sub(r"[\s-]", "", raw).upper()
+    if not number:
+        return "Enter the ID number"
+    if id_type == "aadhaar":
+        return "" if valid_aadhaar(number) else "Aadhaar: 12 digits with a valid check digit"
+    pattern, message = ID_FORMATS.get(id_type, (r"[A-Z0-9]{4,20}", "4 to 20 letters and digits"))
+    return "" if re.fullmatch(pattern, number) else message
 BP_RE = re.compile(r"^\d{2,3}/\d{2,3}$")
 LINK_RE = re.compile(r"^https?://\S+\.\S+")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -358,7 +411,7 @@ class EventIn(BaseModel):
 
 
 class AddressIn(BaseModel):
-    address: str = Field(default="", max_length=200)
+    address: str = Field(default="", max_length=100)
     country: str = Field(default="", max_length=60)
     state: str = Field(default="", max_length=100)
     city: str = Field(default="", max_length=100)
@@ -376,11 +429,14 @@ class ParticipantIn(BaseModel):
     kind: Literal["new", "existing"] = "new"
     patient: str | None = None
     title: str = Field(default="", max_length=8)
-    first_name: str = Field(default="", max_length=40)
-    middle_name: str = Field(default="", max_length=40)
-    last_name: str = Field(default="", max_length=40)
+    first_name: str = Field(default="", max_length=50)
+    middle_name: str = Field(default="", max_length=50)
+    last_name: str = Field(default="", max_length=50)
     gender: str = ""
     date_of_birth: date | None = None
+    # Typed when the date of birth isn't known (as on the desk's Domestic
+    # form); saved as an approximate date of birth, 1 July of that year.
+    age: int | None = Field(default=None, ge=0, le=MAX_AGE)
     confirm_age_over_100: bool = False
     preferred_language: str = Field(default="", max_length=40)
     nationality: str = ""
@@ -422,7 +478,7 @@ class ParticipantIn(BaseModel):
     consent_tariff: bool = False
     consent_by: str = ""
     consent_method: str = ""
-    consent_witness: str = Field(default="", max_length=40)
+    consent_witness: str = Field(default="", max_length=50)
     send_via: list[str] = Field(default_factory=list)
     # Test ids, or {id, location, result} for a result read at the camp.
     tests: list[str | TestPickIn] = Field(default_factory=list, max_length=50)
@@ -553,6 +609,12 @@ def check_event(spec, facility, errors, event=None, submitting=False):  # noqa: 
         return
 
     if kind["capture"]:
+        # Every capturing event asks its own form template (built in the form builder).
+        errors.check(
+            spec.questionnaire,
+            "questionnaire",
+            "Choose or build a capture form for this event",
+        )
         errors.check(
             clean_emails(spec.login_emails),
             "login_emails",
@@ -600,8 +662,6 @@ def check_event(spec, facility, errors, event=None, submitting=False):  # noqa: 
             "cme_credit_hours",
             "Enter the credit hours",
         )
-    if kind["coupon"] == "required":
-        errors.check(spec.has_coupon, "has_coupon", "A health camp needs a coupon")
     if spec.has_coupon:
         errors.check(kind["coupon"], "has_coupon", "This event type has no coupon")
         errors.check(
@@ -953,7 +1013,320 @@ def form_field_row(field):
         "required": field.required,
         "options": field.options,
         "validation": field.validation,
+        "show_when": getattr(field, "show_when", None),
+        "place": getattr(field, "place", ""),
+        # A form builder reading's unit (mmHg, kg…); capture shows it as a vitals card.
+        "unit": getattr(field, "unit", ""),
+        # Merged into this patient record field (father_name…); "" for an extra answer.
+        "patient_field": getattr(field, "patient_field", ""),
+        "required_unless": getattr(field, "required_unless", ""),
     }
+
+
+# Column names the camp capture form always asks itself (CampParticipant
+# fields). A form built from the Standard template has these; capture asks
+# only the form's other fields as extra questions, so nothing is asked twice.
+CAPTURE_KEYS = {
+    "title", "first_name", "middle_name", "last_name", "gender", "date_of_birth",
+    "preferred_language", "nationality", "blood_group", "id_type", "id_number",
+    "mobile", "mobile_belongs_to", "same_as_whatsapp", "whatsapp", "alt_mobile",
+    "alt_mobile_belongs_to", "address", "area", "city", "district", "state",
+    "country", "pincode", "allergy_status", "allergen", "allergy_reaction",
+    "allergy_severity", "bp", "rbs_mg_dl", "height_cm", "weight_kg", "bmi",
+    "finding", "refer_to_department", "consent_by", "consent_method",
+    "consent_witness", "consent_screening", "consent_dpdp_notice",
+    "consent_tariff", "send_via", "photo",
+}  # fmt: skip
+
+# The form builder's field types (styling_metadata.poh.type) as capture's
+# question types. Consent is a one-option checkbox, so "required" means ticked.
+BUILDER_TO_CAPTURE = {
+    "short_text": "short_text", "govt_id": "short_text", "pincode": "short_text",
+    "long_text": "paragraph", "email": "email", "phone": "phone",
+    "integer": "number", "decimal": "number", "reading": "number",
+    "dropdown": "dropdown", "single_choice": "single_choice",
+    "multi_choice": "checkboxes", "yes_no": "yes_no", "consent": "checkboxes",
+    "date": "date", "datetime": "date", "note": "note",
+}  # fmt: skip
+CARE_TO_CAPTURE = {
+    "string": "short_text", "text": "paragraph", "integer": "number",
+    "decimal": "number", "quantity": "number", "boolean": "yes_no",
+    "date": "date", "dateTime": "date", "display": "note",
+}  # fmt: skip
+CONSENT_OPTION = "Yes"
+# Formats the form builder checks, kept in capture (pattern, default message).
+BUILDER_PATTERNS = {
+    "phone": (r"^[6-9]\d{9}$", "10 digits, starting 6–9"),  # noqa: RUF001
+    "pincode": (r"^[1-9]\d{5}$", "6 digits, not starting with 0"),
+}
+# The labels of the coded values capture stores, so a "show only when" rule on
+# a fixed field can use the label the form builder showed (Known allergy, has).
+FIXED_VALUE_LABELS = {
+    "gender": {"female": "Female", "male": "Male", "other": "Other"},
+    "allergy_status": {
+        "nka": "No known allergy (NKA)",
+        "has": "Known allergy",
+        "unknown": "Unable to ascertain now",
+    },
+    "allergy_severity": {
+        "mild": "Mild",
+        "moderate": "Moderate",
+        "severe": "Severe",
+        "life_threatening": "Life-threatening",
+    },
+    "mobile_belongs_to": {
+        "self": "Self",
+        "spouse": "Spouse",
+        "child": "Child",
+        "parent": "Parent",
+        "relative": "Relative",
+    },
+    "nationality": {"Indian resident": "Indian Resident", "OCI-PIO": "OCI/PIO"},
+    "id_type": {
+        "aadhaar": "Aadhaar",
+        "pan": "PAN card",
+        "passport": "Passport",
+        "voter_id": "Voter ID (EPIC)",
+        "driving_licence": "Driving licence",
+        "nrega_job_card": "NREGA job card",
+        "birth_certificate": "Birth certificate",
+        "oci_card": "OCI card",
+        "unhcr_card": "UNHCR refugee card",
+    },
+    "consent_method": {
+        "Signature": "Signed on the tablet",
+        "Scanned form": "Signed on paper — scanned",
+        "Thumb impression": "Thumb impression + witness",
+    },
+    "send_via": {
+        "whatsapp": "WhatsApp",
+        "sms": "SMS",
+        "phone": "Phone call",
+        "do_not_contact": "Do not contact",
+    },
+}
+
+
+def number_or_none(value):
+    try:
+        return float(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+# Patient record fields a form builder field can be merged into ("Save to
+# the patient record"), with their length limits. Camp capture copies the
+# answer into the patient's own field instead of only keeping it as an extra
+# answer. Only free-text fields the Edit Patient form has.
+PATIENT_FIELD_TARGETS = {"father_name": 100, "mother_name": 100, "email": 254}
+
+
+def mapped_patient_values(answers):
+    """The answers saved to the patient record, by patient field."""
+    return {
+        target: str(answer["value"]).strip()[:PATIENT_FIELD_TARGETS[target]]
+        for answer in (answers or {}).values()
+        if (target := answer.get("patient_field")) in PATIENT_FIELD_TARGETS
+        and str(answer.get("value", "")).strip()
+    }
+
+
+def question_field(q, section):  # noqa: PLR0912
+    """One CARE question of the event's form as a capture question, or None
+    for a field nobody answers (calculated)."""
+    meta = (q.get("styling_metadata") or {}).get("poh") or {}
+    builder = meta.get("type")
+    if builder == "calculated" or (not builder and q.get("read_only")):
+        return None
+    if builder in BUILDER_TO_CAPTURE:
+        kind = BUILDER_TO_CAPTURE[builder]
+    elif q.get("type") == "choice":
+        kind = "checkboxes" if q.get("repeats") else "dropdown"
+    else:
+        kind = CARE_TO_CAPTURE.get(q.get("type"), "short_text")
+    rules = meta.get("rules") or {}
+    validation = {}
+    if kind == "number":
+        validation = {
+            "min": number_or_none(rules.get("min")),
+            "max": number_or_none(rules.get("max")),
+        }
+        if builder == "integer" or (not builder and q.get("type") == "integer"):
+            validation["integer"] = True
+    elif kind in {"short_text", "paragraph"} and (
+        q.get("max_length") or rules.get("maxLength")
+    ):
+        validation = {"max_length": int(q.get("max_length") or rules.get("maxLength"))}
+    if builder in BUILDER_PATTERNS:
+        validation["pattern"], validation["message"] = BUILDER_PATTERNS[builder]
+    if rules.get("message"):
+        validation["message"] = rules["message"]
+    label = q.get("text", "")
+    if builder == "reading" and meta.get("unit"):
+        label = f"{label} ({meta['unit']})"
+    options = [str(o.get("value")) for o in q.get("answer_option") or []]
+    if builder == "consent":
+        options = [CONSENT_OPTION]
+    show_when = None
+    condition = (q.get("enable_when") or [None])[0]
+    if condition and condition.get("operator") in {"equals", "not_equals"}:
+        answer = condition.get("answer")
+        if isinstance(answer, bool):
+            answer = "Yes" if answer else "No"
+        show_when = {
+            "key": condition.get("question"),
+            "op": "is" if condition["operator"] == "equals" else "is_not",
+            "value": str(answer),
+        }
+    return SimpleNamespace(
+        key=q.get("link_id", ""),
+        section=section,
+        label=label,
+        help_text=q.get("description") or "",
+        field_type=kind,
+        required=bool(q.get("required")) and kind not in {"section", "note"},
+        options=options,
+        validation=validation,
+        show_when=show_when,
+        place="",
+        unit=meta.get("unit", "") if builder == "reading" else "",
+        patient_field=meta.get("patient_field", "")
+        if meta.get("patient_field") in PATIENT_FIELD_TARGETS
+        else "",
+        # A required field not needed once this other one is answered (the
+        # form builder's "Not needed when"; the date of birth beside the age).
+        required_unless=str(meta.get("required_unless") or "")
+        if q.get("required")
+        else "",
+    )
+
+
+# The camp capture form's own sections, by the standard template's section
+# column names and by their titles. A form field in one of these sections is
+# shown inside that section of the capture form (its `place`).
+CAPTURE_SECTIONS = {
+    "section_identity": "identity", "identity details": "identity",
+    "section_contact": "contact", "contact details": "contact",
+    "section_allergies": "allergies", "allergies": "allergies",
+    "section_vitals": "vitals", "collect vitals & readings": "vitals",
+    "section_consent": "consent", "consent & communication": "consent",
+    "section_referral": "referral", "referral info": "referral",
+}  # fmt: skip
+
+
+def capture_place(group):
+    """The capture section a form group matches, or "" for one of its own."""
+    return CAPTURE_SECTIONS.get(group.get("link_id", "")) or CAPTURE_SECTIONS.get(
+        group.get("text", "").strip().lower(), ""
+    )
+
+
+def capture_fields(event):
+    """The extra questions camp capture asks: the event's form (its CARE
+    questionnaire) without the fields capture always asks; or, for an event
+    without a form, its older question list. A field in a group matching one
+    of capture's sections gets that section as its `place`; any other group
+    becomes a section heading when it has questions left."""
+    if not event.questionnaire_id:
+        return list(event.form_fields.all())
+
+    def walk(questions, section):
+        found = []
+        for q in questions or []:
+            if q.get("type") == "group":
+                inner = walk(q.get("questions"), q.get("text", ""))
+                place = capture_place(q)
+                if inner and place:
+                    for field in inner:
+                        field.place = field.place or place
+                    found += inner
+                elif inner:
+                    heading = SimpleNamespace(
+                        key=q.get("link_id", ""), section="", label=q.get("text", ""),
+                        help_text="", field_type="section", required=False,
+                        options=[], validation={}, show_when=None, place="",
+                    )  # fmt: skip
+                    found += [heading, *inner]
+            elif q.get("link_id") not in CAPTURE_KEYS:
+                field = question_field(q, section)
+                if field:
+                    found.append(field)
+        return found
+
+    return walk(event.questionnaire.questions, "")
+
+
+# The capture form's section titles, as the patient page shows them.
+PLACE_TITLES = {
+    "identity": "Identity details", "contact": "Contact details",
+    "allergies": "Allergies", "vitals": "Vitals & readings",
+    "consent": "Consent & communication", "referral": "Referral info",
+}  # fmt: skip
+HEALTH_SECTION = "Health questions"
+# The capture screen's order: its own sections, with Health questions and the
+# form's own sections between the vitals and consent.
+SECTION_ORDER = {
+    title: i
+    for i, title in enumerate(
+        [*(PLACE_TITLES[p] for p in ["identity", "contact", "allergies", "vitals"]),
+         HEALTH_SECTION, PLACE_TITLES["consent"], PLACE_TITLES["referral"]]
+    )
+}  # fmt: skip
+# An existing person's capture has no identity, contact or allergy section;
+# questions placed there are asked under Health questions.
+NEW_ONLY_PLACES = {"identity", "contact", "allergies"}
+
+
+def answer_sections(fields, kind="new"):
+    """Each question's section as camp capture showed it: its capture
+    section, else the form's own section heading above it, else Health
+    questions. By question key."""
+    sections, heading = {}, HEALTH_SECTION
+    for field in fields:
+        if field.field_type == "section":
+            heading = field.label or HEALTH_SECTION
+            continue
+        place = getattr(field, "place", "") or ""
+        if place and not (kind == "existing" and place in NEW_ONLY_PLACES):
+            sections[field.key] = PLACE_TITLES.get(place, HEALTH_SECTION)
+        else:
+            sections[field.key] = HEALTH_SECTION if place else heading
+    return sections
+
+
+def answer_words(value):
+    """An answer as the words a "show only when" rule compares."""
+    if isinstance(value, bool):
+        return ["Yes" if value else "No"]
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    return [] if value in (None, "") else [str(value)]
+
+
+def question_shown(field, answers, by_key, participant=None):
+    """Whether a question is asked, following the form's "show only when"
+    rule as CARE does: "is not" holds only once the other field is answered.
+    A rule on a field capture asks itself reads the participant's value."""
+    rule = getattr(field, "show_when", None)
+    if not rule:
+        return True
+    on = by_key.get(rule["key"])
+    if on is not None:
+        if not question_shown(on, answers, by_key, participant):
+            return False
+        values = answer_words(answers.get(rule["key"]))
+    else:
+        raw = (
+            getattr(participant, rule["key"], None) if participant is not None else None
+        )
+        values = answer_words(raw)
+        labels = FIXED_VALUE_LABELS.get(rule["key"], {})
+        values += [labels[v] for v in values if v in labels]
+    values = [v.lower() for v in values]
+    want = str(rule["value"]).lower()
+    if rule["op"] == "is":
+        return want in values
+    return bool(values) and want not in values
 
 
 def money(value):
@@ -1078,6 +1451,17 @@ def event_detail(event, user):
         ],
         "form_fields": [form_field_row(f) for f in event.form_fields.all()],
         "questionnaire": questionnaire_slug(event),
+        # The form's name and version, and what capture asks from it (the
+        # questions without the fixed fields), for the event page.
+        "questionnaire_title": event.questionnaire.title
+        if event.questionnaire_id
+        else None,
+        "questionnaire_version": (
+            (event.questionnaire.styling_metadata or {}).get("poh", {}).get("version")
+            if event.questionnaire_id
+            else None
+        ),
+        "capture_questions": [form_field_row(f) for f in capture_fields(event)],
         "login_emails": login_emails(event),
         "costs": costs(event),
         "created_by": person(event.created_by),
@@ -1410,40 +1794,58 @@ def age_on(dob, day):
     return day.year - dob.year - ((day.month, day.day) < (dob.month, dob.day))
 
 
-def check_answers(fields, answers, errors):  # noqa: PLR0912
-    """Each extra answer against its question; returns what is stored."""
+def check_answers(fields, answers, errors, participant=None):  # noqa: PLR0912, PLR0915
+    """Each extra answer against its question; returns what is stored.
+    Questions hidden by their "show only when" rule are skipped."""
     stored = {}
     known = {f.key for f in fields}
+    sections = answer_sections(fields, getattr(participant, "kind", "new"))
+    by_key = {f.key: f for f in fields if f.field_type not in {"section", "note"}}
     for key in answers:
         errors.check(
             key in known, ["extra_answers", key], "Not a question on this form"
         )
     for field in fields:
-        if field.field_type == "section":
+        # Headings and notes for staff aren't answered.
+        if field.field_type in {"section", "note"}:
+            continue
+        if not question_shown(field, answers, by_key, participant):
             continue
         loc = ["extra_answers", field.key]
         value = answers.get(field.key)
         blank = value is None or value in ("", [])
         if blank:
-            errors.check(not field.required, loc, "This question is required")
+            other = getattr(field, "required_unless", "")
+            if other in by_key:
+                excused = answers.get(other) not in (None, "", [])
+            else:
+                excused = bool(other) and getattr(participant, other, None) not in (None, "", [])
+            errors.check(
+                not field.required or excused, loc, "This question is required"
+            )
             continue
         validation = field.validation or {}
         kind = field.field_type
         ok, msg = True, ""
+        custom = validation.get("message")
         if kind in {"short_text", "paragraph"}:
             limit = validation.get("max_length") or (
                 200 if kind == "short_text" else 2000
             )
             ok = isinstance(value, str) and len(value.strip()) <= limit
-            msg = f"Up to {limit} characters"
+            msg = custom or f"Up to {limit} characters"
             value = value.strip() if ok else value
+            if ok and validation.get("pattern"):
+                ok = bool(re.fullmatch(validation["pattern"], value))
         elif kind == "number":
             ok = isinstance(value, int | float) and not isinstance(value, bool)
             msg = "Enter a number"
+            if ok and validation.get("integer") and value != int(value):
+                ok, msg = False, custom or "Whole numbers only"
             if ok and validation.get("min") is not None and value < validation["min"]:
-                ok, msg = False, f"At least {validation['min']}"
+                ok, msg = False, custom or f"At least {validation['min']:g}"
             if ok and validation.get("max") is not None and value > validation["max"]:
-                ok, msg = False, f"At most {validation['max']}"
+                ok, msg = False, custom or f"At most {validation['max']:g}"
         elif kind == "date":
             try:
                 date.fromisoformat(value)
@@ -1462,10 +1864,11 @@ def check_answers(fields, answers, errors):  # noqa: PLR0912
         elif kind == "yes_no":
             ok, msg = isinstance(value, bool), "Answer yes or no"
         elif kind == "phone":
-            ok, msg = (
-                isinstance(value, str) and bool(PHONE_RE.match(value)),
-                "Enter a phone number (6 to 15 digits)",
+            pattern = validation.get("pattern")
+            ok = isinstance(value, str) and bool(
+                re.fullmatch(pattern, value) if pattern else PHONE_RE.match(value)
             )
+            msg = custom or "Enter a phone number (6 to 15 digits)"
         elif kind == "email":
             ok, msg = (
                 isinstance(value, str) and bool(EMAIL_RE.match(value)),
@@ -1473,7 +1876,14 @@ def check_answers(fields, answers, errors):  # noqa: PLR0912
             )
         errors.check(ok, loc, msg)
         if ok:
-            stored[field.key] = {"label": field.label, "type": kind, "value": value}
+            stored[field.key] = {
+                "label": field.label,
+                "type": kind,
+                "value": value,
+                "section": sections.get(field.key, HEALTH_SECTION),
+            }
+            if getattr(field, "patient_field", ""):
+                stored[field.key]["patient_field"] = field.patient_field
     return stored
 
 
@@ -1555,17 +1965,23 @@ def check_participant(spec, event, errors):
         return patient, check_visit(spec, event, errors)
     first = spec.first_name.strip()
     errors.check(
-        len(first) >= MIN_NAME and NAME_RE.match(first),
-        "first_name",
-        "At least 2 letters; letters, spaces and dots only",
+        NAME_PART_RE.fullmatch(first), "first_name", f"2 to 50 characters. {NAME_MESSAGE}"
     )
-    last = spec.last_name.strip()
     errors.check(
-        not last or NAME_RE.match(last), "last_name", "Letters, spaces and dots only"
+        LAST_NAME_RE.fullmatch(spec.last_name.strip()),
+        "last_name",
+        f"Enter the last name. {NAME_MESSAGE}",
     )
     errors.check(spec.gender in GENDERS, "gender", "Choose the gender")
-    if spec.date_of_birth is None:
-        errors.add("date_of_birth", "Enter the date of birth")
+    if spec.date_of_birth is None and spec.age is not None:
+        # An age alone is an approximate date of birth; a child needs the exact one.
+        errors.check(
+            spec.age >= MINOR_AGE,
+            "date_of_birth",
+            "Under 18: enter the exact date of birth",
+        )
+    elif spec.date_of_birth is None:
+        errors.add("date_of_birth", "Enter the date of birth or the age")
     elif spec.date_of_birth > today:
         errors.add("date_of_birth", "Can't be in the future")
     else:
@@ -1602,13 +2018,8 @@ def check_participant(spec, event, errors):
     # A new person's mandatory details: everything below, and the title,
     # language, nationality, address and locality in check_details.
     errors.check(spec.id_type in ID_TYPES, "id_type", "Choose the government ID")
-    errors.check(spec.id_number.strip(), "id_number", "Enter the ID number")
-    if spec.id_type == "aadhaar":
-        errors.check(
-            re.match(r"^\d{12}$", re.sub(r"\s", "", spec.id_number)),
-            "id_number",
-            "Aadhaar: 12 digits",
-        )
+    problem = id_number_problem(spec.id_type, spec.id_number)
+    errors.check(not problem, "id_number", problem)
     check_details(spec, errors)
     return patient, check_visit(spec, event, errors)
 
@@ -1655,11 +2066,12 @@ def check_details(spec, errors):
     )
     errors.check(spec.address.strip(), "address", "Enter the house, flat or building")
     errors.check(spec.city.strip(), "city", "Choose the post office or locality")
-    for key in ("middle_name",):
-        value = getattr(spec, key).strip()
-        errors.check(
-            not value or NAME_RE.match(value), key, "Letters, spaces and dots only"
-        )
+    middle = spec.middle_name.strip()
+    errors.check(
+        not middle or NAME_PART_RE.fullmatch(middle),
+        "middle_name",
+        f"2 to 50 characters. {NAME_MESSAGE}",
+    )
     errors.check(
         not spec.blood_group or spec.blood_group in BLOOD_GROUPS,
         "blood_group",
@@ -1676,6 +2088,11 @@ def check_details(spec, errors):
         )
         problem = mobile_problem(spec.alt_mobile_isd, spec.alt_mobile)
         errors.check(not problem, "alt_mobile", problem)
+        errors.check(
+            (spec.alt_mobile_isd, spec.alt_mobile) != (spec.mobile_isd, spec.mobile),
+            "alt_mobile",
+            "Must differ from the mobile number",
+        )
         errors.check(
             spec.alt_mobile_belongs_to in ALT_BELONGS_TO,
             "alt_mobile_belongs_to",
@@ -1725,9 +2142,9 @@ def check_consent(spec, errors):
     if spec.consent_method == THUMB_IMPRESSION:
         witness = spec.consent_witness.strip()
         errors.check(
-            witness and NAME_RE.match(witness),
+            NAME_PART_RE.fullmatch(witness),
             "consent_witness",
-            "Enter the witness's name",
+            f"Enter the witness's name. {NAME_MESSAGE}",
         )
     errors.check(
         all(v in SEND_VIA for v in spec.send_via),
@@ -1828,7 +2245,7 @@ PATIENT_CHANNELS = {"whatsapp": "WhatsApp", "sms": "SMS", "phone": "Phone call"}
 PATIENT_ALLERGY_SEVERITIES = {"mild", "moderate", "severe", "life_threatening"}
 
 
-def create_camp_patient(event, spec, user, number):
+def create_camp_patient(event, spec, user, number, answers=None):
     """A new person captured at a camp becomes a Care patient with a PRE-
     number (pre-registration) at the camp's facility, so they're in the
     hospital's patient list. The desk converts them to a UHID when it
@@ -1845,6 +2262,10 @@ def create_camp_patient(event, spec, user, number):
     permanent = perm if perm and not spec.permanent_same_as_current else None
     has_allergy = spec.allergy_status == "has"
     channels = [PATIENT_CHANNELS[x] for x in spec.send_via if x in PATIENT_CHANNELS]
+    mobile_owner = PATIENT_MOBILE_OWNERS.get(spec.mobile_belongs_to, "")
+    if mobile_owner == "Self" and age_on(spec.date_of_birth, timezone.localdate()) < MINOR_AGE:
+        # The desk refuses "Self" for a child's mobile; at a camp it's a parent's.
+        mobile_owner = "Parent"
     patient = Patient.objects.create(
         name=" ".join(x for x in (first, middle, last) if x),
         title=spec.title,
@@ -1854,9 +2275,11 @@ def create_camp_patient(event, spec, user, number):
         gender=PATIENT_GENDERS.get(spec.gender, spec.gender),
         date_of_birth=spec.date_of_birth,
         phone_number=f"{spec.mobile_isd}{spec.mobile}",
-        mobile_owner=PATIENT_MOBILE_OWNERS.get(spec.mobile_belongs_to, ""),
-        whatsapp_number=f"{spec.mobile_isd}{spec.whatsapp}"
-        if spec.whatsapp and spec.whatsapp != spec.mobile
+        mobile_owner=mobile_owner,
+        # As the desk saves it: "same as mobile" is the mobile number.
+        whatsapp_number=f"{spec.mobile_isd}{spec.whatsapp or spec.mobile}",
+        whatsapp_owner=mobile_owner
+        if not spec.whatsapp or spec.whatsapp == spec.mobile
         else "",
         alternate_phone_number=f"{spec.alt_mobile_isd}{spec.alt_mobile}"
         if spec.alt_mobile
@@ -1884,7 +2307,7 @@ def create_camp_patient(event, spec, user, number):
         camp_patient_id=number,
         consent_given_by=spec.consent_by,
         consent_method=spec.consent_method,
-        consent_witness=spec.consent_witness.strip()[:40]
+        consent_witness=spec.consent_witness.strip()[:50]
         if spec.consent_method == THUMB_IMPRESSION
         else "",
         general_consent=True,
@@ -1895,6 +2318,10 @@ def create_camp_patient(event, spec, user, number):
         registration_facility=facility,
         created_by=user,
         updated_by=user,
+        # A typed age is an estimate, marked as Care marks it (set_date_of_birth).
+        meta={"date_of_birth_approximate": True} if spec.age is not None else {},
+        # Answers to form fields merged into the patient record (father's name…).
+        **mapped_patient_values(answers),
     )
     evaluate_patient_instance_default_values(patient)
     issue_patient_number(patient, facility, PatientNumberSeries.pre_registration)
@@ -1918,9 +2345,14 @@ def capture_participant(session, user, spec, files=None):
     errors = Errors()
     patient, offered = check_participant(spec, event, errors)
     check_files(spec, files, errors)
-    fields = list(event.form_fields.all())
-    answers = check_answers(fields, spec.extra_answers, errors)
+    fields = capture_fields(event)
+    answers = check_answers(fields, spec.extra_answers, errors, participant=spec)
     errors.raise_if_any()
+    if spec.kind == "new" and spec.date_of_birth is None and spec.age is not None:
+        # An age alone becomes an approximate date of birth, as at the desk.
+        spec.date_of_birth = approximate_date_of_birth(spec.age)
+    elif spec.date_of_birth is not None:
+        spec.age = None
     perm = spec.permanent_address
     permanent = (
         {k: v.strip() for k, v in perm.model_dump().items()}
@@ -1955,7 +2387,7 @@ def capture_participant(session, user, spec, files=None):
             number=number,
             event=event,
             session=session,
-            patient=patient or create_camp_patient(event, spec, user, number),
+            patient=patient or create_camp_patient(event, spec, user, number, answers),
             kind=spec.kind,
             title=spec.title,
             first_name=first,
@@ -1963,6 +2395,7 @@ def capture_participant(session, user, spec, files=None):
             last_name=spec.last_name.strip(),
             gender=spec.gender,
             date_of_birth=spec.date_of_birth,
+            date_of_birth_approximate=spec.age is not None,
             preferred_language=spec.preferred_language.strip(),
             nationality=spec.nationality,
             blood_group=spec.blood_group,
@@ -2030,6 +2463,16 @@ def capture_participant(session, user, spec, files=None):
             updates.append("consent_file")
         if updates:
             participant.save(update_fields=updates)
+        if patient:
+            # An existing patient: merged answers fill only what their record leaves blank.
+            blank = {
+                f: v for f, v in mapped_patient_values(answers).items()
+                if not getattr(patient, f, "")
+            }  # fmt: skip
+            if blank:
+                for f, v in blank.items():
+                    setattr(patient, f, v)
+                patient.save(update_fields=list(blank))
         rows = []
         for test_id, pick in spec.picks().items():
             test = offered[test_id]
@@ -2085,8 +2528,32 @@ def participant_patient_number(participant):
 def camp_visit_row(participant):
     """A camp visit for the patient page: the participant and its camp."""
     event = participant.event
+    answers = participant.extra_answers or {}
+    if answers:
+        fields = capture_fields(event)
+        # Captured before answers recorded their section: from the event's form.
+        sections = answer_sections(fields, participant.kind)
+        answers = {
+            key: {"section": sections.get(key, HEALTH_SECTION), **a}
+            for key, a in answers.items()
+        }
+        # In the order capture asked them (JSONB keeps no key order): by
+        # section as the capture screen runs, then by the form's order.
+        position = {f.key: i for i, f in enumerate(fields)}
+        answers = dict(
+            sorted(
+                answers.items(),
+                key=lambda item: (
+                    SECTION_ORDER.get(
+                        item[1]["section"], SECTION_ORDER[HEALTH_SECTION]
+                    ),
+                    position.get(item[0], len(position)),
+                ),
+            )
+        )
     return {
         **participant_row(participant),
+        "extra_answers": answers,
         "event": {
             "id": str(event.external_id),
             "number": event.number,
@@ -2121,6 +2588,7 @@ def participant_row(participant):
         "last_name": participant.last_name,
         "gender": participant.gender,
         "date_of_birth": participant.date_of_birth,
+        "date_of_birth_approximate": participant.date_of_birth_approximate,
         "preferred_language": participant.preferred_language,
         "nationality": participant.nationality,
         "blood_group": participant.blood_group,

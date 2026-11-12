@@ -10,6 +10,7 @@ from rest_framework import status
 
 from care.emr.models import Patient, Questionnaire
 from care.utils.tests.base import CareAPITestBase
+from hmis import outreach
 from hmis.models import CampParticipant, OutreachEvent, OutreachEventLogin
 
 MANAGE = "can_manage_outreach_event"
@@ -30,6 +31,8 @@ class OutreachTests(CareAPITestBase):
         self.staff = self.user_with([MANAGE, CAPTURE])
         self.camp_staff = self.user_with([CAPTURE], role_name="Camp Staff")
         self.today = timezone.localdate()
+        # Submitting a capturing event needs a form template; event_body uses this one.
+        self.form = self.make_questionnaire("camp-form-default-v1")
 
     def user_with(self, permissions, role_name=None):
         user = self.create_user()
@@ -62,6 +65,7 @@ class OutreachTests(CareAPITestBase):
             "discount_consultation_pct": 50,
             "discount_tests_pct": 20,
             "login_emails": ["Camp.Desk@example.com", "nurse.two@example.com"],
+            "questionnaire": self.form.slug,
             "tests": [
                 {
                     "name": "RBS",
@@ -126,6 +130,12 @@ class OutreachTests(CareAPITestBase):
         event = self.create_event(**kwargs)
         self.assertEqual(self.act(event["id"], "submit", self.staff).status_code, 200)
         self.assertEqual(self.act(event["id"], "approve", self.admin).status_code, 200)
+        if "questionnaire" not in kwargs:
+            # Without a form of its own the event stands for an older approved one
+            # that still asks its form_fields list.
+            OutreachEvent.objects.filter(external_id=event["id"]).update(
+                questionnaire=None
+            )
         return event
 
     def start_session(self, event_id, user=None):
@@ -180,12 +190,18 @@ class OutreachTests(CareAPITestBase):
 
     def test_submit_checks_everything_and_numbers_the_event(self):
         event = self.create_event(
-            description="short", tests=[], staff=[], login_emails=[" "]
+            description="short", tests=[], staff=[], questionnaire="", login_emails=[" "]
         )
         response = self.act(event["id"], "submit", self.staff)
         self.assertEqual(response.status_code, 400)
         self.assertTrue(
-            {("description",), ("tests",), ("staff",), ("login_emails",)}
+            {
+                ("description",),
+                ("tests",),
+                ("staff",),
+                ("questionnaire",),
+                ("login_emails",),
+            }
             <= self.locs(response)
         )
 
@@ -199,6 +215,11 @@ class OutreachTests(CareAPITestBase):
         self.assertEqual(response.status_code, 200, response.json())
         self.assertEqual(response.json()["status"], "pending_approval")
         self.assertEqual(response.json()["number"], f"CAMP-LN-{self.today:%y%m}-01")
+
+    def test_coupon_and_costs_are_optional(self):
+        event = self.create_event(has_coupon=False, cost_lines=[])
+        response = self.act(event["id"], "submit", self.staff)
+        self.assertEqual(response.status_code, 200, response.json())
 
     def test_staff_cannot_approve_admin_can_approve_own(self):
         self.as_user(self.admin)
@@ -286,12 +307,12 @@ class OutreachTests(CareAPITestBase):
         session = self.start_session(event["id"]).json()
         rbs = next(t["id"] for t in session["event"]["tests"] if t["name"] == "RBS")
         response = self.capture(
-            session["id"], tests=[rbs], id_type="aadhaar", id_number="1234 5678 9012"
+            session["id"], tests=[rbs], id_type="aadhaar", id_number="2345 6789 0124"
         )
         self.assertEqual(response.status_code, 201, response.json())
         row = response.json()
         self.assertEqual(row["number"], f"CMP-LN-{self.today:%y%m}-0001")
-        self.assertEqual(row["id_number"], "XXXX XXXX 9012")
+        self.assertEqual(row["id_number"], "XXXX XXXX 0124")
         self.assertEqual(row["tests"][0]["fee_type"], "free")
         self.assertEqual(row["extra_answers"]["diabetic_family"]["value"], True)
 
@@ -747,7 +768,9 @@ class OutreachTests(CareAPITestBase):
         form = self.make_questionnaire()
         event = self.create_event(questionnaire=form.slug)
         self.assertEqual(event["questionnaire"], form.slug)
-        self.assertEqual(OutreachEvent.objects.get(external_id=event["id"]).questionnaire, form)
+        self.assertEqual(
+            OutreachEvent.objects.get(external_id=event["id"]).questionnaire, form
+        )
         newer = self.make_questionnaire("camp-form-test-v2")
         response = self.client.put(
             reverse("outreach-event", args=[event["id"]]),
@@ -758,7 +781,7 @@ class OutreachTests(CareAPITestBase):
         self.assertEqual(response.json()["questionnaire"], newer.slug)
         response = self.client.put(
             reverse("outreach-event", args=[event["id"]]),
-            self.event_body(),
+            self.event_body(questionnaire=""),
             format="json",
         )
         self.assertIsNone(response.json()["questionnaire"])
@@ -783,9 +806,7 @@ class OutreachTests(CareAPITestBase):
         form = self.make_questionnaire()
         response = self.client.post(
             reverse("outreach-events"),
-            self.event_body(
-                event_type="CME", form_fields=[], questionnaire=form.slug
-            ),
+            self.event_body(event_type="CME", form_fields=[], questionnaire=form.slug),
             format="json",
         )
         self.assertEqual(response.status_code, 400)
@@ -818,6 +839,7 @@ class OutreachTests(CareAPITestBase):
                     has_coupon=False,
                     tests=[],
                     form_fields=[],
+                    questionnaire="",
                     **fields,
                 )
                 self.as_user(self.staff)
@@ -847,7 +869,11 @@ class OutreachTests(CareAPITestBase):
         ]:
             with self.subTest(kind=kind):
                 event = self.create_event(
-                    event_type=kind, has_coupon=False, tests=[], form_fields=[]
+                    event_type=kind,
+                    has_coupon=False,
+                    tests=[],
+                    form_fields=[],
+                    questionnaire="",
                 )
                 response = self.act(event["id"], "submit", self.staff)
                 self.assertEqual(response.status_code, 400)
@@ -869,3 +895,279 @@ class OutreachTests(CareAPITestBase):
         self.as_user(self.staff)
         response = self.client.get(reverse("outreach-event", args=[old["id"]]))
         self.assertEqual(response.status_code, 404)
+
+    def test_capture_asks_the_events_form_without_the_fixed_fields(self):
+        smoker_rule = [{"question": "smoker", "operator": "equals", "answer": True}]
+        form = Questionnaire.objects.create(
+            slug="frm-standard-plus-v1",
+            title="Standard plus",
+            version="1.0",
+            subject_type="patient",
+            status="active",
+            questions=[
+                {"id": "a", "link_id": "section_identity", "text": "Identity Details", "type": "group", "questions": [
+                    {"id": "b", "link_id": "first_name", "text": "First name", "type": "string", "required": True},
+                    {"id": "c", "link_id": "test", "text": "Test note", "type": "text", "required": True,
+                     "styling_metadata": {"poh": {"type": "long_text"}}},
+                ]},
+                {"id": "d", "link_id": "section_consent", "text": "Consent", "type": "group", "questions": [
+                    {"id": "e", "link_id": "consent_screening", "text": "Consent", "type": "boolean", "required": True},
+                ]},
+                {"id": "f", "link_id": "section_habits", "text": "Habits", "type": "group", "questions": [
+                    {"id": "g", "link_id": "smoker", "text": "Smokes", "type": "boolean",
+                     "styling_metadata": {"poh": {"type": "yes_no"}}},
+                    {"id": "h", "link_id": "packs", "text": "Packs a day", "type": "decimal", "required": True,
+                     "enable_when": smoker_rule,
+                     "styling_metadata": {"poh": {"type": "reading", "unit": "packs", "rules": {"min": "1", "max": "10"}}}},
+                    {"id": "i", "link_id": "score", "text": "Score", "type": "decimal", "read_only": True,
+                     "styling_metadata": {"poh": {"type": "calculated"}}},
+                    {"id": "j", "link_id": "how_to_ask", "text": "Ask gently", "type": "display",
+                     "styling_metadata": {"poh": {"type": "note"}}},
+                ]},
+            ],
+        )  # fmt: skip
+        event = self.approved_event(form_fields=[], questionnaire=form.slug)
+        self.assertEqual(event["questionnaire_title"], "Standard plus")
+        self.assertEqual(
+            [f["key"] for f in event["capture_questions"]],
+            ["test", "section_habits", "smoker", "packs", "how_to_ask"],
+        )
+        session = self.start_session(event["id"]).json()
+        fields = session["event"]["form_fields"]
+        # The note sits in capture's own Identity section; Habits is a section
+        # of its own, with its heading.
+        self.assertEqual(
+            [(f["key"], f["field_type"], f["place"]) for f in fields],
+            [
+                ("test", "paragraph", "identity"),
+                ("section_habits", "section", ""),
+                ("smoker", "yes_no", ""),
+                ("packs", "number", ""),
+                ("how_to_ask", "note", ""),
+            ],
+        )
+        self.assertEqual(fields[3]["label"], "Packs a day (packs)")
+        self.assertEqual(
+            fields[3]["show_when"], {"key": "smoker", "op": "is", "value": "Yes"}
+        )
+        # Packs is hidden until Smokes is Yes, so only the note is missing.
+        response = self.capture(session["id"], extra_answers={})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(("extra_answers", "test"), self.locs(response))
+        self.assertNotIn(("extra_answers", "packs"), self.locs(response))
+        response = self.capture(
+            session["id"], extra_answers={"test": "x", "smoker": True}
+        )
+        self.assertIn(("extra_answers", "packs"), self.locs(response))
+        response = self.capture(
+            session["id"], extra_answers={"test": " Seen ", "smoker": True, "packs": 2}
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        answers = response.json()["extra_answers"]
+        self.assertEqual(answers["test"]["value"], "Seen")
+        self.assertEqual(answers["packs"]["value"], 2)
+        # Each answer records the section capture asked it in, for the
+        # patient page.
+        self.assertEqual(answers["test"]["section"], "Identity details")
+        self.assertEqual(answers["smoker"]["section"], "Habits")
+        # A visit captured before answers recorded their section gets it from
+        # the event's form.
+        participant = CampParticipant.objects.get(external_id=response.json()["id"])
+        participant.extra_answers = {
+            k: {key: v for key, v in a.items() if key != "section"}
+            for k, a in participant.extra_answers.items()
+        }
+        participant.save(update_fields=["extra_answers"])
+        row = outreach.camp_visit_row(participant)
+        self.assertEqual(row["extra_answers"]["test"]["section"], "Identity details")
+        self.assertEqual(row["extra_answers"]["packs"]["section"], "Habits")
+        # In capture's order, though JSONB sorts the keys.
+        self.assertEqual(list(row["extra_answers"]), ["test", "smoker", "packs"])
+
+    def test_capture_keeps_the_form_builders_rules(self):
+        def q(link_id, care_type, builder, **extra):
+            return {"id": link_id, "link_id": link_id, "text": link_id, "type": care_type,
+                    "styling_metadata": {"poh": {"type": builder, **extra.pop("poh", {})}}, **extra}  # fmt: skip
+
+        form = Questionnaire.objects.create(
+            slug="frm-rules-v1",
+            title="Rules",
+            version="1.0",
+            subject_type="patient",
+            status="active",
+            questions=[
+                {"id": "g1", "link_id": "section_extra", "text": "Extra", "type": "group", "questions": [
+                    q("alt_phone", "string", "phone"),
+                    q("home_pin", "string", "pincode"),
+                    q("children", "integer", "integer", poh={"rules": {"min": "0", "max": "12"}}),
+                    q("waist", "decimal", "reading", poh={"unit": "cm", "rules": {"max": "200", "message": "Check the waist"}}),
+                    q("allergy_card", "boolean", "yes_no", required=True,
+                      enable_when=[{"question": "allergy_status", "operator": "equals", "answer": "Known allergy"}]),
+                    q("pregnant", "boolean", "yes_no", required=True,
+                      enable_when=[{"question": "gender", "operator": "equals", "answer": "Female"}]),
+                ]},
+            ],
+        )  # fmt: skip
+        event = self.approved_event(form_fields=[], questionnaire=form.slug)
+        session = self.start_session(event["id"]).json()
+        fields = {f["key"]: f for f in session["event"]["form_fields"]}
+        self.assertEqual(fields["children"]["validation"]["integer"], True)
+        self.assertEqual(fields["waist"]["validation"]["message"], "Check the waist")
+        self.assertEqual(fields["waist"]["unit"], "cm")
+        self.assertEqual(fields["children"]["unit"], "")
+        response = self.capture(
+            session["id"],
+            allergy_status="has",
+            allergen="Penicillin",
+            allergy_reaction="Hives",
+            allergy_severity="mild",
+            extra_answers={"alt_phone": "5123456789", "home_pin": "012345", "children": 2.5, "waist": 250},
+        )  # fmt: skip
+        self.assertEqual(response.status_code, 400)
+        messages = {
+            e["loc"][1]: e["msg"]
+            for e in response.json()["errors"]
+            if e.get("loc", [None])[0] == "extra_answers"
+        }
+        self.assertEqual(
+            messages,
+            {
+                "alt_phone": "10 digits, starting 6–9",  # noqa: RUF001
+                "home_pin": "6 digits, not starting with 0",
+                "children": "Whole numbers only",
+                "waist": "Check the waist",
+                # Shown: the person has a known allergy ("has") and is female.
+                "allergy_card": "This question is required",
+                "pregnant": "This question is required",
+            },
+        )
+        response = self.capture(
+            session["id"],
+            gender="male",
+            title="Mr",
+            extra_answers={"alt_phone": "9123456789", "home_pin": "560001", "children": 2, "waist": 80.5},
+        )  # fmt: skip
+        self.assertEqual(response.status_code, 201, response.json())
+        self.assertEqual(response.json()["extra_answers"]["waist"]["value"], 80.5)
+
+    def test_merged_fields_fill_the_patient_record(self):
+        def q(link_id, poh):
+            return {"id": link_id, "link_id": link_id, "text": link_id, "type": "string",
+                    "styling_metadata": {"poh": {"type": "short_text", **poh}}}  # fmt: skip
+
+        form = Questionnaire.objects.create(
+            slug="frm-merge-v1",
+            title="Merge",
+            version="1.0",
+            subject_type="patient",
+            status="active",
+            questions=[
+                {"id": "g1", "link_id": "section_identity", "text": "Identity details", "type": "group", "questions": [
+                    q("father_name", {"patient_field": "father_name"}),
+                    q("pet_name", {"patient_field": "not_a_field"}),
+                ]},
+            ],
+        )  # fmt: skip
+        event = self.approved_event(form_fields=[], questionnaire=form.slug)
+        session = self.start_session(event["id"]).json()
+        fields = {f["key"]: f for f in session["event"]["form_fields"]}
+        self.assertEqual(fields["father_name"]["patient_field"], "father_name")
+        self.assertEqual(fields["pet_name"]["patient_field"], "")
+        response = self.capture(
+            session["id"], extra_answers={"father_name": " Test Father ", "pet_name": "Tom"}
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        answers = response.json()["extra_answers"]
+        self.assertEqual(answers["father_name"]["patient_field"], "father_name")
+        self.assertNotIn("patient_field", answers["pet_name"])
+        participant = CampParticipant.objects.get(external_id=response.json()["id"])
+        self.assertEqual(participant.patient.father_name, "Test Father")
+        self.assertEqual(
+            outreach.mapped_patient_values(answers), {"father_name": "Test Father"}
+        )
+
+    def test_capture_takes_an_age_instead_of_the_date_of_birth(self):
+        event = self.approved_event()
+        session = self.start_session(event["id"]).json()
+        response = self.capture(
+            session["id"], date_of_birth=None, age=40, first_name="Test D'Souza"
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        row = response.json()
+        self.assertTrue(row["date_of_birth_approximate"])
+        participant = CampParticipant.objects.get(external_id=row["id"])
+        self.assertEqual(participant.date_of_birth.month, 7)
+        self.assertEqual(participant.date_of_birth.day, 1)
+        self.assertEqual(outreach.age_on(participant.date_of_birth, self.today), 40)
+        patient = participant.patient
+        self.assertEqual(patient.first_name, "Test D'Souza")
+        self.assertTrue(patient.meta.get("date_of_birth_approximate"))
+        # "Same as mobile" is saved as the patient's WhatsApp number, as at the desk.
+        self.assertEqual(patient.whatsapp_number, "+919000000001")
+
+        # A child needs the exact date of birth; neither is refused.
+        for body, loc in [({"age": 10}, "date_of_birth"), ({}, "date_of_birth")]:
+            response = self.capture(
+                session["id"], date_of_birth=None, mobile="9000000002", **body
+            )
+            self.assertEqual(response.status_code, 400)
+            self.assertIn((loc,), self.locs(response))
+
+    def test_capture_checks_names_ids_and_numbers_as_the_desk(self):
+        event = self.approved_event()
+        session = self.start_session(event["id"]).json()
+        response = self.capture(
+            session["id"],
+            first_name="T",
+            last_name="",
+            id_type="aadhaar",
+            id_number="1234 5678 9012",
+            alt_mobile="9000000001",
+            alt_mobile_belongs_to="Spouse",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(
+            {("first_name",), ("last_name",), ("id_number",), ("alt_mobile",)}
+            <= self.locs(response)
+        )
+
+    def test_a_childs_mobile_is_a_parents(self):
+        event = self.approved_event()
+        session = self.start_session(event["id"]).json()
+        response = self.capture(
+            session["id"],
+            title="Master",
+            gender="male",
+            date_of_birth=str(self.today.replace(year=self.today.year - 10)),
+            consent_by="Parent",
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        participant = CampParticipant.objects.get(external_id=response.json()["id"])
+        self.assertEqual(participant.patient.mobile_owner, "Parent")
+
+    def test_a_question_not_needed_once_another_is_answered(self):
+        def q(link_id, care_type, builder, **extra):
+            return {"id": link_id, "link_id": link_id, "text": link_id, "type": care_type,
+                    "styling_metadata": {"poh": {"type": builder, **extra.pop("poh", {})}}, **extra}  # fmt: skip
+
+        form = Questionnaire.objects.create(
+            slug="frm-unless-v1",
+            title="Unless",
+            version="1.0",
+            subject_type="patient",
+            status="active",
+            questions=[
+                {"id": "g1", "link_id": "section_extra", "text": "Extra", "type": "group", "questions": [
+                    q("spouse_dob", "date", "date", required=True, poh={"required_unless": "spouse_age"}),
+                    q("spouse_age", "integer", "integer"),
+                ]},
+            ],
+        )  # fmt: skip
+        event = self.approved_event(form_fields=[], questionnaire=form.slug)
+        session = self.start_session(event["id"]).json()
+        fields = {f["key"]: f for f in session["event"]["form_fields"]}
+        self.assertEqual(fields["spouse_dob"]["required_unless"], "spouse_age")
+        response = self.capture(session["id"], extra_answers={})
+        self.assertIn(("extra_answers", "spouse_dob"), self.locs(response))
+        response = self.capture(session["id"], extra_answers={"spouse_age": 40})
+        self.assertEqual(response.status_code, 201, response.json())
