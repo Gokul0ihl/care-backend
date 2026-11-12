@@ -812,6 +812,90 @@ class TestSlotViewSetAppointmentApi(CareAPITestBase):
         )
         self.assertEqual(response.status_code, 200)
 
+    def _other_doctor_slot(self, start, end):
+        doctor = self.create_user()
+        resource = SchedulableResource.objects.create(
+            resource_type=SchedulableResourceTypeOptions.practitioner.value,
+            user=doctor,
+            facility=self.facility,
+        )
+        schedule = Schedule.objects.create(
+            resource=resource,
+            name="Other Schedule",
+            valid_from=datetime.now(UTC) - timedelta(days=30),
+            valid_to=datetime.now(UTC) + timedelta(days=30),
+        )
+        availability = Availability.objects.create(
+            schedule=schedule,
+            name="Other Availability",
+            slot_type=SlotTypeOptions.appointment.value,
+            slot_size_in_minutes=15,
+            tokens_per_slot=1,
+            availability=[],
+        )
+        return TokenSlot.objects.create(
+            resource=resource,
+            availability=availability,
+            start_datetime=start,
+            end_datetime=end,
+            allocated=0,
+        )
+
+    def test_patient_cannot_be_booked_with_two_doctors_at_once(self):
+        """An overlapping slot with another doctor is refused with the clash."""
+        permissions = [SchedulePermissions.can_write_booking.name]
+        role = self.create_role_with_permissions(permissions)
+        self.attach_role_facility_organization_user(self.organization, self.user, role)
+        existing = self.create_appointment(appointment_number="APT-TEST-1")
+        other = self._other_doctor_slot(
+            self.slot.start_datetime + timedelta(minutes=15),
+            self.slot.end_datetime + timedelta(minutes=15),
+        )
+
+        response = self.client.post(
+            self._get_create_appointment_url(other.external_id),
+            self.get_appointment_data(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        error = response.json()["errors"][0]
+        self.assertEqual(error["type"], "patient_time_conflict")
+        self.assertEqual(error["booking"], str(existing.external_id))
+        self.assertEqual(error["appointment_number"], "APT-TEST-1")
+        self.assertIn("Choose a different time", error["msg"])
+        other.refresh_from_db()
+        self.assertEqual(other.allocated, 0)
+
+    def test_patient_can_be_booked_with_another_doctor_after(self):
+        """Back-to-back with another doctor, or a cancelled clash, is allowed."""
+        permissions = [SchedulePermissions.can_write_booking.name]
+        role = self.create_role_with_permissions(permissions)
+        self.attach_role_facility_organization_user(self.organization, self.user, role)
+        self.create_appointment()
+        after = self._other_doctor_slot(
+            self.slot.end_datetime, self.slot.end_datetime + timedelta(minutes=15)
+        )
+        response = self.client.post(
+            self._get_create_appointment_url(after.external_id),
+            self.get_appointment_data(),
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        TokenBooking.objects.filter(patient=self.patient).update(
+            status=BookingStatusChoices.cancelled.value
+        )
+        same_time = self._other_doctor_slot(
+            self.slot.start_datetime, self.slot.end_datetime
+        )
+        response = self.client.post(
+            self._get_create_appointment_url(same_time.external_id),
+            self.get_appointment_data(),
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+
     def test_over_booking_a_slot(self):
         """Users cannot create appointments on slots that are already fully booked."""
         permissions = [SchedulePermissions.can_write_booking.name]

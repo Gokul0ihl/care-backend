@@ -172,6 +172,76 @@ def convert_availability_and_exceptions_to_slots(availabilities, exceptions, day
     return slots
 
 
+class PatientTimeConflictError(ValidationError):
+    """The patient already has an active booking, with any doctor or resource,
+    whose time overlaps the one being made. A person can't be in two
+    consultations at once. The body keeps Care's {"errors": [...]} shape and
+    adds the clashing booking so the desk can say which one it is."""
+
+    def __init__(self, booking):
+        when = timezone.localtime(booking.token_slot.start_datetime)
+        with_whom = resource_display_name(booking.token_slot.resource)
+        self.message = (
+            f"Patient already has an appointment at {when:%H:%M} on "
+            f"{when:%d %b %Y}{f' with {with_whom}' if with_whom else ''}. "
+            "Choose a different time."
+        )
+        super().__init__(
+            {
+                "errors": [
+                    {
+                        "type": "patient_time_conflict",
+                        "msg": self.message,
+                        "booking": str(booking.external_id),
+                        "appointment_number": booking.appointment_number or "",
+                        "start_datetime": booking.token_slot.start_datetime.isoformat(),
+                        "end_datetime": max(
+                            [
+                                booking.token_slot.end_datetime,
+                                *booking.extra_slots.values_list(
+                                    "end_datetime", flat=True
+                                ),
+                            ]
+                        ).isoformat(),
+                        "resource": with_whom,
+                    }
+                ]
+            }
+        )
+
+
+def resource_display_name(resource):
+    if resource.user_id:
+        return resource.user.get_full_name() or resource.user.username
+    if resource.location_id:
+        return resource.location.name
+    if resource.healthcare_service_id:
+        return resource.healthcare_service.name
+    return ""
+
+
+def overlapping_booking(patient, start, end):
+    """The patient's active booking (main or extra slot) overlapping [start, end)."""
+    return (
+        TokenBooking.objects.filter(patient=patient)
+        .exclude(status__in=COMPLETED_STATUS_CHOICES)
+        .filter(
+            Q(token_slot__start_datetime__lt=end, token_slot__end_datetime__gt=start)
+            | Q(
+                extra_slots__start_datetime__lt=end,
+                extra_slots__end_datetime__gt=start,
+            )
+        )
+        .select_related(
+            "token_slot__resource__user",
+            "token_slot__resource__location",
+            "token_slot__resource__healthcare_service",
+        )
+        .order_by("token_slot__start_datetime")
+        .first()
+    )
+
+
 def lock_create_appointment(
     token_slot,
     patient,
@@ -186,7 +256,13 @@ def lock_create_appointment(
     allocated here unless a reschedule passes the old one on. extra_slots are
     the locked, back-to-back slots a longer appointment also takes a seat in
     (desk_details.resolve_extra_slots)."""
-    with Lock(f"booking:resource:{token_slot.resource.id}"), transaction.atomic():
+    # The patient lock keeps two desks from booking the same person with two
+    # doctors at once; it is always taken before the resource lock.
+    with (
+        Lock(f"booking:patient:{patient.id}"),
+        Lock(f"booking:resource:{token_slot.resource.id}"),
+        transaction.atomic(),
+    ):
         if pending_approval and token_slot.start_datetime <= timezone.now():
             raise ValidationError("Slot has already started")
         if token_slot.end_datetime < timezone.now():
@@ -213,6 +289,16 @@ def lock_create_appointment(
                 raise ValidationError("Patient already has a booking for this slot")
             slot.allocated += 1
             slot.save()
+        # The same slot is caught above; this catches another doctor (or
+        # another of this doctor's slots) at an overlapping time.
+        slots = [token_slot, *extra_slots]
+        clash = overlapping_booking(
+            patient,
+            min(slot.start_datetime for slot in slots),
+            max(slot.end_datetime for slot in slots),
+        )
+        if clash:
+            raise PatientTimeConflictError(clash)
         channel = details.get("booking_channel") or BookingChannels.front_desk.value
         details = {
             "consultation_type": ConsultationTypes.in_person.value,

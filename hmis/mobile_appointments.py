@@ -7,6 +7,7 @@ from django.utils import timezone
 from rest_framework.exceptions import APIException, ValidationError
 
 from care.emr.api.viewsets.scheduling.availability import (
+    PatientTimeConflictError,
     SlotViewSet,
     convert_availability_and_exceptions_to_slots,
 )
@@ -261,6 +262,8 @@ def submit_booking(account, request_id, slot_id, patient_notes):
                 None,
                 pending_approval=True,
             )
+        except PatientTimeConflictError as exc:
+            raise AppointmentConflict(exc.message) from exc
         except ValidationError as exc:
             raise AppointmentConflict(exc.detail) from exc
         MobileAppointmentSubmission.objects.create(

@@ -31,8 +31,8 @@ from hmis.appointment_approvals import (
 from hmis.tasks import expire_app_appointment_requests
 
 
-def make_slot(user, facility):
-    start = timezone.now() + timedelta(days=1)
+def make_slot(user, facility, *, offset=timedelta(0)):
+    start = timezone.now() + timedelta(days=1) + offset
     resource, _ = SchedulableResource.objects.get_or_create(
         user=user, facility=facility, resource_type="practitioner"
     )
@@ -296,7 +296,8 @@ class AppointmentApprovalTests(CareAPITestBase):
         )
 
     def test_non_request_booking_not_reviewable_and_client_cannot_set_pending(self):
-        other_slot = make_slot(self.user, self.facility)
+        # Later than self.booking: the same patient can't be booked twice at once.
+        other_slot = make_slot(self.user, self.facility, offset=timedelta(hours=1))
         response = self.client.post(
             reverse(
                 "slot-create-appointment",
