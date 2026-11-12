@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from importlib import import_module
 
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -789,3 +790,82 @@ class OutreachTests(CareAPITestBase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn(("questionnaire",), self.locs(response))
+
+    def test_cme_and_webinar_approval_preserves_fields_and_blocks_capture(self):
+        for kind, fields in [
+            (
+                "CME",
+                {
+                    "cme_audience": "Test doctors",
+                    "cme_accreditation_body": "Not accredited",
+                    "cme_credit_hours": "2.0",
+                },
+            ),
+            (
+                "WEB",
+                {
+                    "platform": "Zoom",
+                    "join_link": "https://example.com/test-webinar",
+                    "venue_name": "",
+                    "address": "",
+                    "pincode": "",
+                },
+            ),
+        ]:
+            with self.subTest(kind=kind):
+                event = self.approved_event(
+                    event_type=kind,
+                    has_coupon=False,
+                    tests=[],
+                    form_fields=[],
+                    **fields,
+                )
+                self.as_user(self.staff)
+                response = self.client.get(
+                    reverse("outreach-event", args=[event["id"]])
+                )
+                self.assertEqual(response.status_code, 200, response.json())
+                row = response.json()
+                self.assertEqual(row["number"], f"{kind}-LN-{self.today:%y%m}-01")
+                for key, value in fields.items():
+                    if key == "cme_credit_hours":
+                        self.assertEqual(float(row[key]), float(value))
+                    else:
+                        self.assertEqual(row[key], value)
+                self.assertEqual(self.start_session(event["id"]).status_code, 400)
+                self.as_user(self.camp_staff)
+                listed = self.client.get(reverse("camp-events")).json()["results"]
+                self.assertNotIn(event["id"], [item["id"] for item in listed])
+
+    def test_cme_and_webinar_submit_require_type_specific_fields(self):
+        for kind, required in [
+            (
+                "CME",
+                {("cme_audience",), ("cme_accreditation_body",), ("cme_credit_hours",)},
+            ),
+            ("WEB", {("platform",), ("join_link",)}),
+        ]:
+            with self.subTest(kind=kind):
+                event = self.create_event(
+                    event_type=kind, has_coupon=False, tests=[], form_fields=[]
+                )
+                response = self.act(event["id"], "submit", self.staff)
+                self.assertEqual(response.status_code, 400)
+                self.assertTrue(required <= self.locs(response))
+
+    def test_migration_retires_old_cme_and_webinar_events(self):
+        from django.apps import apps
+
+        migration = import_module("hmis.migrations.0015_outreach_camp_and_pes_only")
+        camp = self.create_event()
+        old = self.create_event(coupon_code="OLD26")
+        OutreachEvent.objects.filter(external_id=old["id"]).update(event_type="WEB")
+        retired = OutreachEvent.objects.get(external_id=old["id"])
+        migration.retire_cme_and_webinars(apps, None)
+        retired.refresh_from_db()
+        self.assertEqual((retired.status, retired.deleted), ("cancelled", True))
+        kept = OutreachEvent.objects.get(external_id=camp["id"])
+        self.assertEqual((kept.status, kept.deleted), ("draft", False))
+        self.as_user(self.staff)
+        response = self.client.get(reverse("outreach-event", args=[old["id"]]))
+        self.assertEqual(response.status_code, 404)
