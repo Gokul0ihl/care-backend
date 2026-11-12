@@ -3,7 +3,7 @@ from datetime import time, timedelta
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 from pydantic import UUID4, BaseModel, Field, model_validator
 from rest_framework.decorators import action
@@ -12,10 +12,12 @@ from rest_framework.response import Response
 
 from care.emr.api.viewsets.base import EMRBaseViewSet, EMRRetrieveMixin
 from care.emr.api.viewsets.scheduling.desk_details import (
+    MAX_SLOTS_PER_BOOKING,
     allocate_appointment_number,
     check_walk_in_reserve,
     default_visit_purpose,
     reminder_due,
+    resolve_extra_slots,
 )
 from care.emr.api.viewsets.scheduling.schedule import get_schedulable_resource
 from care.emr.models import AvailabilityException, Schedule, TokenBooking
@@ -67,6 +69,9 @@ class AppointmentBookingSpec(BaseModel):
     note: str = ""
 
     tags: list[UUID4] = []
+    # The back-to-back slots after this one that a longer appointment also
+    # holds, so four 15-minute slots book an hour (desk_details.py).
+    extra_slots: list[UUID4] = Field(default=[], max_length=MAX_SLOTS_PER_BOOKING - 1)
 
     # Desk details (resources/scheduling/slot/appointment.py).
     booking_channel: BookingChannels = BookingChannels.front_desk
@@ -168,25 +173,46 @@ def convert_availability_and_exceptions_to_slots(availabilities, exceptions, day
 
 
 def lock_create_appointment(
-    token_slot, patient, created_by, note, *, pending_approval=False, **details
+    token_slot,
+    patient,
+    created_by,
+    note,
+    *,
+    pending_approval=False,
+    extra_slots=(),
+    **details,
 ):
     """details are the desk fields of TokenBooking; the APT number is
-    allocated here unless a reschedule passes the old one on."""
+    allocated here unless a reschedule passes the old one on. extra_slots are
+    the locked, back-to-back slots a longer appointment also takes a seat in
+    (desk_details.resolve_extra_slots)."""
     with Lock(f"booking:resource:{token_slot.resource.id}"), transaction.atomic():
         if pending_approval and token_slot.start_datetime <= timezone.now():
             raise ValidationError("Slot has already started")
         if token_slot.end_datetime < timezone.now():
             raise ValidationError("Slot is already past")
-        if token_slot.allocated >= token_slot.availability.tokens_per_slot:
-            raise ValidationError("Slot is already full")
-        if (
-            TokenBooking.objects.filter(token_slot=token_slot, patient=patient)
-            .exclude(status__in=COMPLETED_STATUS_CHOICES)
-            .exists()
-        ):
-            raise ValidationError("Patient already has a booking for this slot")
-        token_slot.allocated += 1
-        token_slot.save()
+        for slot in [token_slot, *extra_slots]:
+            # A reschedule frees the old booking's seats first, maybe in these
+            # same slots, so count from the database.
+            slot.refresh_from_db(fields=["allocated"])
+            if slot.allocated >= token_slot.availability.tokens_per_slot:
+                when = timezone.localtime(slot.start_datetime)
+                msg = (
+                    "Slot is already full"
+                    if slot is token_slot
+                    else f"The slot at {when:%H:%M} is already full"
+                )
+                raise ValidationError(msg)
+            if (
+                TokenBooking.objects.filter(
+                    Q(token_slot=slot) | Q(extra_slots=slot), patient=patient
+                )
+                .exclude(status__in=COMPLETED_STATUS_CHOICES)
+                .exists()
+            ):
+                raise ValidationError("Patient already has a booking for this slot")
+            slot.allocated += 1
+            slot.save()
         channel = details.get("booking_channel") or BookingChannels.front_desk.value
         details = {
             "consultation_type": ConsultationTypes.in_person.value,
@@ -209,6 +235,8 @@ def lock_create_appointment(
             approval_status="pending" if pending_approval else "",
             **details,
         )
+        if extra_slots:
+            booking.extra_slots.set(extra_slots)
         if not pending_approval:
             generate_booking_charge_item(booking, created_by)
         return booking
@@ -410,13 +438,17 @@ class SlotViewSet(EMRRetrieveMixin, EMRBaseViewSet):
                 .select_for_update(of=("self",))
                 .get(pk=obj.pk)
             )
-            check_walk_in_reserve(obj, request_data.booking_channel.value)
+            extra_slots = resolve_extra_slots(obj, request_data.extra_slots)
+            check_walk_in_reserve(
+                obj, request_data.booking_channel.value, 1 + len(extra_slots)
+            )
             appointment = lock_create_appointment(
                 obj,
                 patient,
                 user,
                 request_data.note,
                 pending_approval=pending_approval,
+                extra_slots=extra_slots,
                 booking_channel=request_data.booking_channel.value,
                 consultation_type=request_data.consultation_type.value,
                 visit_purpose=request_data.visit_purpose.value

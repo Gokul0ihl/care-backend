@@ -48,6 +48,11 @@ class TokenBooking(EMRBaseModel):
     charge_item = models.ForeignKey(
         "emr.ChargeItem", on_delete=models.CASCADE, null=True, blank=True
     )
+    # The back-to-back slots after token_slot that a longer appointment also
+    # holds (desk_details.MAX_SLOTS_PER_BOOKING in all). Each takes a seat.
+    extra_slots = models.ManyToManyField(
+        TokenSlot, blank=True, related_name="extended_bookings"
+    )
     # Desk details (resources/scheduling/slot/appointment.py). Bookings made
     # before these existed have no APT number and a blank channel.
     appointment_number = models.CharField(

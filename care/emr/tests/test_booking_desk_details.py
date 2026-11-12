@@ -183,10 +183,10 @@ class BookingDeskDetailsTests(CareAPITestBase):
         booking.refresh_from_db()
         self.assertIsNone(booking.reminder_due_at)
 
-    def test_walk_in_only_for_today(self):
+    def test_walk_in_channel_allows_future_and_same_day_bookings(self):
         response = self.book(booking_channel="walk_in")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("only be made for today", str(response.data))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["booking_channel"], "walk_in")
 
         # Midday, so "30 minutes from now" is still today whenever the suite runs.
         noon = timezone.localtime().replace(hour=12, minute=0, second=0, microsecond=0)
@@ -277,6 +277,96 @@ class BookingDeskDetailsTests(CareAPITestBase):
             {"new_slot": str(self.slots[1].external_id), "new_booking_note": ""},
             format="json",
         )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def slot_ids(self, *slots):
+        return [str(slot.external_id) for slot in slots]
+
+    def allocated(self):
+        return [TokenSlot.objects.get(pk=slot.pk).allocated for slot in self.slots]
+
+    def test_one_appointment_holds_up_to_an_hour(self):
+        response = self.book(extra_slots=self.slot_ids(*self.slots[1:]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        data = response.json()
+        self.assertEqual(
+            [slot["id"] for slot in data["extra_slots"]], self.slot_ids(*self.slots[1:])
+        )
+        self.assertEqual(
+            datetime.datetime.fromisoformat(data["end_datetime"]),
+            local(self.tomorrow, 10),
+        )
+        self.assertEqual(self.allocated(), [1, 1, 1, 1])
+        self.assertEqual(TokenBooking.objects.count(), 1)
+        listed = self.client.get(self.list_url()).json()["results"][0]
+        self.assertEqual(len(listed["extra_slots"]), 3)
+
+        # The held slots are full for everyone else.
+        other = self.create_patient(phone_number="+919800000111")
+        response = self.book(slot=self.slots[2], patient=other)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.client.post(
+            self.booking_url(data["id"], "cancel"),
+            {"reason": "cancelled"},
+            format="json",
+        )
+        self.assertEqual(self.allocated(), [0, 0, 0, 0])
+
+    def test_extra_slots_must_follow_on_and_stay_under_an_hour(self):
+        fifth = self.create_slot(local(self.tomorrow, 10))
+        too_long = self.book(extra_slots=self.slot_ids(*self.slots[1:], fifth))
+        self.assertEqual(too_long.status_code, status.HTTP_400_BAD_REQUEST)
+        gap = self.book(extra_slots=self.slot_ids(self.slots[2]))
+        self.assertEqual(gap.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("follow each other", str(gap.data))
+        before = self.book(slot=self.slots[1], extra_slots=self.slot_ids(self.slots[0]))
+        self.assertEqual(before.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.allocated(), [0, 0, 0, 0])
+
+    def test_a_full_extra_slot_refuses_the_whole_booking(self):
+        other = self.create_patient(phone_number="+919800000112")
+        self.assertEqual(self.book(slot=self.slots[1], patient=other).status_code, 200)
+        response = self.book(extra_slots=self.slot_ids(self.slots[1]))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already full", str(response.data))
+        self.assertEqual(self.allocated(), [0, 1, 0, 0])
+
+    def test_reschedule_keeps_the_length(self):
+        data = self.book(extra_slots=self.slot_ids(self.slots[1])).json()
+        # Overlaps its own old slot: the 09:15 seat is freed and taken again.
+        response = self.client.post(
+            self.booking_url(data["id"], "reschedule"),
+            {"new_slot": str(self.slots[1].external_id), "new_booking_note": ""},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        moved = response.json()
+        self.assertEqual(
+            [slot["id"] for slot in moved["extra_slots"]], self.slot_ids(self.slots[2])
+        )
+        self.assertEqual(self.allocated(), [0, 1, 1, 0])
+
+        # No room for two slots from 09:45.
+        response = self.client.post(
+            self.booking_url(moved["id"], "reschedule"),
+            {"new_slot": str(self.slots[3].external_id), "new_booking_note": ""},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.allocated(), [0, 1, 1, 0])
+
+    def test_walk_in_reserve_counts_every_held_slot(self):
+        self.availability.walk_in_every = 4
+        self.availability.save()
+        # 4 seats, 1 held for walk-ins: three slots fit, four don't.
+        response = self.book(extra_slots=self.slot_ids(*self.slots[1:]))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("held for walk-ins", str(response.data))
+        response = self.book(extra_slots=self.slot_ids(*self.slots[1:3]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        other = self.create_patient(phone_number="+919800000113")
+        response = self.book(slot=self.slots[3], patient=other)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_facility_wide_list_and_filters(self):

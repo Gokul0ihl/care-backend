@@ -20,7 +20,10 @@ from care.emr.api.viewsets.base import (
     EMRUpdateMixin,
 )
 from care.emr.api.viewsets.scheduling import lock_create_appointment
-from care.emr.api.viewsets.scheduling.desk_details import check_walk_in_reserve
+from care.emr.api.viewsets.scheduling.desk_details import (
+    check_walk_in_reserve,
+    following_slots,
+)
 from care.emr.api.viewsets.scheduling.schedule import get_schedulable_resource
 from care.emr.models import PatientUser, TokenSlot
 from care.emr.models.organization import (
@@ -169,6 +172,7 @@ class TokenBookingViewSet(
                 "token_slot__availability",
                 "token_slot__resource",
             )
+            .prefetch_related("extra_slots")
             .order_by("-modified_date")
         )
         if self.request.user.is_service_account:
@@ -222,9 +226,10 @@ class TokenBookingViewSet(
             raise ValidationError("You cannot cancel an appointment In-Consultation")
         with transaction.atomic():
             if instance.status not in CANCELLED_STATUS_CHOICES:
-                # Free up the slot if it is not cancelled already
-                instance.token_slot.allocated -= 1
-                instance.token_slot.save()
+                # Free up the slots if it is not cancelled already
+                for slot in [instance.token_slot, *instance.extra_slots.all()]:
+                    slot.allocated -= 1
+                    slot.save()
             if request_data.note:
                 instance.note = request_data.note
             instance.status = request_data.reason
@@ -279,7 +284,13 @@ class TokenBookingViewSet(
                 .select_for_update(of=("self",))
                 .get(pk=new_slot.pk)
             )
-            check_walk_in_reserve(new_slot, existing_booking.booking_channel)
+            # A longer appointment keeps its length at the new time.
+            extra_slots = following_slots(
+                new_slot, existing_booking.extra_slots.count()
+            )
+            check_walk_in_reserve(
+                new_slot, existing_booking.booking_channel, 1 + len(extra_slots)
+            )
             self.cancel_appointment_handler(
                 existing_booking,
                 {
@@ -294,6 +305,7 @@ class TokenBookingViewSet(
                 existing_booking.patient,
                 request.user,
                 request_data.new_booking_note,
+                extra_slots=extra_slots,
                 **{
                     field: getattr(existing_booking, field)
                     for field in MOVED_ON_RESCHEDULE

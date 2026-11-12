@@ -134,11 +134,29 @@ class TokenBookingBaseReadSpec(TokenBookingBaseSpec):
     reminder_sent_at: datetime.datetime | None = None
     approval_status: str = ""
     reviewed_at: datetime.datetime | None = None
+    # The slots after token_slot that a longer appointment also holds, and
+    # when the whole appointment ends.
+    extra_slots: list[dict] = []
+    end_datetime: datetime.datetime | None = None
 
     @classmethod
     def perform_extra_serialization(cls, mapping, obj):
         mapping["id"] = obj.external_id
         mapping["token_slot"] = TokenSlotBaseSpec.serialize(obj.token_slot).to_json()
+        extra_slots = sorted(
+            obj.extra_slots.all(), key=lambda slot: slot.start_datetime
+        )
+        mapping["extra_slots"] = [
+            {
+                "id": slot.external_id,
+                "start_datetime": slot.start_datetime,
+                "end_datetime": slot.end_datetime,
+            }
+            for slot in extra_slots
+        ]
+        mapping["end_datetime"] = (
+            extra_slots[-1] if extra_slots else obj.token_slot
+        ).end_datetime
         mapping["encounter_class"] = CONSULTATION_ENCOUNTER_CLASS.get(
             obj.consultation_type, ""
         )
