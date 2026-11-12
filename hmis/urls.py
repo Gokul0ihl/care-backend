@@ -42,6 +42,7 @@ from hmis.views import (
     QuickFormView,
     QuickRegistrationView,
     RegisterView,
+    RegistrationMatchView,
     RegistrationView,
     RestrictionView,
     StagedDocumentView,
@@ -176,6 +177,11 @@ urlpatterns = [
         name="emergency-convert",
     ),
     path("registration/", RegistrationView.as_view(), name="desk-registration"),
+    path(
+        "registration/matches/",
+        RegistrationMatchView.as_view(),
+        name="registration-matches",
+    ),
     path(
         "registration/newborn/",
         NewbornRegistrationView.as_view(),

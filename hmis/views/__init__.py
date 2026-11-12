@@ -92,6 +92,7 @@ from hmis.views.quick_registration import (
 from hmis.views.registration import (
     DESK_PATIENT_RELATED,
     PatientRegistrationView,
+    RegistrationMatchView,
     RegistrationView,
     desk_patient,
     registration_columns,
@@ -119,6 +120,7 @@ __all__ = [
     "EmergencyEncounterFilters",
     "EmergencyEncounterViewSet",
     "ConvertView",
+    "RegistrationMatchView",
     "registration_columns",
     "DESK_PATIENT_RELATED",
     "save_desk_registration",

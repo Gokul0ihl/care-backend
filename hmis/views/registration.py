@@ -16,6 +16,7 @@ from hmis.constants import (
     PatientNumberSeries,
 )
 from hmis.contact import is_desk_phone
+from hmis.duplicates import find_matches
 from hmis.models import (
     ArtCouple,
     CampParticipant,
@@ -39,6 +40,7 @@ from hmis.services import (
 from hmis.specs import (
     DeskRegisterSpec,
     DeskRegistrationUpdateSpec,
+    RegistrationMatchSpec,
 )
 from hmis.views.base import (
     EmergencyAPIView,
@@ -288,3 +290,13 @@ class PatientRegistrationView(EmergencyAPIView):
             registration = serialize_registration(desk_patient(patient.external_id))
 
         return Response({"patient": patient_data, "registration": registration})
+
+
+class RegistrationMatchView(EmergencyAPIView):
+    """Existing patients the person being registered may already be: same
+    mobile, same ID, or same name and birth (hmis.duplicates). The desk asks
+    before saving; it never blocks registration."""
+
+    def post(self, request):
+        spec = RegistrationMatchSpec.model_validate(request.data)
+        return Response({"results": find_matches(request.user, spec)})
