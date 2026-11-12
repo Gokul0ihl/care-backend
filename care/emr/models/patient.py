@@ -71,13 +71,13 @@ class Patient(EMRBaseModel):
 
     # Identity
     title = models.CharField(max_length=10, blank=True, default="")
-    first_name = models.CharField(max_length=40, blank=True, default="")
-    middle_name = models.CharField(max_length=40, blank=True, default="")
-    last_name = models.CharField(max_length=40, blank=True, default="")
+    first_name = models.CharField(max_length=50, blank=True, default="")
+    middle_name = models.CharField(max_length=50, blank=True, default="")
+    last_name = models.CharField(max_length=50, blank=True, default="")
     marital_status = models.CharField(max_length=20, blank=True, default="")
     father_name = models.CharField(max_length=100, blank=True, default="")
     mother_name = models.CharField(max_length=100, blank=True, default="")
-    guardian_name = models.CharField(max_length=40, blank=True, default="")
+    guardian_name = models.CharField(max_length=50, blank=True, default="")
     guardian_relationship = models.CharField(max_length=10, blank=True, default="")
     occupation = models.CharField(max_length=50, blank=True, default="")
     religion = models.CharField(max_length=30, blank=True, default="")
@@ -105,7 +105,7 @@ class Patient(EMRBaseModel):
     permanent_pincode = models.CharField(max_length=12, blank=True, default="")
     permanent_country = models.CharField(max_length=60, blank=True, default="")
     next_of_kin_title = models.CharField(max_length=10, blank=True, default="")
-    next_of_kin_name = models.CharField(max_length=40, blank=True, default="")
+    next_of_kin_name = models.CharField(max_length=50, blank=True, default="")
     next_of_kin_relationship = models.CharField(max_length=30, blank=True, default="")
     next_of_kin_phone = models.CharField(max_length=16, blank=True, default="")
 
@@ -178,7 +178,7 @@ class Patient(EMRBaseModel):
     # Consent and communication
     consent_given_by = models.CharField(max_length=20, blank=True, default="")
     consent_method = models.CharField(max_length=20, blank=True, default="")
-    consent_witness = models.CharField(max_length=40, blank=True, default="")
+    consent_witness = models.CharField(max_length=50, blank=True, default="")
     consent_language = models.CharField(max_length=30, blank=True, default="")
     general_consent = models.BooleanField(default=False)
     data_processing_consent = models.BooleanField(default=False)

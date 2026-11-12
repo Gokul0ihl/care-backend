@@ -76,13 +76,17 @@ class PersonFields(StrictSerializer):
     def validate_first_name(self, value):
         value = " ".join(value.split())
         if not re.fullmatch(NAME_PART, value):
-            raise ValidationError("Enter 2-40 letters with single spaces.")
+            raise ValidationError(
+                "Enter 2-40 letters with single spaces (an apostrophe may join letters)."
+            )
         return value
 
     def validate_last_name(self, value):
         value = " ".join(value.split())
         if not re.fullmatch(LAST_NAME, value):
-            raise ValidationError("Enter 1-40 letters with single spaces.")
+            raise ValidationError(
+                "Enter 1-40 letters with single spaces (an apostrophe may join letters)."
+            )
         return value
 
     def validate_dob(self, value):

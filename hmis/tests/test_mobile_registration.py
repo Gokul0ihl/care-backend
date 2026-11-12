@@ -142,14 +142,15 @@ class MobileRegistrationTests(APITransactionTestCase):
             ("first_name", "A" * 41),
             ("last_name", "B" * 41),
             ("first_name", "Anne-Marie"),
-            ("last_name", "O'Example"),
+            ("last_name", "'Example"),
         ]:
             with self.subTest(field=field, value=value):
                 self.assertEqual(
                     self.complete({**self.payload, field: value}).status_code, 422
                 )
+        # An apostrophe inside a name is accepted, as on the desk forms.
         response = self.complete(
-            {**self.payload, "first_name": "A" * 40, "last_name": "B" * 40}
+            {**self.payload, "first_name": "A" * 40, "last_name": "O'Exampl" + "e" * 32}
         )
         self.assertEqual(response.status_code, 201, response.data)
 

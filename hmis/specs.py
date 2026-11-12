@@ -185,10 +185,12 @@ class EmergencyUpdateSpec(BaseModel):
         return value if value is None else one_of(ARRIVAL_MODES)(value)
 
 
-NAME_PART = r"(?=.{2,40}\Z)[A-Za-z]+( [A-Za-z]+)*"
+# Words of letters, single spaces between them, and an apostrophe inside a word
+# (D'Souza, O'Brien). Name parts are at most 50 characters.
+FULL_NAME = r"[A-Za-z]+(?:'[A-Za-z]+)*(?: [A-Za-z]+(?:'[A-Za-z]+)*)*"
+NAME_PART = r"(?=.{2,50}\Z)" + FULL_NAME
 # A last name can be a single initial.
-LAST_NAME = r"(?=.{1,40}\Z)[A-Za-z]+( [A-Za-z]+)*"
-FULL_NAME = r"[A-Za-z]+( [A-Za-z]+)*"
+LAST_NAME = r"(?=.{1,50}\Z)" + FULL_NAME
 PAYER_ID = r"[A-Z0-9/-]{1,24}"
 ABHA_ADDRESS = r"[a-z0-9._]{4,}@(abdm|sbx)"
 # Only the last 4 characters of a government ID are kept, so the server checks
@@ -423,9 +425,9 @@ class RegistrationSpec(BaseModel):
     @model_validator(mode="after")
     def validate_names(self):
         if not re.fullmatch(NAME_PART, self.first_name):
-            raise ValueError("The first name must be 2-40 letters with single spaces")
+            raise ValueError("The first name must be 2-50 letters with single spaces")
         if self.last_name and not re.fullmatch(LAST_NAME, self.last_name):
-            raise ValueError("The last name must be 1-40 letters with single spaces")
+            raise ValueError("The last name must be 1-50 letters with single spaces")
         for label, value in (
             ("middle name", self.middle_name),
             ("guardian's name", self.guardian_name),
@@ -433,7 +435,7 @@ class RegistrationSpec(BaseModel):
             ("witness's name", self.consent_witness),
         ):
             if value and not re.fullmatch(NAME_PART, value):
-                err = f"The {label} must be 2-40 letters with single spaces"
+                err = f"The {label} must be 2-50 letters with single spaces"
                 raise ValueError(err)
         for label, value in (
             ("father's name", self.father_name),
@@ -607,12 +609,12 @@ class PartnerSpec(BaseModel):
         self.last_name = self.last_name.strip()
         if not re.fullmatch(NAME_PART, self.first_name):
             raise ValueError(
-                "The partner's first name must be 2-40 letters with single spaces"
+                "The partner's first name must be 2-50 letters with single spaces"
             )
         for value in (self.middle_name, self.last_name):
             if value and not re.fullmatch(NAME_PART, value):
                 raise ValueError(
-                    "The partner's names must be 2-40 letters with single spaces"
+                    "The partner's names must be 2-50 letters with single spaces"
                 )
         one_of(IDENTITY_CARD_TYPES, blank=False)(self.identity_card_type)
         validate_id_tail(
@@ -975,6 +977,22 @@ class DeskRegistrationUpdateSpec(DeskRegisterSpec):
         return self
 
 
+class RegistrationMatchSpec(BaseModel):
+    """What the desk form has typed, to look for the patient's existing
+    record before registering (hmis.duplicates). Sent as a POST body so the
+    phone and ID don't land in URLs and logs."""
+
+    phone_number: str = Field(default="", max_length=20)
+    identity_card_type: str = Field(default="", max_length=20)
+    identity_number_last4: str = Field(default="", pattern=r"^(?:[A-Za-z0-9]{4})?$")
+    passport_number: str = Field(default="", pattern=r"^(?:[A-Za-z0-9]{6,15})?$")
+    name: str = Field(default="", max_length=200)
+    first_name: str = Field(default="", max_length=50)
+    last_name: str = Field(default="", max_length=50)
+    date_of_birth: datetime.date | None = None
+    age: int | None = Field(default=None, ge=0, le=120)
+
+
 class DocumentUploadSpec(BaseModel):
     category: DocumentCategories
     side: DocumentSides
@@ -1040,9 +1058,9 @@ def check_person(spec):
     one_of(TITLES, blank=False)(spec.title)
     one_of(["male", "female", "non_binary", "transgender"], blank=False)(spec.gender)
     if not re.fullmatch(NAME_PART, spec.first_name):
-        raise ValueError("The first name must be 2-40 letters with single spaces")
+        raise ValueError("The first name must be 2-50 letters with single spaces")
     if spec.last_name and not re.fullmatch(LAST_NAME, spec.last_name):
-        raise ValueError("The last name can only have letters and single spaces")
+        raise ValueError("The last name must be 1-50 letters with single spaces")
     today = timezone.localdate()
     if not datetime.date(1900, 1, 1) <= spec.date_of_birth <= today:
         raise ValueError("Date of birth must be between 1900 and today")
@@ -1116,7 +1134,7 @@ class QuickFormSpec(BaseModel):
             raise ValueError("Enter a valid email address")
         if self.next_of_kin_name and not re.fullmatch(NAME_PART, self.next_of_kin_name):
             raise ValueError(
-                "The next of kin's name must be 2-40 letters with single spaces"
+                "The next of kin's name must be 2-50 letters with single spaces"
             )
         if (self.next_of_kin_relationship or self.next_of_kin_phone) and not (
             self.next_of_kin_name

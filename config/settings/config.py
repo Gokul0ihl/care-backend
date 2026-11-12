@@ -246,7 +246,8 @@ MAINTAIN_FACILITY_PATIENT_NAME_IDENTIFIER = env.bool(
     "MAINTAIN_FACILITY_PATIENT_NAME_IDENTIFIER", default=True
 )
 
-PATIENT_NAME_MAX_LENGTH = env.int("PATIENT_NAME_MAX_LENGTH", default=75)
+# Three 50-character name parts and the spaces between them.
+PATIENT_NAME_MAX_LENGTH = env.int("PATIENT_NAME_MAX_LENGTH", default=152)
 
 
 # Encounter Config

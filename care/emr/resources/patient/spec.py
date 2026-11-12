@@ -57,8 +57,9 @@ class GenderChoices(str, Enum):
 
 
 # Patient name parts and payer IDs follow the POH front-office v12.1 formats (V-name, V-emp).
-NAME_PART_PATTERN = r"(?=.{2,40}\Z)[A-Za-z]+( [A-Za-z]+)*"
-FULL_NAME_PATTERN = r"[A-Za-z]+( [A-Za-z]+)*"
+# Letters with single spaces; an apostrophe may join letters inside a word (D'Souza).
+FULL_NAME_PATTERN = r"[A-Za-z]+(?:'[A-Za-z]+)*(?: [A-Za-z]+(?:'[A-Za-z]+)*)*"
+NAME_PART_PATTERN = r"(?=.{2,50}\Z)" + FULL_NAME_PATTERN
 PAYER_ID_PATTERN = r"[A-Z0-9/-]{1,24}"
 PASSPORT_PATTERN = r"[A-Z0-9]{6,15}"
 
@@ -233,7 +234,7 @@ class RegistrationDetails(BaseModel):
             ("last name", self.last_name),
         ):
             if value and not re.fullmatch(NAME_PART_PATTERN, value):
-                err = f"The {label} must be 2-40 letters with single spaces"
+                err = f"The {label} must be 2-50 letters with single spaces"
                 raise ValueError(err)
         for label, value in (
             ("father's name", self.father_name),

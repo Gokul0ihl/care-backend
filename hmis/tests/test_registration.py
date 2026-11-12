@@ -744,6 +744,44 @@ class DeskRegistrationTests(CareAPITestBase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
 
+    def test_names_take_apostrophes_and_fifty_characters(self):
+        first, last = "D'Arcy", "O'Brien" + "a" * 43  # last name: 50 characters
+        response = self.register(
+            self.body(
+                patient={"name": f"{first} {last}"},
+                first_name=first,
+                last_name=last,
+                father_name="Test D'Souza",
+            )
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        for registration, message in [
+            ({"last_name": "B" * 51}, "last name"),
+            ({"first_name": "A" * 51}, "first name"),
+            ({"first_name": "'Arcy"}, "first name"),
+            ({"first_name": "D''Arcy"}, "first name"),
+            ({"first_name": "Anne-Marie"}, "first name"),
+        ]:
+            with self.subTest(registration=registration):
+                Patient.objects.all().delete()
+                self.assert_rejected(self.body(**registration), message)
+
+    def test_adult_age_without_date_of_birth_saves_an_approximate_one(self):
+        response = self.register(self.body(patient={"date_of_birth": None, "age": 40}))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        patient = Patient.objects.get()
+        self.assertTrue(patient.meta.get("date_of_birth_approximate"))
+        self.assertEqual(
+            (patient.date_of_birth.month, patient.date_of_birth.day), (7, 1)
+        )
+        today = timezone.localdate()
+        age = (
+            today.year
+            - patient.date_of_birth.year
+            - ((today.month, today.day) < (7, 1))
+        )
+        self.assertEqual(age, 40)
+
     def child_body(self, **registration):
         return self.body(
             patient={"date_of_birth": f"{timezone.localdate().year - 10}-01-01"},
