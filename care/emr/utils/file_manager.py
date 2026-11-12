@@ -1,4 +1,7 @@
 import logging
+import re
+import unicodedata
+from urllib.parse import quote
 
 import boto3
 from botocore.exceptions import ClientError
@@ -18,6 +21,33 @@ SAFE_INLINE_FORMATS = {
     "image/x-icon",
     "application/pdf",
 }
+
+
+PLAIN_FILENAME = re.compile(r"[ -~]+")
+UNSAFE_FILENAME_CHARS = re.compile(r'["\\/;,]')
+# Em and en dashes have no ASCII decomposition, so NFKD alone would drop them.
+DASHES = {0x2014: "-", 0x2013: "-"}  # em dash, en dash
+
+
+def content_disposition(disposition, filename):
+    """S3 signs the header into the URL and refuses anything outside
+    ISO-8859-1, so names like "ID — Passport" (em dash) or in other scripts
+    made every read URL fail. Those get an ASCII fallback plus the real name
+    as RFC 5987 filename*; plain names keep the old header."""
+    if PLAIN_FILENAME.fullmatch(filename) and not UNSAFE_FILENAME_CHARS.search(
+        filename
+    ):
+        return f"{disposition}; filename={filename}"
+    ascii_name = (
+        unicodedata.normalize("NFKD", filename.translate(DASHES))
+        .encode("ascii", "ignore")
+        .decode()
+    )
+    ascii_name = UNSAFE_FILENAME_CHARS.sub("-", ascii_name).strip() or "file"
+    return (
+        f'{disposition}; filename="{ascii_name}"; '
+        f"filename*=UTF-8''{quote(filename, safe='')}"
+    )
 
 
 class FileManager:
@@ -54,16 +84,16 @@ class S3FilesManager(FileManager):
         s3 = boto3.client("s3", **config)
 
         mime_type = file_obj.meta.get("mime_type")
-        content_disposition = (
-            "inline" if mime_type in SAFE_INLINE_FORMATS else "attachment"
-        )
+        disposition = "inline" if mime_type in SAFE_INLINE_FORMATS else "attachment"
 
         return s3.generate_presigned_url(
             "get_object",
             Params={
                 "Bucket": bucket_name,
                 "Key": f"{file_obj.file_type}/{file_obj.internal_name}",
-                "ResponseContentDisposition": f"{content_disposition}; filename={file_obj.name}{file_obj.get_extension()}",
+                "ResponseContentDisposition": content_disposition(
+                    disposition, f"{file_obj.name}{file_obj.get_extension()}"
+                ),
             },
             ExpiresIn=duration,  # seconds
         )
