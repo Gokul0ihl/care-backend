@@ -377,7 +377,9 @@ class EventIn(BaseModel):
     pincode: str = Field(default="", max_length=6)
     platform: str = Field(default="", max_length=40)
     join_link: str = Field(default="", max_length=500)
-    event_date: date | None = None
+    event_date: date | None = None  # the start date
+    # The last day; blank for a one-day event (saved as the start date).
+    end_date: date | None = None
     start_time: time | None = None
     end_time: time | None = None
     expected_attendees: int | None = Field(default=None, ge=0, le=1_000_000)
@@ -561,7 +563,13 @@ def check_event(spec, facility, errors, event=None, submitting=False):  # noqa: 
     checked for a draft; submitting checks the rest."""
     kind = EVENT_TYPES[spec.event_type]
     errors.check(spec.name.strip(), "name", "Give the event a name")
-    errors.check(spec.event_date, "event_date", "Choose the event date")
+    errors.check(spec.event_date, "event_date", "Choose the start date")
+    if spec.event_date and spec.end_date:
+        errors.check(
+            spec.end_date >= spec.event_date,
+            "end_date",
+            "Must be on or after the start date",
+        )
     check_form_fields(spec.form_fields, errors)
     if spec.form_fields and not kind["capture"]:
         errors.add(
@@ -685,7 +693,7 @@ def check_event(spec, facility, errors, event=None, submitting=False):  # noqa: 
             errors.check(
                 spec.coupon_valid_from >= spec.event_date,
                 "coupon_valid_from",
-                "Can't start before the event date",
+                "Can't start before the event's start date",
             )
         for name in (
             "discount_registration_pct",
@@ -809,6 +817,7 @@ SCALAR_FIELDS = [
     "platform",
     "join_link",
     "event_date",
+    "end_date",
     "start_time",
     "end_time",
     "expected_attendees",
@@ -834,6 +843,7 @@ def write_event(spec, facility, user, event=None):
     kind = EVENT_TYPES[spec.event_type]
     values = {name: getattr(spec, name) for name in SCALAR_FIELDS}
     values["name"] = spec.name.strip()
+    values["end_date"] = spec.end_date or spec.event_date
     values["coupon_code"] = spec.coupon_code.strip().upper() if spec.has_coupon else ""
     if not kind["venue"]:
         values.update(venue_name="", address="", pincode="")
@@ -1388,6 +1398,7 @@ def event_summary(event, participants=None):
         "venue_name": event.venue_name,
         "platform": event.platform,
         "event_date": event.event_date,
+        "end_date": event.end_date,
         "start_time": event.start_time,
         "end_time": event.end_time,
         "expected_attendees": event.expected_attendees,
@@ -1664,11 +1675,11 @@ def camp_events(user):
     today = timezone.localdate()
 
     def order(event):
-        if event.event_date == today:
+        if event.event_date <= today <= event.end_date:
             return (0, 0)
         if event.event_date > today:
             return (1, (event.event_date - today).days)
-        return (2, (today - event.event_date).days)
+        return (2, (today - event.end_date).days)
 
     return sorted(events, key=order)
 
@@ -1728,6 +1739,7 @@ def camp_login_header(event):
         "type_label": EVENT_TYPES[event.event_type]["label"],
         "venue_name": event.venue_name,
         "event_date": event.event_date,
+        "end_date": event.end_date,
     }
 
 
@@ -2561,6 +2573,7 @@ def camp_visit_row(participant):
             "type_label": EVENT_TYPES[event.event_type]["label"],
             "venue_name": event.venue_name,
             "event_date": event.event_date,
+            "end_date": event.end_date,
         },
     }
 

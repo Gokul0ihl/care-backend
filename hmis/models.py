@@ -354,7 +354,10 @@ class OutreachEvent(EMRBaseModel):
     pincode = models.CharField(max_length=6, blank=True, default="")
     platform = models.CharField(max_length=40, blank=True, default="")
     join_link = models.URLField(max_length=500, blank=True, default="")
+    # The first day; end_date is the last (the same day for a one-day event).
+    # start_time and end_time are the daily hours.
     event_date = models.DateField()
+    end_date = models.DateField()
     start_time = models.TimeField(null=True, blank=True)
     end_time = models.TimeField(null=True, blank=True)
     expected_attendees = models.PositiveIntegerField(null=True, blank=True)

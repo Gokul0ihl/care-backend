@@ -188,6 +188,24 @@ class OutreachTests(CareAPITestBase):
         self.assertIsNone(event["number"])
         self.assertEqual(event["coupon_code"], "TEST26")
 
+    def test_event_runs_from_start_to_end_date(self):
+        # No end date: a one-day event.
+        event = self.create_event()
+        self.assertEqual(event["end_date"], str(self.today))
+        event = self.create_event(
+            coupon_code="MULTI1", end_date=str(self.today + timedelta(days=2))
+        )
+        self.assertEqual(event["end_date"], str(self.today + timedelta(days=2)))
+        response = self.client.post(
+            reverse("outreach-events"),
+            self.event_body(
+                coupon_code="MULTI2", end_date=str(self.today - timedelta(days=1))
+            ),
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(("end_date",), self.locs(response))
+
     def test_submit_checks_everything_and_numbers_the_event(self):
         event = self.create_event(
             description="short", tests=[], staff=[], questionnaire="", login_emails=[" "]
