@@ -176,6 +176,9 @@ class User(AbstractUser):
     pf_auth = models.TextField(default=None, null=True)
     totp_secret = models.TextField(blank=True, null=True)
     mfa_settings = models.JSONField(default=dict, blank=True)
+    # Sign-in tokens issued before this time are refused. Set when an admin
+    # signs the user out of all devices or deactivates the account.
+    tokens_valid_after = models.DateTimeField(null=True, blank=True)
 
     # Preferences
 

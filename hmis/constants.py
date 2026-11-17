@@ -346,3 +346,15 @@ APP_SERVER_PERMISSIONS = [
 ]
 APP_PATIENT_ROLE = "App server patient"
 APP_PATIENT_PERMISSIONS = ["can_list_patients", "can_write_patient"]
+
+
+# The IHL config portal (Adminconfigportal/portal-api, docs in hmis_fe/docs/api-keys.md).
+# It calls each client's backend with an API key that acts as this service
+# account, which has no roles, and whose key scope only reaches the admin paths.
+PLATFORM_USERNAME = "ihl-platform"
+PLATFORM_ADMIN_PATH_PREFIX = "/api/hmis/admin/"
+
+
+class ApiKeyScopes(models.TextChoices):
+    full = "full", "Full: everything its user may do"
+    platform_admin = "platform_admin", "IHL portal: /api/hmis/admin/ only"
