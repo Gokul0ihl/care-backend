@@ -422,6 +422,150 @@ class MobileAppointmentTests(CareAPITestBase):
             405,
         )
 
+    # Longer appointments: back-to-back slots in one session.
+
+    def hour_of_slots(self, tokens_per_slot=1):
+        """Opens 10:00-11:00 as four 15-minute slots and returns them as listed."""
+        availability = self.slot.availability
+        availability.availability[0]["end_time"] = "11:00:00"
+        availability.tokens_per_slot = tokens_per_slot
+        availability.save()
+        return self.client.get(self.slots_url, {"date": self.day}).data["data"]
+
+    def ids(self, items):
+        return [item["id"] for item in items]
+
+    def test_longer_appointment_holds_back_to_back_slots(self):
+        data = self.hour_of_slots()
+        items = data["items"]
+        self.assertEqual(data["max_slots_per_booking"], 4)
+        self.assertEqual(len(items), 4)
+        self.assertEqual(
+            {item["session_id"] for item in items},
+            {str(self.slot.availability.external_id)},
+        )
+        response = self.submit({**self.payload, "extra_slot_ids": self.ids(items[1:3])})
+        self.assertEqual(response.status_code, 201, response.data)
+        row = response.data["data"]
+        self.assertEqual(row["slot_id"], items[0]["id"])
+        self.assertEqual(self.ids(row["extra_slots"]), self.ids(items[1:3]))
+        self.assertEqual(row["end_datetime"].isoformat(), items[2]["end_datetime"])
+        self.assertEqual(
+            self.client.get(f"{BASE}/{row['id']}").data["data"]["extra_slots"],
+            row["extra_slots"],
+        )
+        listed = self.client.get(self.slots_url, {"date": self.day}).data["data"]
+        self.assertEqual(
+            [item["available"] for item in listed["items"]], [False, False, False, True]
+        )
+        review_booking(row["id"], "rejected", "Test doctor unavailable", self.doctor)
+        listed = self.client.get(self.slots_url, {"date": self.day}).data["data"]
+        self.assertTrue(all(item["available"] for item in listed["items"]))
+
+    def test_extra_slots_must_follow_on_have_seats_and_be_offered(self):
+        items = self.hour_of_slots()["items"]
+
+        def submit(extra):
+            return self.submit(
+                {**self.payload, "request_id": str(uuid4()), "extra_slot_ids": extra}
+            )
+
+        self.assertEqual(submit(self.ids(items[2:3])).status_code, 409)  # a gap
+        self.assertEqual(submit([items[0]["id"]]).status_code, 422)  # repeats slot_id
+        self.assertEqual(submit([str(uuid4())]).status_code, 409)  # unknown
+        too_long = submit([*self.ids(items[1:]), str(uuid4())])
+        self.assertEqual(too_long.status_code, 422)  # more than an hour
+
+        # A slot closed by an exception after it was listed.
+        exception = baker.make(
+            AvailabilityException,
+            resource=self.slot.resource,
+            valid_from=self.day,
+            valid_to=self.day,
+            start_time=time(10, 30),
+            end_time=time(10, 45),
+        )
+        self.assertEqual(submit(self.ids(items[1:3])).status_code, 409)
+        exception.delete()
+
+        other = self.create_patient(phone_number="+919800001115")
+        response = patient_client(other).post(
+            BASE,
+            {"request_id": str(uuid4()), "slot_id": items[1]["id"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        full = submit(self.ids(items[1:2]))
+        self.assertEqual(full.status_code, 409)
+        self.assertIn("full", str(full.data))
+        # Nothing but the other patient's booking holds a seat.
+        self.assertEqual(TokenBooking.objects.count(), 1)
+        listed = self.client.get(self.slots_url, {"date": self.day}).data["data"]
+        self.assertEqual(
+            [item["available"] for item in listed["items"]], [True, False, True, True]
+        )
+
+    def test_retry_must_repeat_the_same_extra_slots(self):
+        items = self.hour_of_slots()["items"]
+        payload = {**self.payload, "extra_slot_ids": self.ids(items[1:2])}
+        first = self.submit(payload)
+        self.assertEqual(first.status_code, 201, first.data)
+        self.assertEqual(self.submit(payload).status_code, 200)
+        self.assertEqual(self.submit(self.payload).status_code, 409)
+        self.assertEqual(
+            self.submit(
+                {**payload, "extra_slot_ids": self.ids(items[1:3])}
+            ).status_code,
+            409,
+        )
+        self.assertEqual(TokenBooking.objects.count(), 1)
+
+    def test_upcoming_lasts_until_the_last_slot_ends(self):
+        items = self.hour_of_slots()["items"]
+        row = self.submit(
+            {**self.payload, "extra_slot_ids": self.ids(items[1:2])}
+        ).data["data"]
+        review_booking(row["id"], "approved", user=self.doctor)
+        booking = TokenBooking.objects.get(external_id=row["id"])
+        now = timezone.now()
+        first, second = booking.token_slot, booking.extra_slots.get()
+        first.start_datetime, first.end_datetime = now - timedelta(minutes=20), now
+        first.save()
+        second.start_datetime = now
+        second.end_datetime = now + timedelta(minutes=10)
+        second.save()
+        self.assertEqual(
+            self.client.get(BASE, {"upcoming": True}).data["data"]["total"], 1
+        )
+        self.assertEqual(
+            self.client.get(BASE, {"upcoming": False}).data["data"]["total"], 0
+        )
+
+    def test_walk_in_reserve_counts_every_held_slot(self):
+        availability = self.slot.availability
+        availability.walk_in_every = 2
+        availability.save()
+        # 8 seats, 4 held for walk-ins.
+        items = self.hour_of_slots(tokens_per_slot=2)["items"]
+        response = self.submit({**self.payload, "extra_slot_ids": self.ids(items[1:3])})
+        self.assertEqual(response.status_code, 201, response.data)
+        listed = self.client.get(self.slots_url, {"date": self.day}).data["data"]
+        self.assertEqual(
+            [item["seats_remaining"] for item in listed["items"]], [1, 1, 1, 1]
+        )
+        other = self.create_patient(phone_number="+919800001116")
+        response = patient_client(other).post(
+            BASE,
+            {
+                "request_id": str(uuid4()),
+                "slot_id": items[2]["id"],
+                "extra_slot_ids": self.ids(items[3:4]),
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 409, response.data)
+        self.assertIn("walk-in", str(response.data))
+
 
 class MobileAppointmentConcurrencyTests(TransactionTestCase):
     def setUp(self):

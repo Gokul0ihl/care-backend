@@ -1,9 +1,11 @@
 """Mobile API v1: self-only in-person appointments with staff approval."""
 
-from django.db.models import Q
+from django.db.models import F, Max, Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import serializers
 
+from care.emr.api.viewsets.scheduling.desk_details import MAX_SLOTS_PER_BOOKING
 from care.emr.models import SchedulableResource
 from care.facility.models import Facility
 from care.utils.shortcuts import get_object_or_404
@@ -63,6 +65,13 @@ class BookingQuery(PageQuery):
 class SubmitSpec(StrictSerializer):
     request_id = serializers.UUIDField()
     slot_id = serializers.UUIDField()
+    # The back-to-back slots after slot_id, for a longer appointment.
+    extra_slot_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        max_length=MAX_SLOTS_PER_BOOKING - 1,
+        required=False,
+        default=list,
+    )
     patient_notes = serializers.CharField(max_length=500, allow_blank=True, default="")
 
 
@@ -165,6 +174,7 @@ class MobileAppointmentSlotsView(MobileView):
                 "doctor_id": str(doctor_id),
                 "date": params["date"],
                 "timezone": timezone.get_current_timezone_name(),
+                "max_slots_per_booking": MAX_SLOTS_PER_BOOKING,
                 "items": available_slots(resource, params["date"]),
             }
         )
@@ -213,10 +223,16 @@ class MobileAppointmentListCreateView(MobileView):
                     "in_consultation",
                 ]
             )
+            # A longer appointment runs until its last slot ends.
+            query = query.annotate(
+                ends_at=Coalesce(
+                    Max("extra_slots__end_datetime"), F("token_slot__end_datetime")
+                )
+            )
             if params["upcoming"]:
-                query = query.filter(token_slot__end_datetime__gt=timezone.now())
+                query = query.filter(ends_at__gt=timezone.now())
             else:
-                query = query.filter(token_slot__end_datetime__lte=timezone.now())
+                query = query.filter(ends_at__lte=timezone.now())
         return ok(
             page_data(
                 query.order_by("-token_slot__start_datetime", "-id"),

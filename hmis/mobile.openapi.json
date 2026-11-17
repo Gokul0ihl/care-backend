@@ -410,7 +410,7 @@
           "Mobile appointments"
         ],
         "summary": "Submit own in-person appointment for staff approval",
-        "description": "Only request_id, slot_id and optional patient_notes are accepted. Patient is determined by access token. New submission holds one seat and returns 201 pending. An identical request_id+normalized payload replay returns 200 with the same booking\u2019s latest status; changed payload returns 409. The receipt and booking commit atomically. No family, cancellation/reschedule request or online payment is provided.",
+        "description": "Only request_id, slot_id, optional extra_slot_ids (a longer appointment) and optional patient_notes are accepted. Patient is determined by access token. New submission holds one seat in each slot and returns 201 pending. An identical request_id+normalized payload replay returns 200 with the same booking\u2019s latest status; changed payload returns 409. The receipt and booking commit atomically. No family, cancellation/reschedule request or online payment is provided.",
         "parameters": [],
         "responses": {
           "200": {
@@ -484,6 +484,7 @@
               "example": {
                 "request_id": "44444444-4444-4444-8444-444444444444",
                 "slot_id": "33333333-3333-4333-8333-333333333333",
+                "extra_slot_ids": [],
                 "patient_notes": "Test consultation note"
               }
             }
@@ -1243,6 +1244,7 @@
         "type": "object",
         "required": [
           "id",
+          "session_id",
           "start_datetime",
           "end_datetime",
           "seats_remaining",
@@ -1252,6 +1254,11 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The doctor's session (Care availability). A longer appointment takes slots straight after the first one with the same session_id."
           },
           "start_datetime": {
             "type": "string",
@@ -1299,7 +1306,18 @@
           },
           "slot_id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The appointment's first slot."
+          },
+          "extra_slot_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "maxItems": 3,
+            "default": [],
+            "description": "For a longer appointment: the slots that follow slot_id back-to-back in the same session, in order, up to max_slots_per_booking - 1. Each takes a seat; if any is full or closed the whole booking is refused (409)."
           },
           "patient_notes": {
             "type": "string",
@@ -1325,6 +1343,7 @@
           "facility",
           "doctor",
           "slot_id",
+          "extra_slots",
           "start_datetime",
           "end_datetime",
           "patient_notes",
@@ -1400,7 +1419,34 @@
           },
           "slot_id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The appointment's first slot."
+          },
+          "extra_slots": {
+            "type": "array",
+            "description": "Further slots a longer appointment holds, in order. Empty for one slot.",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "start_datetime",
+                "end_datetime"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "start_datetime": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "end_datetime": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
           },
           "start_datetime": {
             "type": "string",
@@ -1408,7 +1454,8 @@
           },
           "end_datetime": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When the whole appointment ends, after any extra slots."
           },
           "patient_notes": {
             "type": "string",
@@ -1449,6 +1496,7 @@
           "doctor_id",
           "date",
           "timezone",
+          "max_slots_per_booking",
           "items"
         ],
         "properties": {
@@ -1466,6 +1514,11 @@
           },
           "timezone": {
             "type": "string"
+          },
+          "max_slots_per_booking": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Most slots one appointment can hold, counting the first (currently 4)."
           },
           "items": {
             "type": "array",
