@@ -358,3 +358,44 @@ PLATFORM_ADMIN_PATH_PREFIX = "/api/hmis/admin/"
 class ApiKeyScopes(models.TextChoices):
     full = "full", "Full: everything its user may do"
     platform_admin = "platform_admin", "IHL portal: /api/hmis/admin/ only"
+
+
+# --- OPD: vitals station and visit stages (docs/opd-vitals-to-rx.md) -------
+
+
+class OpdStage(models.TextChoices):
+    """Where an outpatient visit is. Care's Token only knows created → in
+    progress → fulfilled for one doctor's queue; the stages are ours."""
+
+    waiting_vitals = "waiting_vitals", "Waiting for vitals"
+    at_vitals = "at_vitals", "At the vitals station"
+    waiting_doctor = "waiting_doctor", "Waiting for the doctor"
+    with_doctor = "with_doctor", "With the doctor"
+    done = "done", "Done"
+    left = "left", "Left without being seen"
+
+
+class OpdStationStatus(models.TextChoices):
+    """OPD02: what the nurse on a vitals station is doing."""
+
+    available = "available", "Available"
+    lunch = "lunch", "Lunch break"
+    emergency = "emergency", "Called to Emergency"
+    ipd = "ipd", "Called to IPD"
+    doctor_cabin = "doctor_cabin", "In a doctor's cabin"
+    away = "away", "Away"
+
+
+class VitalsSource(models.TextChoices):
+    """OPD06: where a reading came from. Stored in Observation.method."""
+
+    manual = "manual", "Manual"
+    pod = "pod", "Health pod"
+    device = "device", "Device"
+    voice = "voice", "Spoken"
+    wearable = "wearable", "Wearable"
+
+
+class OpdVitalsStatus(models.TextChoices):
+    current = "current", "Current"
+    corrected = "corrected", "Corrected"

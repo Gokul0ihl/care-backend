@@ -1225,3 +1225,59 @@ class AppRegisterSpec(BaseModel):
         if self.abha_number and not self.identity_storage_consent:
             raise ValueError("Consent is required to store the ABHA number")
         return self
+
+
+# --- OPD vitals station (hmis/opd.py, hmis/opd_vitals.py) -----------------
+
+
+class OpdVitalsSaveSpec(BaseModel):
+    visit: UUID4
+    # A fresh UUID per save attempt; resending it returns the first result.
+    submission_key: UUID4
+    # Care's questionnaire results shape, question ids from vitals/form/.
+    results: list[dict] = []
+    sources: dict[str, str] = {}
+    not_measured: dict[str, str] = {}
+    # The current record's id, to correct it.
+    replaces: UUID4 | None = None
+
+
+class OpdWalkInSpec(BaseModel):
+    facility: UUID4
+    patient: UUID4
+    doctor: UUID4 | None = None
+    organizations: list[UUID4] = []
+
+
+class OpdStationCreateSpec(BaseModel):
+    facility: UUID4
+    code: str = Field(min_length=1, max_length=20)
+    name: str = Field(default="", max_length=100)
+    is_central: bool = False
+    doctors: list[UUID4] = []
+    is_active: bool = True
+
+    @field_validator("code")
+    @classmethod
+    def clean_code(cls, value):
+        return value.strip().upper()
+
+
+class OpdStationUpdateSpec(BaseModel):
+    code: str | None = Field(default=None, min_length=1, max_length=20)
+    name: str | None = Field(default=None, max_length=100)
+    is_central: bool | None = None
+    doctors: list[UUID4] | None = None
+    is_active: bool | None = None
+
+    @field_validator("code")
+    @classmethod
+    def clean_code(cls, value):
+        return value.strip().upper() if value is not None else value
+
+
+class OpdStationNurseSpec(BaseModel):
+    nurse: UUID4 | None = None
+    nurse_status: Literal[
+        "available", "lunch", "emergency", "ipd", "doctor_cabin", "away"
+    ] = "available"

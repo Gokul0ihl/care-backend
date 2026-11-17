@@ -9,6 +9,9 @@ from hmis.constants import (
     CaptureMethods,
     DocumentCategories,
     DocumentSides,
+    OpdStage,
+    OpdStationStatus,
+    OpdVitalsStatus,
     StatutoryCategories,
 )
 
@@ -789,3 +792,137 @@ class CampParticipantTest(models.Model):
 
     def __str__(self):
         return self.name
+
+
+# --- OPD: vitals station and visit stages (docs/opd-vitals-to-rx.md) -------
+
+
+class OpdStation(EMRBaseModel):
+    """A vitals station (OPD01). A station either serves the doctors listed
+    on it (one station per doctor or team) or, when is_central, every doctor
+    at the facility who has no station of their own."""
+
+    facility = models.ForeignKey(
+        "facility.Facility", on_delete=models.PROTECT, related_name="+"
+    )
+    code = models.CharField(max_length=20)
+    name = models.CharField(max_length=100, blank=True, default="")
+    is_central = models.BooleanField(default=False)
+    doctors = models.ManyToManyField("users.User", blank=True, related_name="+")
+    # OPD02: who is on the station now and what they're doing.
+    nurse = models.ForeignKey(
+        "users.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    nurse_status = models.CharField(
+        max_length=20,
+        choices=OpdStationStatus.choices,
+        default=OpdStationStatus.available,
+    )
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["facility", "code"],
+                condition=models.Q(deleted=False),
+                name="unique_opd_station_code",
+            )
+        ]
+
+    def __str__(self):
+        return self.code
+
+
+class OpdVisit(EMRBaseModel):
+    """One outpatient visit moving through the stages (vitals, doctor, ...).
+    The clinical record is Care's encounter; this row only tracks where the
+    patient is and which station or doctor has them."""
+
+    facility = models.ForeignKey(
+        "facility.Facility", on_delete=models.PROTECT, related_name="+"
+    )
+    # The patient is encounter.patient, so a patient merge (which moves
+    # encounters) carries the visit with it.
+    encounter = models.OneToOneField(
+        "emr.Encounter", on_delete=models.CASCADE, related_name="opd_visit"
+    )
+    booking = models.ForeignKey(
+        "emr.TokenBooking",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    doctor = models.ForeignKey(
+        "users.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    station = models.ForeignKey(
+        OpdStation,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="visits",
+    )
+    date = models.DateField()
+    # The number called on the waiting-area screen; one per facility per day,
+    # kept for every stage of the visit.
+    queue_number = models.PositiveIntegerField()
+    stage = models.CharField(
+        max_length=20, choices=OpdStage.choices, default=OpdStage.waiting_vitals
+    )
+    arrived_at = models.DateTimeField()
+    called_at = models.DateTimeField(null=True, blank=True)
+    vitals_done_at = models.DateTimeField(null=True, blank=True)
+    # [{stage, at, by}] for every move, oldest first.
+    stage_history = models.JSONField(default=list)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["facility", "date", "queue_number"],
+                name="unique_opd_queue_number",
+            )
+        ]
+        indexes = [models.Index(fields=["facility", "date", "stage"])]
+
+
+class OpdVitalsRecord(EMRBaseModel):
+    """One save of the vitals form (OPD05-08). The readings themselves are
+    Care Observations under questionnaire_response; this row keeps what Care
+    has no field for: the reading sources, the reasons a vital couldn't be
+    measured, and corrections."""
+
+    visit = models.ForeignKey(
+        OpdVisit, on_delete=models.CASCADE, related_name="vitals_records"
+    )
+    questionnaire_response = models.OneToOneField(
+        "emr.QuestionnaireResponse", on_delete=models.CASCADE, related_name="+"
+    )
+    # Sent by the browser with each save, so a retried or double-clicked save
+    # returns the first result instead of saving twice.
+    submission_key = models.UUIDField(unique=True)
+    status = models.CharField(
+        max_length=20,
+        choices=OpdVitalsStatus.choices,
+        default=OpdVitalsStatus.current,
+    )
+    replaces = models.OneToOneField(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="replaced_by",
+    )
+    # {link_id: source} and {link_id: reason}.
+    sources = models.JSONField(default=dict)
+    not_measured = models.JSONField(default=dict)
+    # The calculated values and flags returned to the station, as saved.
+    summary = models.JSONField(default=dict)

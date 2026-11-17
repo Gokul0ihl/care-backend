@@ -60,6 +60,16 @@ from hmis.views.branding import (
     AdminBrandingView,
     PublicBrandingView,
 )
+from hmis.views.opd import (
+    OpdStationCallNextView,
+    OpdStationDetailView,
+    OpdStationNurseView,
+    OpdStationQueueView,
+    OpdStationView,
+    OpdVisitView,
+    OpdVitalsFormView,
+    OpdVitalsView,
+)
 from hmis.views.platform_admin import (
     AdminOverviewView,
     AdminWhoAmIView,
@@ -278,5 +288,29 @@ urlpatterns = [
         BreakGlassView.as_view(),
         name="patient-break-glass",
     ),
+    path("opd/stations/", OpdStationView.as_view(), name="opd-stations"),
+    path(
+        "opd/stations/<uuid:station_id>/",
+        OpdStationDetailView.as_view(),
+        name="opd-station",
+    ),
+    path(
+        "opd/stations/<uuid:station_id>/nurse/",
+        OpdStationNurseView.as_view(),
+        name="opd-station-nurse",
+    ),
+    path(
+        "opd/stations/<uuid:station_id>/queue/",
+        OpdStationQueueView.as_view(),
+        name="opd-station-queue",
+    ),
+    path(
+        "opd/stations/<uuid:station_id>/call-next/",
+        OpdStationCallNextView.as_view(),
+        name="opd-station-call-next",
+    ),
+    path("opd/visits/", OpdVisitView.as_view(), name="opd-visits"),
+    path("opd/vitals/form/", OpdVitalsFormView.as_view(), name="opd-vitals-form"),
+    path("opd/vitals/", OpdVitalsView.as_view(), name="opd-vitals"),
     *router.urls,
 ]
