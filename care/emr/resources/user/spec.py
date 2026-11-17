@@ -1,3 +1,4 @@
+import datetime
 import re
 
 from django.contrib.auth.password_validation import validate_password
@@ -94,6 +95,8 @@ class UserCreateSpec(UserUpdateSpec):
             return None
         try:
             validate_password(password)
+        except ValidationError as e:
+            raise ValueError("Password is too weak: " + " ".join(e.messages)) from e
         except Exception as e:
             raise ValueError("Password is too weak") from e
         return password
@@ -144,6 +147,22 @@ class UserRetrieveSpec(UserSpec):
         mapping["flags"] = obj.get_all_flags()
 
 
+class UserAccountStatusMixin(BaseModel):
+    """Account fields the user list and detail show to admins."""
+
+    is_active: bool = True
+    is_superuser: bool = False
+    date_joined: datetime.datetime | None = None
+
+
+class UserListSpec(UserSpec, UserAccountStatusMixin):
+    pass
+
+
+class UserDetailSpec(UserRetrieveSpec, UserAccountStatusMixin):
+    pass
+
+
 class CurrentUserRetrieveSpec(UserRetrieveSpec):
     is_superuser: bool
     qualification: str | None
@@ -160,6 +179,8 @@ class CurrentUserRetrieveSpec(UserRetrieveSpec):
     facilities: list[dict]
     permissions: list[str]
     preferences: dict
+    # Security policy says this user must set up two-factor sign-in.
+    mfa_setup_required: bool = False
 
     @classmethod
     def perform_extra_serialization(cls, mapping, obj: User) -> None:
@@ -189,6 +210,9 @@ class CurrentUserRetrieveSpec(UserRetrieveSpec):
             FacilityBareMinimumSpec.serialize(obj).to_json() for obj in user_facilities
         ]
 
+        from care.security.policy import mfa_setup_required
+
+        mapping["mfa_setup_required"] = mfa_setup_required(obj)
         mapping["permissions"] = list(
             RolePermission.objects.filter(
                 role_id__in=OrganizationUser.objects.filter(user=obj).values_list(

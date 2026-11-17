@@ -106,6 +106,11 @@ from care.emr.api.viewsets.tag_config import TagConfigViewSet
 from care.emr.api.viewsets.totp import TOTPViewSet
 from care.emr.api.viewsets.user import UserViewSet
 from care.emr.api.viewsets.valueset import ValueSetViewSet
+from care.security.api.viewsets.access_admin import (
+    AccessAdminViewSet,
+    AccessAuditViewSet,
+)
+from care.security.api.viewsets.access_requests import AccessRequestViewSet
 from care.security.api.viewsets.permissions import PermissionViewSet
 from care.security.api.viewsets.roles import RoleViewSet
 from care.users.api.otp_viewset.reset_password import OTPResetPasswordView
@@ -191,6 +196,12 @@ router.register(
 router.register("role", RoleViewSet, basename="role")
 
 router.register("permission", PermissionViewSet, basename="permission")
+
+router.register("access_audit", AccessAuditViewSet, basename="access-audit")
+
+router.register("access_admin", AccessAdminViewSet, basename="access-admin")
+
+router.register("access_request", AccessRequestViewSet, basename="access-request")
 
 
 router.register("encounter", EncounterViewSet, basename="encounter")

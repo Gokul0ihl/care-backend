@@ -8,6 +8,7 @@ from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from rest_framework.authentication import BaseAuthentication, get_authorization_header
 from rest_framework.exceptions import AuthenticationFailed
 
+from hmis.constants import PLATFORM_ADMIN_PATH_PREFIX, ApiKeyScopes
 from hmis.models import ApiKey
 
 KEY_PREFIX = "poh_"
@@ -69,6 +70,13 @@ class ApiKeyAuthentication(BaseAuthentication):
             raise AuthenticationFailed(_("Invalid or expired API key."))
         if not api_key.user.is_active:
             raise AuthenticationFailed(_("The API key's user is inactive."))
+        if api_key.scope == ApiKeyScopes.platform_admin and not request.path.startswith(
+            PLATFORM_ADMIN_PATH_PREFIX
+        ):
+            # A leaked portal key can't read patients or bills.
+            raise AuthenticationFailed(
+                _("This API key only works for the IHL portal's admin endpoints.")
+            )
         if (
             api_key.last_used_at is None
             or now - api_key.last_used_at > LAST_USED_RESOLUTION

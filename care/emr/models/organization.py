@@ -119,6 +119,8 @@ class OrganizationUser(EMRBaseModel):
     organization = models.ForeignKey("Organization", on_delete=models.CASCADE)
     user = models.ForeignKey("users.User", on_delete=models.CASCADE)
     role = models.ForeignKey("security.RoleModel", on_delete=models.CASCADE)
+    # Access ends at this time; the nightly expire_role_assignments task removes it.
+    expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
     def save(self, *args, **kwargs):
         from care.emr.resources.organization.spec import OrganizationTypeChoices
@@ -154,3 +156,5 @@ class FacilityOrganizationUser(EMRBaseModel):
     organization = models.ForeignKey("FacilityOrganization", on_delete=models.CASCADE)
     user = models.ForeignKey("users.User", on_delete=models.CASCADE)
     role = models.ForeignKey("security.RoleModel", on_delete=models.CASCADE)
+    # Access ends at this time; the nightly expire_role_assignments task removes it.
+    expires_at = models.DateTimeField(null=True, blank=True, db_index=True)

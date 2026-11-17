@@ -1,0 +1,1170 @@
+// Registration, Appointment and Health Camp tables
+// Generated from the Django models (care + hmis). Regenerate rather than edit by hand.
+// created_by_id / updated_by_id point to users_user; those refs are left out to keep the diagram readable.
+// Open at https://dbdiagram.io (Import > DBML) or with the VS Code 'DBML Language' extension.
+
+Project care_backend {
+  database_type: 'PostgreSQL'
+}
+
+
+Table emr_patient {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  name varchar(200) [not null]
+  gender varchar(35) [not null]
+  phone_number varchar(14) [not null]
+  emergency_phone_number varchar(14) [not null]
+  address text [not null]
+  permanent_address text [not null]
+  pincode integer
+  date_of_birth date
+  year_of_birth integer
+  deceased_datetime "timestamp with time zone"
+  blood_group varchar(16) [not null]
+  geo_organization_id bigint
+  organization_cache "integer[]" [not null]
+  users_cache "integer[]" [not null]
+  instance_identifiers jsonb
+  facility_identifiers jsonb
+  instance_tags "integer[]" [not null]
+  facility_tags jsonb
+  extensions jsonb [not null]
+  registration_facility_id bigint
+  registered_at "timestamp with time zone"
+  registered_by_id bigint
+  registration_type varchar(10) [not null]
+  title varchar(10) [not null]
+  first_name varchar(40) [not null]
+  middle_name varchar(40) [not null]
+  last_name varchar(40) [not null]
+  marital_status varchar(20) [not null]
+  father_name varchar(100) [not null]
+  mother_name varchar(100) [not null]
+  guardian_name varchar(40) [not null]
+  guardian_relationship varchar(10) [not null]
+  occupation varchar(50) [not null]
+  religion varchar(30) [not null]
+  preferred_language varchar(30) [not null]
+  mobile_owner varchar(20) [not null]
+  whatsapp_number varchar(16) [not null]
+  whatsapp_owner varchar(20) [not null]
+  alternate_phone_number varchar(16) [not null]
+  alternate_phone_owner varchar(20) [not null]
+  email varchar(254) [not null]
+  house varchar(100) [not null]
+  street varchar(150) [not null]
+  locality varchar(100) [not null]
+  city varchar(100) [not null]
+  district varchar(100) [not null]
+  state varchar(100) [not null]
+  permanent_house varchar(100) [not null]
+  permanent_street varchar(150) [not null]
+  permanent_locality varchar(100) [not null]
+  permanent_city varchar(100) [not null]
+  permanent_district varchar(100) [not null]
+  permanent_state varchar(100) [not null]
+  permanent_pincode varchar(12) [not null]
+  permanent_country varchar(60) [not null]
+  next_of_kin_title varchar(10) [not null]
+  next_of_kin_name varchar(40) [not null]
+  next_of_kin_relationship varchar(30) [not null]
+  next_of_kin_phone varchar(16) [not null]
+  nationality_category varchar(20) [not null]
+  identity_storage_consent boolean [not null]
+  identity_card_type varchar(20) [not null]
+  identity_number_last4 varchar(4) [not null]
+  capture_id_method varchar(12) [not null]
+  abha_status varchar(10) [not null]
+  abha_number varchar(14) [not null]
+  abha_address varchar(60) [not null]
+  nationality varchar(60) [not null]
+  passport_number varchar(15) [not null]
+  passport_expiry date
+  visa_type varchar(30) [not null]
+  visa_expiry date
+  frro_c_form varchar(50) [not null]
+  address_in_india varchar(300) [not null]
+  interpreter_language varchar(30) [not null]
+  allergy_status varchar(10) [not null]
+  assistance_needs "varchar(30)[]" [not null]
+  pregnancy_status varchar(20) [not null]
+  is_vip boolean [not null]
+  vip_note varchar(200) [not null]
+  vip_authorised_by varchar(100) [not null]
+  handle_with_care boolean [not null]
+  vip_flagged_by_id bigint
+  payer_type varchar(20) [not null]
+  payer_name varchar(200) [not null]
+  staff_category varchar(20) [not null]
+  employee_id varchar(24) [not null]
+  policy_number varchar(24) [not null]
+  policy_valid_till date
+  policy_holder_relationship varchar(30) [not null]
+  concessions jsonb [not null]
+  concession varchar(60) [not null]
+  concession_approved_by varchar(100) [not null]
+  arrival_source varchar(40) [not null]
+  lead_source varchar(60) [not null]
+  camp_name varchar(100) [not null]
+  camp_patient_id varchar(30) [not null]
+  referring_provider varchar(200) [not null]
+  referrer_registration_number varchar(30) [not null]
+  referrer_organisation varchar(200) [not null]
+  remarks text [not null]
+  consent_given_by varchar(20) [not null]
+  consent_method varchar(20) [not null]
+  consent_witness varchar(40) [not null]
+  consent_language varchar(30) [not null]
+  general_consent boolean [not null]
+  data_processing_consent boolean [not null]
+  tariff_consent boolean [not null]
+  international_tariff_consent boolean [not null]
+  share_with_referrer_consent boolean [not null]
+  abdm_link_consent boolean [not null]
+  teleconsultation_consent boolean [not null]
+  clinical_photography_consent boolean [not null]
+  research_consent boolean [not null]
+  communication_channels "varchar(20)[]" [not null]
+  do_not_contact boolean [not null]
+  promotions_consent boolean [not null]
+  promotion_purposes "varchar(30)[]" [not null]
+  quick_registered_at "timestamp with time zone"
+  quick_registered_by_id bigint
+  quick_facility_id bigint
+  quick_consultation_type varchar(20) [not null]
+  quick_department_id bigint
+  quick_doctor_id bigint
+  quick_whatsapp_same_as_mobile boolean [not null]
+  quick_send_form_link boolean [not null]
+  quick_send_payment_reminder boolean [not null]
+  quick_form_token varchar(64) [unique]
+  quick_form_expires_at "timestamp with time zone"
+  quick_form_link_sent_at "timestamp with time zone"
+  quick_form_submitted_at "timestamp with time zone"
+  quick_form_details jsonb [not null]
+  restricted_alias varchar(9) [unique]
+  restricted_at "timestamp with time zone"
+  birth_mother_id bigint
+  birth_facility_id bigint
+  born_at "timestamp with time zone"
+  birth_order smallint
+  number_of_babies smallint
+  delivery_type varchar(30) [not null]
+  gestation_weeks smallint
+  birth_weight_grams smallint
+  length_cm numeric(4, 1)
+  head_circumference_cm numeric(4, 1)
+  apgar_1_min smallint
+  apgar_5_min smallint
+  Note: 'emr.Patient'
+}
+
+Table emr_patientidentifier {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  facility_id bigint
+  patient_id bigint [not null]
+  config_id bigint [not null]
+  value varchar(1024) [not null]
+  Note: 'emr.PatientIdentifier'
+}
+
+Table emr_patientidentifierconfig {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  status varchar(255) [not null]
+  facility_id bigint
+  config jsonb
+  Note: 'emr.PatientIdentifierConfig'
+}
+
+Table emr_patientorganization {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  patient_id bigint [not null]
+  organization_id bigint [not null]
+  Note: 'emr.PatientOrganization'
+}
+
+Table emr_patientuser {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  user_id bigint [not null]
+  patient_id bigint [not null]
+  role_id bigint [not null]
+  Note: 'emr.PatientUser'
+}
+
+Table emr_consent {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  status varchar(50) [not null]
+  category varchar(50) [not null]
+  date "timestamp with time zone" [not null]
+  period jsonb [not null]
+  encounter_id bigint [not null]
+  decision varchar(10) [not null]
+  verification_details jsonb [not null]
+  note text
+  Note: 'emr.Consent'
+}
+
+Table hmis_patientnumbersequence {
+  id bigint [pk]
+  series varchar(4) [not null]
+  facility_id bigint [not null]
+  period varchar(8) [not null]
+  last_value integer [not null]
+  Note: 'hmis.PatientNumberSequence'
+}
+
+Table hmis_registrationallergy {
+  id bigint [pk]
+  patient_id bigint [not null]
+  substance varchar(100) [not null]
+  reaction varchar(100) [not null]
+  severity varchar(20) [not null]
+  Note: 'hmis.RegistrationAllergy'
+}
+
+Table hmis_patientdocument {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  file_id bigint [unique, not null]
+  patient_id bigint
+  category varchar(30) [not null]
+  side varchar(10) [not null]
+  capture_method varchar(20) [not null]
+  source varchar(100) [not null]
+  document_date date
+  Note: 'hmis.PatientDocument'
+}
+
+Table hmis_artcouple {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  woman_id bigint [unique, not null]
+  partner_id bigint [unique]
+  facility_id bigint
+  single_woman boolean [not null]
+  art_consent boolean [not null]
+  partner_identity_card_type varchar(20) [not null]
+  partner_identity_number_last4 varchar(4) [not null]
+  partner_abha_number varchar(14) [not null]
+  partner_abha_address varchar(60) [not null]
+  Note: 'hmis.ArtCouple'
+}
+
+Table hmis_statutoryflag {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  patient_id bigint [not null]
+  encounter_id bigint [not null]
+  category varchar(20) [not null]
+  Note: 'hmis.StatutoryFlag'
+}
+
+Table hmis_patientmerge {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  source_id bigint [not null]
+  target_id bigint [not null]
+  reason varchar(500) [not null]
+  choices jsonb [not null]
+  source_snapshot jsonb [not null]
+  moved jsonb [not null]
+  consent_document_id bigint
+  Note: 'hmis.PatientMerge'
+}
+
+Table hmis_mobileregistration {
+  id bigint [pk]
+  phone_number varchar(16) [unique, not null]
+  token_digest varchar(64) [unique, not null]
+  expires_at "timestamp with time zone" [not null]
+  consumed_at "timestamp with time zone"
+  Note: 'hmis.MobileRegistration'
+}
+
+Table hmis_apppatientlink {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  app_user_id varchar(64) [unique, not null]
+  patient_id bigint [not null]
+  matched boolean [not null]
+  Note: 'hmis.AppPatientLink'
+}
+
+Table hmis_patientaccount {
+  id bigint [pk]
+  patient_id bigint [unique, not null]
+  password varchar(128) [not null]
+  created_at "timestamp with time zone" [not null]
+  Note: 'hmis.PatientAccount'
+}
+
+Table hmis_patientsession {
+  id bigint [pk]
+  account_id bigint [not null]
+  phone_number varchar(16) [not null]
+  refresh_jti varchar(64) [not null]
+  previous_refresh_jti varchar(64) [not null]
+  rotated_at "timestamp with time zone"
+  fcm_token varchar(512) [not null]
+  created_at "timestamp with time zone" [not null]
+  last_used_at "timestamp with time zone"
+  revoked_at "timestamp with time zone"
+  Note: 'hmis.PatientSession'
+}
+
+Table emr_schedulableresource {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  facility_id bigint [not null]
+  resource_type varchar(255) [not null]
+  user_id bigint
+  location_id bigint
+  healthcare_service_id bigint
+  Note: 'emr.SchedulableResource'
+}
+
+Table emr_schedule {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  resource_id bigint [not null]
+  name varchar(255) [not null]
+  valid_from "timestamp with time zone" [not null]
+  valid_to "timestamp with time zone" [not null]
+  charge_item_definition_id bigint
+  revisit_allowed_days integer
+  revisit_charge_item_definition_id bigint
+  is_public boolean [not null]
+  Note: 'emr.Schedule'
+}
+
+Table emr_availability {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  schedule_id bigint [not null]
+  name varchar(255) [not null]
+  slot_type varchar [not null]
+  slot_size_in_minutes integer
+  tokens_per_slot integer
+  create_tokens boolean [not null]
+  reason text
+  availability jsonb [not null]
+  walk_in_every smallint
+  Note: 'emr.Availability'
+}
+
+Table emr_availabilityexception {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  resource_id bigint [not null]
+  name varchar(255) [not null]
+  reason text
+  valid_from date [not null]
+  valid_to date [not null]
+  start_time time [not null]
+  end_time time [not null]
+  Note: 'emr.AvailabilityException'
+}
+
+Table emr_tokenslot {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  resource_id bigint [not null]
+  availability_id bigint
+  start_datetime "timestamp with time zone" [not null]
+  end_datetime "timestamp with time zone" [not null]
+  allocated integer [not null]
+  Note: 'emr.TokenSlot'
+}
+
+Table emr_tokenbooking {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  token_slot_id bigint [not null]
+  patient_id bigint [not null]
+  booked_on "timestamp with time zone" [not null]
+  booked_by_id bigint
+  status varchar [not null]
+  note text
+  tags "integer[]" [not null]
+  associated_encounter_id bigint
+  token_id bigint
+  charge_item_id bigint
+  appointment_number varchar(20)
+  consultation_type varchar(20) [not null]
+  visit_purpose varchar(20) [not null]
+  booking_channel varchar(20) [not null]
+  reminder_due_at "timestamp with time zone"
+  reminder_sent_at "timestamp with time zone"
+  guidance_area varchar(40) [not null]
+  guidance_since varchar(20) [not null]
+  chief_complaint varchar(500) [not null]
+  approval_status varchar(12) [not null]
+  approval_reason varchar(500) [not null]
+  reviewed_at "timestamp with time zone"
+  reviewed_by_id bigint
+  Note: 'emr.TokenBooking'
+}
+
+Table emr_appointmentsequence {
+  id bigint [pk]
+  year integer [unique, not null]
+  last_value integer [not null]
+  Note: 'emr.AppointmentSequence'
+}
+
+Table emr_tokenqueue {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  facility_id bigint [not null]
+  resource_id bigint [not null]
+  name varchar(255) [not null]
+  is_primary boolean [not null]
+  date date [not null]
+  system_generated boolean [not null]
+  Note: 'emr.TokenQueue'
+}
+
+Table emr_tokensubqueue {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  facility_id bigint [not null]
+  resource_id bigint [not null]
+  name varchar(255) [not null]
+  status varchar(255) [not null]
+  current_token_id bigint
+  Note: 'emr.TokenSubQueue'
+}
+
+Table emr_tokencategory {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  facility_id bigint [not null]
+  resource_type varchar(255) [not null]
+  name varchar(255) [not null]
+  shorthand varchar(255) [not null]
+  metadata jsonb [not null]
+  default boolean [not null]
+  Note: 'emr.TokenCategory'
+}
+
+Table emr_token {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  facility_id bigint [not null]
+  patient_id bigint
+  queue_id bigint [not null]
+  category_id bigint [not null]
+  sub_queue_id bigint
+  number integer [not null]
+  status varchar(255) [not null]
+  is_next boolean [not null]
+  note text
+  booking_id bigint
+  Note: 'emr.Token'
+}
+
+Table hmis_mobileappointmentsubmission {
+  id bigint [pk]
+  account_id bigint [not null]
+  request_id uuid [not null]
+  slot_id uuid [not null]
+  patient_notes varchar(500) [not null]
+  booking_id bigint [unique, not null]
+  created_at "timestamp with time zone" [not null]
+  Note: 'hmis.MobileAppointmentSubmission'
+}
+
+Table hmis_outreachevent {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  number varchar(24) [unique]
+  event_type varchar(4) [not null]
+  facility_id bigint [not null]
+  name varchar(120) [not null]
+  theme varchar(120) [not null]
+  description text [not null]
+  venue_name varchar(120) [not null]
+  address varchar(255) [not null]
+  pincode varchar(6) [not null]
+  platform varchar(40) [not null]
+  join_link varchar(500) [not null]
+  event_date date [not null]
+  start_time time
+  end_time time
+  expected_attendees integer
+  has_coupon boolean [not null]
+  coupon_code varchar(12) [not null]
+  coupon_valid_from date
+  coupon_valid_to date
+  discount_registration_pct smallint
+  discount_consultation_pct smallint
+  discount_tests_pct smallint
+  report_delivery varchar(20) [not null]
+  permission_needed boolean [not null]
+  permission_from varchar(120) [not null]
+  permission_cost numeric(10, 2)
+  cme_audience varchar(120) [not null]
+  cme_accreditation_body varchar(60) [not null]
+  cme_credit_hours numeric(4, 1)
+  status varchar(20) [not null]
+  version integer [not null]
+  submitted_at "timestamp with time zone"
+  submitted_by_id bigint
+  decided_at "timestamp with time zone"
+  decided_by_id bigint
+  decision_remarks text [not null]
+  Note: 'hmis.OutreachEvent'
+}
+
+Table hmis_outreacheventlogin {
+  id bigint [pk]
+  event_id bigint [not null]
+  email varchar(254) [not null]
+  user_id bigint
+  Note: 'hmis.OutreachEventLogin'
+}
+
+Table hmis_outreacheventdecision {
+  id bigint [pk]
+  event_id bigint [not null]
+  version integer [not null]
+  decision varchar(10) [not null]
+  remarks text [not null]
+  decided_by_id bigint [not null]
+  decided_at "timestamp with time zone" [not null]
+  Note: 'hmis.OutreachEventDecision'
+}
+
+Table hmis_outreacheventtest {
+  id bigint [pk]
+  event_id bigint [not null]
+  external_id uuid [unique, not null]
+  name varchar(120) [not null]
+  lab_test_id bigint
+  location varchar(10) [not null]
+  fee_type varchar(4) [not null]
+  rate numeric(10, 2)
+  cost_to_poh numeric(10, 2)
+  quantity_offered integer
+  order integer [not null]
+  Note: 'hmis.OutreachEventTest'
+}
+
+Table hmis_outreacheventstaff {
+  id bigint [pk]
+  event_id bigint [not null]
+  role varchar(10) [not null]
+  user_id bigint
+  name varchar(80) [not null]
+  department varchar(80) [not null]
+  order integer [not null]
+  Note: 'hmis.OutreachEventStaff'
+}
+
+Table hmis_outreacheventcostline {
+  id bigint [pk]
+  event_id bigint [not null]
+  category varchar(12) [not null]
+  item_name varchar(120) [not null]
+  unit varchar(20) [not null]
+  quantity numeric(10, 2) [not null]
+  unit_cost numeric(10, 2) [not null]
+  order integer [not null]
+  Note: 'hmis.OutreachEventCostLine'
+}
+
+Table hmis_outreachformfield {
+  id bigint [pk]
+  event_id bigint [not null]
+  key varchar(40) [not null]
+  section varchar(80) [not null]
+  label varchar(200) [not null]
+  help_text varchar(300) [not null]
+  field_type varchar(20) [not null]
+  required boolean [not null]
+  options jsonb [not null]
+  validation jsonb [not null]
+  order integer [not null]
+  Note: 'hmis.OutreachFormField'
+}
+
+Table hmis_outreachformtemplate {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  facility_id bigint [not null]
+  name varchar(80) [not null]
+  fields jsonb [not null]
+  Note: 'hmis.OutreachFormTemplate'
+}
+
+Table hmis_campsession {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  user_id bigint [not null]
+  event_id bigint [not null]
+  device_label varchar(80) [not null]
+  started_at "timestamp with time zone" [not null]
+  ended_at "timestamp with time zone"
+  Note: 'hmis.CampSession'
+}
+
+Table hmis_campparticipant {
+  id bigint [pk]
+  external_id uuid [unique, not null]
+  created_date "timestamp with time zone"
+  modified_date "timestamp with time zone"
+  deleted boolean [not null]
+  history jsonb [not null]
+  meta jsonb [not null]
+  created_by_id bigint [note: '-> users_user']
+  updated_by_id bigint [note: '-> users_user']
+  number varchar(24) [unique, not null]
+  event_id bigint [not null]
+  session_id bigint
+  patient_id bigint
+  kind varchar(10) [not null]
+  title varchar(8) [not null]
+  first_name varchar(40) [not null]
+  middle_name varchar(40) [not null]
+  last_name varchar(40) [not null]
+  gender varchar(10) [not null]
+  date_of_birth date [not null]
+  preferred_language varchar(40) [not null]
+  nationality varchar(20) [not null]
+  blood_group varchar(8) [not null]
+  photo_id bigint
+  mobile_isd varchar(5) [not null]
+  mobile varchar(12) [not null]
+  mobile_belongs_to varchar(10) [not null]
+  whatsapp varchar(12) [not null]
+  alt_mobile_isd varchar(5) [not null]
+  alt_mobile varchar(12) [not null]
+  alt_mobile_belongs_to varchar(20) [not null]
+  address varchar(200) [not null]
+  country varchar(60) [not null]
+  state varchar(100) [not null]
+  city varchar(100) [not null]
+  district varchar(100) [not null]
+  pincode varchar(6) [not null]
+  area varchar(80) [not null]
+  permanent_same_as_current boolean [not null]
+  permanent_address jsonb [not null]
+  id_type varchar(20) [not null]
+  id_number varchar(30) [not null]
+  allergy_status varchar(8) [not null]
+  allergen varchar(60) [not null]
+  allergy_reaction varchar(60) [not null]
+  allergy_severity varchar(20) [not null]
+  bp varchar(7) [not null]
+  rbs_mg_dl smallint
+  height_cm numeric(4, 1)
+  weight_kg numeric(5, 1)
+  bmi numeric(4, 1)
+  finding text [not null]
+  refer_to_department varchar(80) [not null]
+  consent_screening boolean [not null]
+  consent_dpdp_notice boolean [not null]
+  consent_tariff boolean [not null]
+  consent_by varchar(30) [not null]
+  consent_channel varchar(30) [not null]
+  consent_witness varchar(40) [not null]
+  consent_file_id bigint
+  send_via jsonb [not null]
+  extra_answers jsonb [not null]
+  form_version integer [not null]
+  status varchar(12) [not null]
+  verification_code varchar(8) [not null]
+  captured_by_id bigint [not null]
+  captured_at "timestamp with time zone" [not null]
+  Note: 'hmis.CampParticipant'
+}
+
+Table hmis_campparticipanttest {
+  id bigint [pk]
+  participant_id bigint [not null]
+  event_test_id bigint
+  lab_test_id bigint
+  name varchar(120) [not null]
+  fee_type varchar(4) [not null]
+  rate numeric(10, 2) [not null]
+  source varchar(20) [not null]
+  payment_status varchar(6) [not null]
+  report_status varchar(20) [not null]
+  location varchar(8) [not null]
+  result varchar(20) [not null]
+  Note: 'hmis.CampParticipantTest'
+}
+
+Table emr_activitydefinition {
+  id bigint [pk]
+  Note: 'emr.ActivityDefinition (see full ERD)'
+}
+
+Table emr_chargeitem {
+  id bigint [pk]
+  Note: 'emr.ChargeItem (see full ERD)'
+}
+
+Table emr_chargeitemdefinition {
+  id bigint [pk]
+  Note: 'emr.ChargeItemDefinition (see full ERD)'
+}
+
+Table emr_encounter {
+  id bigint [pk]
+  Note: 'emr.Encounter (see full ERD)'
+}
+
+Table emr_facilitylocation {
+  id bigint [pk]
+  Note: 'emr.FacilityLocation (see full ERD)'
+}
+
+Table emr_facilityorganization {
+  id bigint [pk]
+  Note: 'emr.FacilityOrganization (see full ERD)'
+}
+
+Table emr_fileupload {
+  id bigint [pk]
+  Note: 'emr.FileUpload (see full ERD)'
+}
+
+Table emr_healthcareservice {
+  id bigint [pk]
+  Note: 'emr.HealthcareService (see full ERD)'
+}
+
+Table emr_organization {
+  id bigint [pk]
+  Note: 'emr.Organization (see full ERD)'
+}
+
+Table facility_facility {
+  id bigint [pk]
+  Note: 'facility.Facility (see full ERD)'
+}
+
+Table security_rolemodel {
+  id bigint [pk]
+  Note: 'security.RoleModel (see full ERD)'
+}
+
+Table users_user {
+  id bigint [pk]
+  Note: 'users.User (see full ERD)'
+}
+
+TableGroup Registration {
+  emr_patient
+  emr_patientidentifier
+  emr_patientidentifierconfig
+  emr_patientorganization
+  emr_patientuser
+  emr_consent
+  hmis_patientnumbersequence
+  hmis_registrationallergy
+  hmis_patientdocument
+  hmis_artcouple
+  hmis_statutoryflag
+  hmis_patientmerge
+  hmis_mobileregistration
+  hmis_apppatientlink
+  hmis_patientaccount
+  hmis_patientsession
+}
+
+TableGroup Appointment {
+  emr_schedulableresource
+  emr_schedule
+  emr_availability
+  emr_availabilityexception
+  emr_tokenslot
+  emr_tokenbooking
+  emr_appointmentsequence
+  emr_tokenqueue
+  emr_tokensubqueue
+  emr_tokencategory
+  emr_token
+  hmis_mobileappointmentsubmission
+}
+
+TableGroup Health_Camp__Outreach_ {
+  hmis_outreachevent
+  hmis_outreacheventlogin
+  hmis_outreacheventdecision
+  hmis_outreacheventtest
+  hmis_outreacheventstaff
+  hmis_outreacheventcostline
+  hmis_outreachformfield
+  hmis_outreachformtemplate
+  hmis_campsession
+  hmis_campparticipant
+  hmis_campparticipanttest
+}
+
+TableGroup Referenced_tables {
+  emr_activitydefinition
+  emr_chargeitem
+  emr_chargeitemdefinition
+  emr_encounter
+  emr_facilitylocation
+  emr_facilityorganization
+  emr_fileupload
+  emr_healthcareservice
+  emr_organization
+  facility_facility
+  security_rolemodel
+  users_user
+}
+
+Ref: emr_patient.geo_organization_id > emr_organization.id
+
+Ref: emr_patient.registration_facility_id > facility_facility.id
+
+Ref: emr_patient.registered_by_id > users_user.id
+
+Ref: emr_patient.vip_flagged_by_id > users_user.id
+
+Ref: emr_patient.quick_registered_by_id > users_user.id
+
+Ref: emr_patient.quick_facility_id > facility_facility.id
+
+Ref: emr_patient.quick_department_id > emr_facilityorganization.id
+
+Ref: emr_patient.quick_doctor_id > users_user.id
+
+Ref: emr_patient.birth_mother_id > emr_patient.id
+
+Ref: emr_patient.birth_facility_id > facility_facility.id
+
+Ref: emr_patientidentifier.facility_id > facility_facility.id
+
+Ref: emr_patientidentifier.patient_id > emr_patient.id
+
+Ref: emr_patientidentifier.config_id > emr_patientidentifierconfig.id
+
+Ref: emr_patientidentifierconfig.facility_id > facility_facility.id
+
+Ref: emr_patientorganization.patient_id > emr_patient.id
+
+Ref: emr_patientorganization.organization_id > emr_organization.id
+
+Ref: emr_patientuser.user_id > users_user.id
+
+Ref: emr_patientuser.patient_id > emr_patient.id
+
+Ref: emr_patientuser.role_id > security_rolemodel.id
+
+Ref: emr_consent.encounter_id > emr_encounter.id
+
+Ref: hmis_patientnumbersequence.facility_id > facility_facility.id
+
+Ref: hmis_registrationallergy.patient_id > emr_patient.id
+
+Ref: hmis_patientdocument.file_id - emr_fileupload.id
+
+Ref: hmis_patientdocument.patient_id > emr_patient.id
+
+Ref: hmis_artcouple.woman_id - emr_patient.id
+
+Ref: hmis_artcouple.partner_id - emr_patient.id
+
+Ref: hmis_artcouple.facility_id > facility_facility.id
+
+Ref: hmis_statutoryflag.patient_id > emr_patient.id
+
+Ref: hmis_statutoryflag.encounter_id > emr_encounter.id
+
+Ref: hmis_patientmerge.source_id > emr_patient.id
+
+Ref: hmis_patientmerge.target_id > emr_patient.id
+
+Ref: hmis_patientmerge.consent_document_id > hmis_patientdocument.id
+
+Ref: hmis_apppatientlink.patient_id > emr_patient.id
+
+Ref: hmis_patientaccount.patient_id - emr_patient.id
+
+Ref: hmis_patientsession.account_id > hmis_patientaccount.id
+
+Ref: emr_schedulableresource.facility_id > facility_facility.id
+
+Ref: emr_schedulableresource.user_id > users_user.id
+
+Ref: emr_schedulableresource.location_id > emr_facilitylocation.id
+
+Ref: emr_schedulableresource.healthcare_service_id > emr_healthcareservice.id
+
+Ref: emr_schedule.resource_id > emr_schedulableresource.id
+
+Ref: emr_schedule.charge_item_definition_id > emr_chargeitemdefinition.id
+
+Ref: emr_schedule.revisit_charge_item_definition_id > emr_chargeitemdefinition.id
+
+Ref: emr_availability.schedule_id > emr_schedule.id
+
+Ref: emr_availabilityexception.resource_id > emr_schedulableresource.id
+
+Ref: emr_tokenslot.resource_id > emr_schedulableresource.id
+
+Ref: emr_tokenslot.availability_id > emr_availability.id
+
+Ref: emr_tokenbooking.token_slot_id > emr_tokenslot.id
+
+Ref: emr_tokenbooking.patient_id > emr_patient.id
+
+Ref: emr_tokenbooking.booked_by_id > users_user.id
+
+Ref: emr_tokenbooking.associated_encounter_id > emr_encounter.id
+
+Ref: emr_tokenbooking.token_id > emr_token.id
+
+Ref: emr_tokenbooking.charge_item_id > emr_chargeitem.id
+
+Ref: emr_tokenbooking.reviewed_by_id > users_user.id
+
+Ref: emr_tokenqueue.facility_id > facility_facility.id
+
+Ref: emr_tokenqueue.resource_id > emr_schedulableresource.id
+
+Ref: emr_tokensubqueue.facility_id > facility_facility.id
+
+Ref: emr_tokensubqueue.resource_id > emr_schedulableresource.id
+
+Ref: emr_tokensubqueue.current_token_id > emr_token.id
+
+Ref: emr_tokencategory.facility_id > facility_facility.id
+
+Ref: emr_token.facility_id > facility_facility.id
+
+Ref: emr_token.patient_id > emr_patient.id
+
+Ref: emr_token.queue_id > emr_tokenqueue.id
+
+Ref: emr_token.category_id > emr_tokencategory.id
+
+Ref: emr_token.sub_queue_id > emr_tokensubqueue.id
+
+Ref: emr_token.booking_id > emr_tokenbooking.id
+
+Ref: hmis_mobileappointmentsubmission.account_id > hmis_patientaccount.id
+
+Ref: hmis_mobileappointmentsubmission.booking_id - emr_tokenbooking.id
+
+Ref: hmis_outreachevent.facility_id > facility_facility.id
+
+Ref: hmis_outreachevent.submitted_by_id > users_user.id
+
+Ref: hmis_outreachevent.decided_by_id > users_user.id
+
+Ref: hmis_outreacheventlogin.event_id > hmis_outreachevent.id
+
+Ref: hmis_outreacheventlogin.user_id > users_user.id
+
+Ref: hmis_outreacheventdecision.event_id > hmis_outreachevent.id
+
+Ref: hmis_outreacheventdecision.decided_by_id > users_user.id
+
+Ref: hmis_outreacheventtest.event_id > hmis_outreachevent.id
+
+Ref: hmis_outreacheventtest.lab_test_id > emr_activitydefinition.id
+
+Ref: hmis_outreacheventstaff.event_id > hmis_outreachevent.id
+
+Ref: hmis_outreacheventstaff.user_id > users_user.id
+
+Ref: hmis_outreacheventcostline.event_id > hmis_outreachevent.id
+
+Ref: hmis_outreachformfield.event_id > hmis_outreachevent.id
+
+Ref: hmis_outreachformtemplate.facility_id > facility_facility.id
+
+Ref: hmis_campsession.user_id > users_user.id
+
+Ref: hmis_campsession.event_id > hmis_outreachevent.id
+
+Ref: hmis_campparticipant.event_id > hmis_outreachevent.id
+
+Ref: hmis_campparticipant.session_id > hmis_campsession.id
+
+Ref: hmis_campparticipant.patient_id > emr_patient.id
+
+Ref: hmis_campparticipant.photo_id > emr_fileupload.id
+
+Ref: hmis_campparticipant.consent_file_id > emr_fileupload.id
+
+Ref: hmis_campparticipant.captured_by_id > users_user.id
+
+Ref: hmis_campparticipanttest.participant_id > hmis_campparticipant.id
+
+Ref: hmis_campparticipanttest.event_test_id > hmis_outreacheventtest.id
+
+Ref: hmis_campparticipanttest.lab_test_id > emr_activitydefinition.id

@@ -68,11 +68,16 @@ class RoleCreateSpec(RoleBaseSpec):
 
 class RoleReadSpec(RoleBaseSpec):
     permissions: list[PermissionSpec]
+    # Distinct users holding the role. Set by the role list and detail views.
+    assigned_user_count: int | None = None
 
     @classmethod
-    def perform_extra_serialization(cls, mapping, obj):
+    def perform_extra_serialization(cls, mapping, obj, *args, **kwargs):
         mapping["id"] = obj.external_id
         mapping["permissions"] = obj.get_permissions_for_role()
+        user_counts = kwargs.get("user_counts")
+        if user_counts is not None:
+            mapping["assigned_user_count"] = user_counts.get(obj.id, 0)
         return mapping
 
 

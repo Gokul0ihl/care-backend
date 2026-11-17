@@ -1,0 +1,2475 @@
+erDiagram
+  auth_group {
+    integer id PK
+    varchar_150 name UK "not null"
+  }
+  auth_group_permissions {
+    integer id PK
+    integer group_id FK "-> auth_group"
+    integer permission_id FK "-> auth_permission"
+  }
+  auth_permission {
+    integer id PK
+    varchar_255 name "not null"
+    integer content_type_id FK "-> django_content_type"
+    varchar_100 codename "not null"
+  }
+  authtoken_token {
+    varchar_40 key PK
+    bigint user_id FK, UK "-> users_user"
+    timestamptz created "not null"
+  }
+  django_admin_log {
+    integer id PK
+    timestamptz action_time "not null"
+    bigint user_id FK "-> users_user"
+    integer content_type_id FK "-> django_content_type"
+    text object_id
+    varchar_200 object_repr "not null"
+    smallint action_flag "not null"
+    text change_message "not null"
+  }
+  django_content_type {
+    integer id PK
+    varchar_100 app_label "not null"
+    varchar_100 model "not null"
+  }
+  django_session {
+    varchar_40 session_key PK
+    text session_data "not null"
+    timestamptz expire_date "not null"
+  }
+  django_site {
+    integer id PK
+    varchar_100 domain UK "not null"
+    varchar_50 name "not null"
+  }
+  emr_account {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    varchar_255 status "not null"
+    varchar_255 billing_status "not null"
+    varchar_255 name "not null"
+    jsonb service_period "not null"
+    text description
+    bigint patient_id FK "-> emr_patient"
+    jsonb cached_items "not null"
+    numeric_20__6 total_net "not null"
+    numeric_20__6 total_gross "not null"
+    numeric_20__6 total_paid "not null"
+    numeric_20__6 total_balance "not null"
+    jsonb total_price_components "not null"
+    timestamptz calculated_at
+    numeric_20__6 total_billable_charge_items "not null"
+    integer_array tags "not null"
+    jsonb extensions "not null"
+    bigint primary_encounter_id FK "-> emr_encounter"
+  }
+  emr_activitydefinition {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    integer version "not null"
+    varchar_255 slug "not null"
+    varchar_1024 title "not null"
+    varchar_100 classification "not null"
+    text derived_from_uri
+    varchar_255 status "not null"
+    text description "not null"
+    text usage "not null"
+    varchar_100 kind "not null"
+    jsonb code
+    jsonb body_site
+    integer_array specimen_requirements "not null"
+    integer_array observation_result_requirements "not null"
+    integer_array locations "not null"
+    boolean latest "not null"
+    integer_array charge_item_definitions "not null"
+    jsonb diagnostic_report_codes
+    bigint healthcare_service_id FK "-> emr_healthcareservice"
+    integer_array tags "not null"
+    bigint category_id FK "-> emr_resourcecategory"
+  }
+  emr_allergyintolerance {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_100 clinical_status
+    varchar_100 verification_status
+    varchar_100 category
+    varchar_100 criticality
+    jsonb code "not null"
+    bigint patient_id FK "-> emr_patient"
+    bigint encounter_id FK "-> emr_encounter"
+    jsonb onset "not null"
+    timestamptz recorded_date
+    timestamptz last_occurrence
+    text note
+    bigint copied_from
+    varchar_20 allergy_intolerance_type "not null"
+  }
+  emr_appointmentsequence {
+    bigint id PK
+    integer year UK "not null"
+    integer last_value "not null"
+  }
+  emr_availability {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint schedule_id FK "-> emr_schedule"
+    varchar_255 name "not null"
+    varchar slot_type "not null"
+    integer slot_size_in_minutes
+    integer tokens_per_slot
+    boolean create_tokens "not null"
+    text reason
+    jsonb availability "not null"
+    smallint walk_in_every
+  }
+  emr_availabilityexception {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint resource_id FK "-> emr_schedulableresource"
+    varchar_255 name "not null"
+    text reason
+    date valid_from "not null"
+    date valid_to "not null"
+    time start_time "not null"
+    time end_time "not null"
+  }
+  emr_chargeitem {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    varchar_255 title "not null"
+    text description
+    bigint patient_id FK "-> emr_patient"
+    bigint encounter_id FK "-> emr_encounter"
+    bigint charge_item_definition_id FK "-> emr_chargeitemdefinition"
+    bigint account_id FK "-> emr_account"
+    varchar_255 status "not null"
+    jsonb code
+    numeric_20__6 quantity
+    jsonb unit_price_components
+    jsonb total_price_components
+    numeric_20__6 total_price
+    text note
+    jsonb override_reason
+    varchar_255 service_resource
+    varchar_255 service_resource_id
+    bigint paid_invoice_id FK "-> emr_invoice"
+    timestamptz paid_on
+    integer_array tags "not null"
+    bigint performer_actor_id FK "-> users_user"
+    jsonb discount_configuration
+  }
+  emr_chargeitemdefinition {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    integer version "not null"
+    varchar_255 status "not null"
+    varchar_255 title "not null"
+    varchar_255 slug "not null"
+    text derived_from_uri
+    text description
+    text purpose
+    jsonb price_components "not null"
+    integer_array tags "not null"
+    boolean can_edit_charge_item "not null"
+    bigint category_id FK "-> emr_resourcecategory"
+    jsonb discount_configuration
+  }
+  emr_condition {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_100 clinical_status
+    varchar_100 verification_status
+    varchar_100 category
+    varchar_100 severity
+    jsonb code "not null"
+    jsonb body_site "not null"
+    bigint patient_id FK "-> emr_patient"
+    bigint encounter_id FK "-> emr_encounter"
+    jsonb onset "not null"
+    jsonb abatement "not null"
+    timestamptz recorded_date
+    text note
+  }
+  emr_consent {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_50 status "not null"
+    varchar_50 category "not null"
+    timestamptz date "not null"
+    jsonb period "not null"
+    bigint encounter_id FK "-> emr_encounter"
+    varchar_10 decision "not null"
+    jsonb verification_details "not null"
+    text note
+  }
+  emr_deliveryorder {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_255 name "not null"
+    varchar_255 status "not null"
+    text note
+    integer_array tags "not null"
+    bigint supplier_id FK "-> emr_organization"
+    bigint origin_id FK "-> emr_facilitylocation"
+    bigint destination_id FK "-> emr_facilitylocation"
+    jsonb extensions "not null"
+    bigint patient_id FK "-> emr_patient"
+    bigint patient_invoice_id FK "-> emr_invoice"
+  }
+  emr_device {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_1024 identifier
+    varchar_16 status "not null"
+    varchar_14 availability_status "not null"
+    varchar_1024 manufacturer "not null"
+    timestamptz manufacture_date
+    timestamptz expiration_date
+    varchar_1024 lot_number
+    varchar_1024 serial_number
+    varchar_1024 registered_name
+    varchar_1024 user_friendly_name
+    varchar_1024 model_number
+    varchar_1024 part_number
+    jsonb contact "not null"
+    varchar_1024 care_type
+    jsonb metadata "not null"
+    bigint facility_id FK "-> facility_facility"
+    bigint managing_organization_id FK "-> emr_facilityorganization"
+    bigint current_location_id FK "-> emr_facilitylocation"
+    bigint current_encounter_id FK "-> emr_encounter"
+    integer_array facility_organization_cache "not null"
+  }
+  emr_deviceencounterhistory {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint device_id FK "-> emr_device"
+    bigint encounter_id FK "-> emr_encounter"
+    timestamptz start "not null"
+    timestamptz end
+  }
+  emr_devicelocationhistory {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint device_id FK "-> emr_device"
+    bigint location_id FK "-> emr_facilitylocation"
+    timestamptz start "not null"
+    timestamptz end
+  }
+  emr_deviceservicehistory {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint device_id FK "-> emr_device"
+    timestamptz serviced_on
+    text note
+    jsonb edit_history "not null"
+  }
+  emr_diagnosticreport {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    varchar_255 status "not null"
+    jsonb category
+    jsonb code
+    text note
+    text conclusion
+    bigint patient_id FK "-> emr_patient"
+    bigint encounter_id FK "-> emr_encounter"
+    bigint service_request_id FK "-> emr_servicerequest"
+  }
+  emr_dispenseorder {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_255 name
+    varchar_255 status "not null"
+    text note
+    bigint location_id FK "-> emr_facilitylocation"
+    integer_array tags "not null"
+    bigint patient_id FK "-> emr_patient"
+    bigint facility_id FK "-> facility_facility"
+    varchar_100 alternate_identifier
+  }
+  emr_encounter {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_100 status
+    jsonb status_history "not null"
+    varchar_100 encounter_class
+    bigint patient_id FK "-> emr_patient"
+    jsonb period "not null"
+    bigint facility_id FK "-> facility_facility"
+    bigint appointment_id FK "-> emr_tokenbooking"
+    jsonb hospitalization "not null"
+    varchar_100 priority
+    varchar_100 external_identifier
+    jsonb care_team "not null"
+    integer_array care_team_users "not null"
+    integer_array facility_organization_cache "not null"
+    bigint current_location_id FK "-> emr_facilitylocation"
+    text discharge_summary_advice
+    integer_array tags "not null"
+    jsonb extensions "not null"
+    varchar_10 triage "not null"
+    boolean is_medico_legal
+    varchar_50 mlc_nature "not null"
+    varchar_200 police_station "not null"
+    varchar_30 mlc_number
+    text distinguishing_marks "not null"
+    varchar_40 chief_complaint "not null"
+    varchar_40 mode_of_arrival "not null"
+    varchar_200 brought_by_name "not null"
+    varchar_14 brought_by_phone "not null"
+    varchar_50 brought_by_relationship "not null"
+    boolean is_unidentified "not null"
+    timestamptz converted_at
+    bigint converted_by_id FK "-> users_user"
+  }
+  emr_encounterorganization {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint encounter_id FK "-> emr_encounter"
+    bigint organization_id FK "-> emr_facilityorganization"
+  }
+  emr_facilitylocation {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_255 status "not null"
+    varchar_255 operational_status "not null"
+    varchar_255 system_availability_status "not null"
+    varchar_255 name "not null"
+    varchar_255 description "not null"
+    varchar_255 mode "not null"
+    jsonb location_type
+    varchar_255 form "not null"
+    integer_array facility_organization_cache "not null"
+    bigint facility_id FK "-> facility_facility"
+    bigint parent_id FK "-> emr_facilitylocation"
+    boolean has_children "not null"
+    integer level_cache "not null"
+    integer_array parent_cache "not null"
+    jsonb metadata "not null"
+    jsonb cached_parent_json "not null"
+    bigint root_location_id FK "-> emr_facilitylocation"
+    bigint current_encounter_id FK "-> emr_encounter"
+    integer sort_index "not null"
+    integer_array tags "not null"
+  }
+  emr_facilitylocationencounter {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_25 status "not null"
+    bigint location_id FK "-> emr_facilitylocation"
+    bigint encounter_id FK "-> emr_encounter"
+    timestamptz start_datetime "not null"
+    timestamptz end_datetime
+  }
+  emr_facilitylocationorganization {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint location_id FK "-> emr_facilitylocation"
+    bigint organization_id FK "-> emr_facilityorganization"
+  }
+  emr_facilitymonetoryconfig {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK, UK "-> facility_facility"
+    jsonb discount_codes "not null"
+    jsonb discount_monetary_components "not null"
+    jsonb discount_configuration
+    varchar_1000 invoice_number_expression
+  }
+  emr_facilityorganization {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    boolean active "not null"
+    bigint root_org_id FK "-> emr_facilityorganization"
+    varchar_255 org_type "not null"
+    varchar_255 name "not null"
+    boolean has_children "not null"
+    text description
+    boolean system_generated "not null"
+    bigint parent_id FK "-> emr_facilityorganization"
+    integer level_cache "not null"
+    integer_array parent_cache "not null"
+    jsonb metadata "not null"
+    jsonb cached_parent_json "not null"
+    bigint facility_id FK "-> facility_facility"
+  }
+  emr_facilityorganizationuser {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint organization_id FK "-> emr_facilityorganization"
+    bigint user_id FK "-> users_user"
+    bigint role_id FK "-> security_rolemodel"
+  }
+  emr_fileupload {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_2000 name "not null"
+    varchar_2000 internal_name "not null"
+    varchar_100 associating_id "not null"
+    varchar_100 file_type "not null"
+    varchar_100 file_category "not null"
+    boolean upload_completed "not null"
+    boolean is_archived "not null"
+    text archive_reason "not null"
+    timestamptz archived_datetime
+    bigint archived_by_id FK "-> users_user"
+  }
+  emr_formsubmission {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint questionnaire_id FK "-> emr_questionnaire"
+    bigint patient_id FK "-> emr_patient"
+    bigint encounter_id FK "-> emr_encounter"
+    varchar_255 status "not null"
+    jsonb response_dump "not null"
+  }
+  emr_healthcareservice {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    jsonb styling_metadata
+    varchar_1024 name "not null"
+    jsonb service_type "not null"
+    varchar_255 internal_type
+    integer_array locations "not null"
+    text extra_details "not null"
+    bigint managing_organization_id FK "-> emr_facilityorganization"
+  }
+  emr_inventoryitem {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint location_id FK "-> emr_facilitylocation"
+    bigint product_id FK "-> emr_product"
+    varchar_255 status "not null"
+    numeric_20__6 net_content "not null"
+  }
+  emr_invoice {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    bigint patient_id FK "-> emr_patient"
+    bigint account_id FK "-> emr_account"
+    varchar_1024 title
+    varchar_100 status "not null"
+    text cancelled_reason
+    text payment_terms
+    text note
+    integer_array charge_items "not null"
+    jsonb charge_items_copy "not null"
+    jsonb total_price_components "not null"
+    numeric_20__6 total_net "not null"
+    numeric_20__6 total_gross "not null"
+    timestamptz issue_date
+    varchar_1000 number
+    boolean locked "not null"
+    jsonb lock_history "not null"
+    boolean is_refund "not null"
+  }
+  emr_medicationdispense {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_100 status "not null"
+    varchar_100 not_performed_reason
+    varchar_100 category
+    timestamptz when_prepared
+    timestamptz when_handed_over
+    text note
+    jsonb dosage_instruction
+    jsonb substitution
+    bigint encounter_id FK "-> emr_encounter"
+    bigint patient_id FK "-> emr_patient"
+    bigint location_id FK "-> emr_facilitylocation"
+    bigint authorizing_request_id FK "-> emr_medicationrequest"
+    bigint item_id FK "-> emr_inventoryitem"
+    bigint charge_item_id FK "-> emr_chargeitem"
+    numeric_20__6 quantity "not null"
+    numeric_20__6 days_supply
+    bigint order_id FK "-> emr_dispenseorder"
+  }
+  emr_medicationrequest {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_100 status
+    varchar_100 status_reason
+    varchar_100 intent
+    varchar_100 category
+    varchar_100 priority
+    boolean do_not_perform "not null"
+    jsonb method
+    jsonb medication
+    bigint patient_id FK "-> emr_patient"
+    bigint encounter_id FK "-> emr_encounter"
+    jsonb dosage_instruction
+    text note
+    timestamptz authored_on
+    bigint requester_id FK "-> users_user"
+    bigint requested_product_id FK "-> emr_productknowledge"
+    varchar_100 dispense_status
+    bigint prescription_id FK "-> emr_medicationrequestprescription"
+  }
+  emr_medicationrequestprescription {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint encounter_id FK "-> emr_encounter"
+    bigint patient_id FK "-> emr_patient"
+    varchar_100 name
+    text note
+    bigint prescribed_by_id FK "-> users_user"
+    varchar_100 status
+    varchar_100 approval_status
+    varchar_100 alternate_identifier
+    integer_array tags "not null"
+  }
+  emr_metaartifact {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_255 associating_type "not null"
+    uuid associating_external_id "not null"
+    varchar_255 name "not null"
+    varchar_255 object_type "not null"
+    jsonb object_value "not null"
+    text note
+  }
+  emr_observation {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_255 status "not null"
+    boolean is_group "not null"
+    jsonb category "not null"
+    jsonb main_code "not null"
+    jsonb alternate_coding "not null"
+    varchar_255 subject_type "not null"
+    uuid subject_id "not null"
+    bigint patient_id FK "-> emr_patient"
+    bigint encounter_id FK "-> emr_encounter"
+    timestamptz effective_datetime
+    bigint data_entered_by_id FK "-> users_user"
+    jsonb performer "not null"
+    varchar_255 value_type "not null"
+    jsonb value "not null"
+    text note "not null"
+    jsonb body_site "not null"
+    jsonb method "not null"
+    jsonb reference_range "not null"
+    varchar_255 interpretation_old
+    jsonb interpretation "not null"
+    uuid parent
+    bigint questionnaire_response_id FK "-> emr_questionnaireresponse"
+    jsonb component "not null"
+    bigint diagnostic_report_id FK "-> emr_diagnosticreport"
+    bigint observation_definition_id FK "-> emr_observationdefinition"
+  }
+  emr_observationdefinition {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    integer version "not null"
+    varchar_255 slug "not null"
+    varchar_1024 title "not null"
+    varchar_255 status "not null"
+    text description "not null"
+    text derived_from_uri "not null"
+    varchar_255 category
+    jsonb code "not null"
+    varchar_100 permitted_data_type "not null"
+    jsonb body_site
+    jsonb method
+    jsonb permitted_unit
+    jsonb component
+    jsonb qualified_ranges
+  }
+  emr_organization {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    boolean active "not null"
+    bigint root_org_id FK "-> emr_organization"
+    varchar_255 org_type "not null"
+    varchar_255 name "not null"
+    boolean has_children "not null"
+    text description
+    boolean system_generated "not null"
+    bigint parent_id FK "-> emr_organization"
+    integer level_cache "not null"
+    integer_array parent_cache "not null"
+    jsonb metadata "not null"
+    jsonb cached_parent_json "not null"
+    integer_array managing_organizations "not null"
+  }
+  emr_organizationuser {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint organization_id FK "-> emr_organization"
+    bigint user_id FK "-> users_user"
+    bigint role_id FK "-> security_rolemodel"
+  }
+  emr_patient {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_200 name "not null"
+    varchar_35 gender "not null"
+    varchar_14 phone_number "not null"
+    varchar_14 emergency_phone_number "not null"
+    text address "not null"
+    text permanent_address "not null"
+    integer pincode
+    date date_of_birth
+    integer year_of_birth
+    timestamptz deceased_datetime
+    varchar_16 blood_group "not null"
+    bigint geo_organization_id FK "-> emr_organization"
+    integer_array organization_cache "not null"
+    integer_array users_cache "not null"
+    jsonb instance_identifiers
+    jsonb facility_identifiers
+    integer_array instance_tags "not null"
+    jsonb facility_tags
+    jsonb extensions "not null"
+    bigint registration_facility_id FK "-> facility_facility"
+    timestamptz registered_at
+    bigint registered_by_id FK "-> users_user"
+    varchar_10 registration_type "not null"
+    varchar_10 title "not null"
+    varchar_40 first_name "not null"
+    varchar_40 middle_name "not null"
+    varchar_40 last_name "not null"
+    varchar_20 marital_status "not null"
+    varchar_100 father_name "not null"
+    varchar_100 mother_name "not null"
+    varchar_40 guardian_name "not null"
+    varchar_10 guardian_relationship "not null"
+    varchar_50 occupation "not null"
+    varchar_30 religion "not null"
+    varchar_30 preferred_language "not null"
+    varchar_20 mobile_owner "not null"
+    varchar_16 whatsapp_number "not null"
+    varchar_20 whatsapp_owner "not null"
+    varchar_16 alternate_phone_number "not null"
+    varchar_20 alternate_phone_owner "not null"
+    varchar_254 email "not null"
+    varchar_100 house "not null"
+    varchar_150 street "not null"
+    varchar_100 locality "not null"
+    varchar_100 city "not null"
+    varchar_100 district "not null"
+    varchar_100 state "not null"
+    varchar_100 permanent_house "not null"
+    varchar_150 permanent_street "not null"
+    varchar_100 permanent_locality "not null"
+    varchar_100 permanent_city "not null"
+    varchar_100 permanent_district "not null"
+    varchar_100 permanent_state "not null"
+    varchar_12 permanent_pincode "not null"
+    varchar_60 permanent_country "not null"
+    varchar_10 next_of_kin_title "not null"
+    varchar_40 next_of_kin_name "not null"
+    varchar_30 next_of_kin_relationship "not null"
+    varchar_16 next_of_kin_phone "not null"
+    varchar_20 nationality_category "not null"
+    boolean identity_storage_consent "not null"
+    varchar_20 identity_card_type "not null"
+    varchar_4 identity_number_last4 "not null"
+    varchar_12 capture_id_method "not null"
+    varchar_10 abha_status "not null"
+    varchar_14 abha_number "not null"
+    varchar_60 abha_address "not null"
+    varchar_60 nationality "not null"
+    varchar_15 passport_number "not null"
+    date passport_expiry
+    varchar_30 visa_type "not null"
+    date visa_expiry
+    varchar_50 frro_c_form "not null"
+    varchar_300 address_in_india "not null"
+    varchar_30 interpreter_language "not null"
+    varchar_10 allergy_status "not null"
+    varchar_30__array assistance_needs "not null"
+    varchar_20 pregnancy_status "not null"
+    boolean is_vip "not null"
+    varchar_200 vip_note "not null"
+    varchar_100 vip_authorised_by "not null"
+    boolean handle_with_care "not null"
+    bigint vip_flagged_by_id FK "-> users_user"
+    varchar_20 payer_type "not null"
+    varchar_200 payer_name "not null"
+    varchar_20 staff_category "not null"
+    varchar_24 employee_id "not null"
+    varchar_24 policy_number "not null"
+    date policy_valid_till
+    varchar_30 policy_holder_relationship "not null"
+    jsonb concessions "not null"
+    varchar_60 concession "not null"
+    varchar_100 concession_approved_by "not null"
+    varchar_40 arrival_source "not null"
+    varchar_60 lead_source "not null"
+    varchar_100 camp_name "not null"
+    varchar_30 camp_patient_id "not null"
+    varchar_200 referring_provider "not null"
+    varchar_30 referrer_registration_number "not null"
+    varchar_200 referrer_organisation "not null"
+    text remarks "not null"
+    varchar_20 consent_given_by "not null"
+    varchar_20 consent_method "not null"
+    varchar_40 consent_witness "not null"
+    varchar_30 consent_language "not null"
+    boolean general_consent "not null"
+    boolean data_processing_consent "not null"
+    boolean tariff_consent "not null"
+    boolean international_tariff_consent "not null"
+    boolean share_with_referrer_consent "not null"
+    boolean abdm_link_consent "not null"
+    boolean teleconsultation_consent "not null"
+    boolean clinical_photography_consent "not null"
+    boolean research_consent "not null"
+    varchar_20__array communication_channels "not null"
+    boolean do_not_contact "not null"
+    boolean promotions_consent "not null"
+    varchar_30__array promotion_purposes "not null"
+    timestamptz quick_registered_at
+    bigint quick_registered_by_id FK "-> users_user"
+    bigint quick_facility_id FK "-> facility_facility"
+    varchar_20 quick_consultation_type "not null"
+    bigint quick_department_id FK "-> emr_facilityorganization"
+    bigint quick_doctor_id FK "-> users_user"
+    boolean quick_whatsapp_same_as_mobile "not null"
+    boolean quick_send_form_link "not null"
+    boolean quick_send_payment_reminder "not null"
+    varchar_64 quick_form_token UK
+    timestamptz quick_form_expires_at
+    timestamptz quick_form_link_sent_at
+    timestamptz quick_form_submitted_at
+    jsonb quick_form_details "not null"
+    varchar_9 restricted_alias UK
+    timestamptz restricted_at
+    bigint birth_mother_id FK "-> emr_patient"
+    bigint birth_facility_id FK "-> facility_facility"
+    timestamptz born_at
+    smallint birth_order
+    smallint number_of_babies
+    varchar_30 delivery_type "not null"
+    smallint gestation_weeks
+    smallint birth_weight_grams
+    numeric_4__1 length_cm
+    numeric_4__1 head_circumference_cm
+    smallint apgar_1_min
+    smallint apgar_5_min
+  }
+  emr_patientidentifier {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    bigint patient_id FK "-> emr_patient"
+    bigint config_id FK "-> emr_patientidentifierconfig"
+    varchar_1024 value "not null"
+  }
+  emr_patientidentifierconfig {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_255 status "not null"
+    bigint facility_id FK "-> facility_facility"
+    jsonb config
+  }
+  emr_patientorganization {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint patient_id FK "-> emr_patient"
+    bigint organization_id FK "-> emr_organization"
+  }
+  emr_patientuser {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint user_id FK "-> users_user"
+    bigint patient_id FK "-> emr_patient"
+    bigint role_id FK "-> security_rolemodel"
+  }
+  emr_paymentreconciliation {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    bigint target_invoice_id FK "-> emr_invoice"
+    bigint account_id FK "-> emr_account"
+    varchar_100 reconciliation_type "not null"
+    varchar_100 status "not null"
+    varchar_100 kind "not null"
+    varchar_100 issuer_type "not null"
+    varchar_100 outcome "not null"
+    text disposition
+    timestamptz payment_datetime
+    varchar_100 method "not null"
+    varchar_1024 reference_number
+    varchar_1024 authorization
+    numeric_20__6 tendered_amount "not null"
+    numeric_20__6 returned_amount "not null"
+    numeric_20__6 amount "not null"
+    text note
+    boolean is_credit_note "not null"
+    bigint location_id FK "-> emr_facilitylocation"
+    jsonb extensions "not null"
+  }
+  emr_product {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    bigint product_knowledge_id FK "-> emr_productknowledge"
+    bigint charge_item_definition_id FK "-> emr_chargeitemdefinition"
+    varchar_255 status "not null"
+    varchar_255 product_type "not null"
+    jsonb batch
+    timestamptz expiration_date
+    jsonb extensions "not null"
+    integer standard_pack_size
+    numeric_20__6 purchase_price
+  }
+  emr_productknowledge {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    varchar_255 slug "not null"
+    varchar_255 alternate_identifier
+    varchar_255 status "not null"
+    varchar_255 product_type "not null"
+    jsonb code
+    varchar_255 name "not null"
+    jsonb names
+    varchar_2048 names_cache
+    jsonb storage_guidelines
+    jsonb definitional
+    jsonb base_unit
+    bigint category_id FK "-> emr_resourcecategory"
+  }
+  emr_questionnaire {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_255 version "not null"
+    varchar_255 slug UK "not null"
+    varchar_255 title "not null"
+    text description "not null"
+    varchar_255 subject_type "not null"
+    varchar_255 status "not null"
+    jsonb styling_metadata "not null"
+    jsonb questions "not null"
+    integer_array organization_cache "not null"
+    integer_array internal_organization_cache "not null"
+  }
+  emr_questionnairefacilityorganization {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint questionnaire_id FK "-> emr_questionnaire"
+    bigint organization_id FK "-> emr_facilityorganization"
+  }
+  emr_questionnaireorganization {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint questionnaire_id FK "-> emr_questionnaire"
+    bigint organization_id FK "-> emr_organization"
+  }
+  emr_questionnaireresponse {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint questionnaire_id FK "-> emr_questionnaire"
+    uuid subject_id "not null"
+    jsonb responses "not null"
+    jsonb structured_responses "not null"
+    varchar structured_response_type
+    bigint patient_id FK "-> emr_patient"
+    bigint encounter_id FK "-> emr_encounter"
+    bigint form_submission_id FK "-> emr_formsubmission"
+    varchar_255 status "not null"
+  }
+  emr_questionnaireresponsetemplate {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    varchar_255 name "not null"
+    text description "not null"
+    jsonb template_data "not null"
+    bigint questionnaire_id FK "-> emr_questionnaire"
+    integer_array facility_organizations "not null"
+    integer_array users "not null"
+    varchar_255__array available_keys "not null"
+  }
+  emr_requestorder {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_255 name "not null"
+    varchar_255 status "not null"
+    text note
+    integer_array tags "not null"
+    bigint supplier_id FK "-> emr_organization"
+    varchar_255 priority "not null"
+    varchar_255 intent "not null"
+    varchar_255 reason "not null"
+    varchar_255 category "not null"
+    bigint origin_id FK "-> emr_facilitylocation"
+    bigint destination_id FK "-> emr_facilitylocation"
+  }
+  emr_resourcecategory {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    varchar_255 resource_type "not null"
+    varchar_255 resource_sub_type "not null"
+    varchar_255 title "not null"
+    varchar_255 slug "not null"
+    text description
+    bigint parent_id FK "-> emr_resourcecategory"
+    boolean is_child "not null"
+    jsonb cached_parent_json "not null"
+    integer_array parent_cache "not null"
+    integer level_cache "not null"
+    bigint root_org_id FK "-> emr_resourcecategory"
+    boolean has_children "not null"
+    jsonb configured_monetary_components "not null"
+    jsonb calculated_monetary_components "not null"
+  }
+  emr_schedulableresource {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    varchar_255 resource_type "not null"
+    bigint user_id FK "-> users_user"
+    bigint location_id FK "-> emr_facilitylocation"
+    bigint healthcare_service_id FK "-> emr_healthcareservice"
+  }
+  emr_schedule {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint resource_id FK "-> emr_schedulableresource"
+    varchar_255 name "not null"
+    timestamptz valid_from "not null"
+    timestamptz valid_to "not null"
+    bigint charge_item_definition_id FK "-> emr_chargeitemdefinition"
+    integer revisit_allowed_days
+    bigint revisit_charge_item_definition_id FK "-> emr_chargeitemdefinition"
+    boolean is_public "not null"
+  }
+  emr_servicerequest {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    varchar_1024 title "not null"
+    varchar_255 category "not null"
+    varchar_255 status "not null"
+    varchar_255 intent "not null"
+    varchar_255 priority "not null"
+    boolean do_not_perform "not null"
+    text note
+    timestamptz occurance
+    text patient_instruction
+    jsonb code
+    jsonb body_site
+    integer_array locations "not null"
+    bigint patient_id FK "-> emr_patient"
+    bigint encounter_id FK "-> emr_encounter"
+    bigint healthcare_service_id FK "-> emr_healthcareservice"
+    bigint activity_definition_id FK "-> emr_activitydefinition"
+    bigint requester_id FK "-> users_user"
+    integer_array tags "not null"
+  }
+  emr_specimen {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    varchar_255 accession_identifier "not null"
+    varchar_20 status "not null"
+    jsonb specimen_type "not null"
+    bigint patient_id FK "-> emr_patient"
+    bigint encounter_id FK "-> emr_encounter"
+    timestamptz received_time
+    text note
+    jsonb condition "not null"
+    jsonb processing "not null"
+    jsonb collection "not null"
+    bigint service_request_id FK "-> emr_servicerequest"
+    bigint specimen_definition_id FK "-> emr_specimendefinition"
+  }
+  emr_specimendefinition {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    integer version "not null"
+    varchar_255 slug "not null"
+    varchar_1024 title "not null"
+    text derived_from_uri
+    varchar_255 status "not null"
+    text description "not null"
+    jsonb type_collected
+    jsonb patient_preparation "not null"
+    jsonb collection
+    jsonb type_tested "not null"
+  }
+  emr_supplydelivery {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_255 status "not null"
+    integer supplied_item_pack_quantity
+    integer supplied_item_pack_size
+    numeric_20__6 supplied_item_quantity
+    bigint supplied_item_id FK "-> emr_product"
+    bigint supplied_inventory_item_id FK "-> emr_inventoryitem"
+    varchar_255 supplied_item_condition "not null"
+    varchar_255 delivery_type "not null"
+    bigint supply_request_id FK "-> emr_supplyrequest"
+    bigint order_id FK "-> emr_deliveryorder"
+    jsonb extensions "not null"
+    numeric_20__6 total_purchase_price
+  }
+  emr_supplyrequest {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_255 status "not null"
+    numeric_20__6 quantity
+    varchar_255 supplied_item_condition "not null"
+    bigint item_id FK "-> emr_productknowledge"
+    bigint order_id FK "-> emr_requestorder"
+  }
+  emr_tagconfig {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    bigint facility_organization_id FK "-> emr_facilityorganization"
+    bigint organization_id FK "-> emr_organization"
+    varchar_255 status "not null"
+    varchar_255 display "not null"
+    text description
+    varchar_255 category "not null"
+    integer priority "not null"
+    integer level_cache "not null"
+    integer_array parent_cache "not null"
+    jsonb cached_parent_json "not null"
+    bigint parent_id FK "-> emr_tagconfig"
+    boolean has_children "not null"
+    bigint root_tag_config_id FK "-> emr_tagconfig"
+    varchar_255 resource "not null"
+    jsonb metadata
+  }
+  emr_token {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    bigint patient_id FK "-> emr_patient"
+    bigint queue_id FK "-> emr_tokenqueue"
+    bigint category_id FK "-> emr_tokencategory"
+    bigint sub_queue_id FK "-> emr_tokensubqueue"
+    integer number "not null"
+    varchar_255 status "not null"
+    boolean is_next "not null"
+    text note
+    bigint booking_id FK "-> emr_tokenbooking"
+  }
+  emr_tokenbooking {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint token_slot_id FK "-> emr_tokenslot"
+    bigint patient_id FK "-> emr_patient"
+    timestamptz booked_on "not null"
+    bigint booked_by_id FK "-> users_user"
+    varchar status "not null"
+    text note
+    integer_array tags "not null"
+    bigint associated_encounter_id FK "-> emr_encounter"
+    bigint token_id FK "-> emr_token"
+    bigint charge_item_id FK "-> emr_chargeitem"
+    varchar_20 appointment_number
+    varchar_20 consultation_type "not null"
+    varchar_20 visit_purpose "not null"
+    varchar_20 booking_channel "not null"
+    timestamptz reminder_due_at
+    timestamptz reminder_sent_at
+    varchar_40 guidance_area "not null"
+    varchar_20 guidance_since "not null"
+    varchar_500 chief_complaint "not null"
+    varchar_12 approval_status "not null"
+    varchar_500 approval_reason "not null"
+    timestamptz reviewed_at
+    bigint reviewed_by_id FK "-> users_user"
+  }
+  emr_tokencategory {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    varchar_255 resource_type "not null"
+    varchar_255 name "not null"
+    varchar_255 shorthand "not null"
+    jsonb metadata "not null"
+    boolean default "not null"
+  }
+  emr_tokenqueue {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    bigint resource_id FK "-> emr_schedulableresource"
+    varchar_255 name "not null"
+    boolean is_primary "not null"
+    date date "not null"
+    boolean system_generated "not null"
+  }
+  emr_tokenslot {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint resource_id FK "-> emr_schedulableresource"
+    bigint availability_id FK "-> emr_availability"
+    timestamptz start_datetime "not null"
+    timestamptz end_datetime "not null"
+    integer allocated "not null"
+  }
+  emr_tokensubqueue {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    bigint resource_id FK "-> emr_schedulableresource"
+    varchar_255 name "not null"
+    varchar_255 status "not null"
+    bigint current_token_id FK "-> emr_token"
+  }
+  emr_uservaluesetpreference {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint user_id FK "-> users_user"
+    bigint valueset_id FK "-> emr_valueset"
+    jsonb favorite_codes "not null"
+  }
+  emr_valueset {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_255 slug UK "not null"
+    varchar_255 name "not null"
+    text description "not null"
+    jsonb compose "not null"
+    varchar_255 status "not null"
+    boolean is_system_defined "not null"
+  }
+  facility_facility {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    varchar_1000 name "not null"
+    text description "not null"
+    boolean is_active "not null"
+    boolean verified "not null"
+    integer facility_type "not null"
+    smallint_array features
+    numeric_22__16 longitude
+    numeric_22__16 latitude
+    integer pincode
+    text address "not null"
+    bigint geo_organization_id FK "-> emr_organization"
+    integer_array geo_organization_cache "not null"
+    bigint default_internal_organization_id FK "-> emr_facilityorganization"
+    integer_array internal_organization_cache "not null"
+    varchar_14 phone_number "not null"
+    bigint created_by_id FK "-> users_user"
+    varchar_500 cover_image_url
+    varchar_200 middleware_address
+    boolean is_public "not null"
+    jsonb print_templates "not null"
+    jsonb extensions "not null"
+    varchar_14 emergency_desk_phone "not null"
+    varchar_4 unit_code UK
+  }
+  facility_facilityflag {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    varchar_1024 flag "not null"
+    bigint facility_id FK "-> facility_facility"
+  }
+  facility_mobileotp {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    boolean is_used "not null"
+    varchar_14 phone_number "not null"
+    varchar_10 otp "not null"
+    smallint failed_attempts "not null"
+  }
+  hmis_apikey {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_100 name "not null"
+    bigint user_id FK "-> users_user"
+    varchar_16 prefix "not null"
+    varchar_64 key_hash UK "not null"
+    timestamptz expires_at
+    timestamptz revoked_at
+    timestamptz last_used_at
+  }
+  hmis_apppatientlink {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_64 app_user_id UK "not null"
+    bigint patient_id FK "-> emr_patient"
+    boolean matched "not null"
+  }
+  hmis_artcouple {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint woman_id FK, UK "-> emr_patient"
+    bigint partner_id FK, UK "-> emr_patient"
+    bigint facility_id FK "-> facility_facility"
+    boolean single_woman "not null"
+    boolean art_consent "not null"
+    varchar_20 partner_identity_card_type "not null"
+    varchar_4 partner_identity_number_last4 "not null"
+    varchar_14 partner_abha_number "not null"
+    varchar_60 partner_abha_address "not null"
+  }
+  hmis_breakglassaccess {
+    bigint id PK
+    bigint patient_id FK "-> emr_patient"
+    bigint user_id FK "-> users_user"
+    varchar_500 reason "not null"
+    timestamptz created_date "not null"
+    timestamptz expires_at "not null"
+  }
+  hmis_campparticipant {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_24 number UK "not null"
+    bigint event_id FK "-> hmis_outreachevent"
+    bigint session_id FK "-> hmis_campsession"
+    bigint patient_id FK "-> emr_patient"
+    varchar_10 kind "not null"
+    varchar_8 title "not null"
+    varchar_40 first_name "not null"
+    varchar_40 middle_name "not null"
+    varchar_40 last_name "not null"
+    varchar_10 gender "not null"
+    date date_of_birth "not null"
+    varchar_40 preferred_language "not null"
+    varchar_20 nationality "not null"
+    varchar_8 blood_group "not null"
+    bigint photo_id FK "-> emr_fileupload"
+    varchar_5 mobile_isd "not null"
+    varchar_12 mobile "not null"
+    varchar_10 mobile_belongs_to "not null"
+    varchar_12 whatsapp "not null"
+    varchar_5 alt_mobile_isd "not null"
+    varchar_12 alt_mobile "not null"
+    varchar_20 alt_mobile_belongs_to "not null"
+    varchar_200 address "not null"
+    varchar_60 country "not null"
+    varchar_100 state "not null"
+    varchar_100 city "not null"
+    varchar_100 district "not null"
+    varchar_6 pincode "not null"
+    varchar_80 area "not null"
+    boolean permanent_same_as_current "not null"
+    jsonb permanent_address "not null"
+    varchar_20 id_type "not null"
+    varchar_30 id_number "not null"
+    varchar_8 allergy_status "not null"
+    varchar_60 allergen "not null"
+    varchar_60 allergy_reaction "not null"
+    varchar_20 allergy_severity "not null"
+    varchar_7 bp "not null"
+    smallint rbs_mg_dl
+    numeric_4__1 height_cm
+    numeric_5__1 weight_kg
+    numeric_4__1 bmi
+    text finding "not null"
+    varchar_80 refer_to_department "not null"
+    boolean consent_screening "not null"
+    boolean consent_dpdp_notice "not null"
+    boolean consent_tariff "not null"
+    varchar_30 consent_by "not null"
+    varchar_30 consent_channel "not null"
+    varchar_40 consent_witness "not null"
+    bigint consent_file_id FK "-> emr_fileupload"
+    jsonb send_via "not null"
+    jsonb extra_answers "not null"
+    integer form_version "not null"
+    varchar_12 status "not null"
+    varchar_8 verification_code "not null"
+    bigint captured_by_id FK "-> users_user"
+    timestamptz captured_at "not null"
+  }
+  hmis_campparticipanttest {
+    bigint id PK
+    bigint participant_id FK "-> hmis_campparticipant"
+    bigint event_test_id FK "-> hmis_outreacheventtest"
+    bigint lab_test_id FK "-> emr_activitydefinition"
+    varchar_120 name "not null"
+    varchar_4 fee_type "not null"
+    numeric_10__2 rate "not null"
+    varchar_20 source "not null"
+    varchar_6 payment_status "not null"
+    varchar_20 report_status "not null"
+    varchar_8 location "not null"
+    varchar_20 result "not null"
+  }
+  hmis_campsession {
+    bigint id PK
+    uuid external_id UK "not null"
+    bigint user_id FK "-> users_user"
+    bigint event_id FK "-> hmis_outreachevent"
+    varchar_80 device_label "not null"
+    timestamptz started_at "not null"
+    timestamptz ended_at
+  }
+  hmis_labtestrule {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint activity_definition_id FK, UK "-> emr_activitydefinition"
+    smallint fasting_hours
+    boolean after_meal "not null"
+    boolean sensitive_report "not null"
+    varchar_40 icon "not null"
+  }
+  hmis_mlcsequence {
+    bigint id PK
+    bigint facility_id FK "-> facility_facility"
+    integer year "not null"
+    integer last_value "not null"
+  }
+  hmis_mobileappointmentsubmission {
+    bigint id PK
+    bigint account_id FK "-> hmis_patientaccount"
+    uuid request_id "not null"
+    uuid slot_id "not null"
+    varchar_500 patient_notes "not null"
+    bigint booking_id FK, UK "-> emr_tokenbooking"
+    timestamptz created_at "not null"
+  }
+  hmis_mobileregistration {
+    bigint id PK
+    varchar_16 phone_number UK "not null"
+    varchar_64 token_digest UK "not null"
+    timestamptz expires_at "not null"
+    timestamptz consumed_at
+  }
+  hmis_outreachevent {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    varchar_24 number UK
+    varchar_4 event_type "not null"
+    bigint facility_id FK "-> facility_facility"
+    varchar_120 name "not null"
+    varchar_120 theme "not null"
+    text description "not null"
+    varchar_120 venue_name "not null"
+    varchar_255 address "not null"
+    varchar_6 pincode "not null"
+    varchar_40 platform "not null"
+    varchar_500 join_link "not null"
+    date event_date "not null"
+    time start_time
+    time end_time
+    integer expected_attendees
+    boolean has_coupon "not null"
+    varchar_12 coupon_code "not null"
+    date coupon_valid_from
+    date coupon_valid_to
+    smallint discount_registration_pct
+    smallint discount_consultation_pct
+    smallint discount_tests_pct
+    varchar_20 report_delivery "not null"
+    boolean permission_needed "not null"
+    varchar_120 permission_from "not null"
+    numeric_10__2 permission_cost
+    varchar_120 cme_audience "not null"
+    varchar_60 cme_accreditation_body "not null"
+    numeric_4__1 cme_credit_hours
+    varchar_20 status "not null"
+    integer version "not null"
+    timestamptz submitted_at
+    bigint submitted_by_id FK "-> users_user"
+    timestamptz decided_at
+    bigint decided_by_id FK "-> users_user"
+    text decision_remarks "not null"
+  }
+  hmis_outreacheventcostline {
+    bigint id PK
+    bigint event_id FK "-> hmis_outreachevent"
+    varchar_12 category "not null"
+    varchar_120 item_name "not null"
+    varchar_20 unit "not null"
+    numeric_10__2 quantity "not null"
+    numeric_10__2 unit_cost "not null"
+    integer order "not null"
+  }
+  hmis_outreacheventdecision {
+    bigint id PK
+    bigint event_id FK "-> hmis_outreachevent"
+    integer version "not null"
+    varchar_10 decision "not null"
+    text remarks "not null"
+    bigint decided_by_id FK "-> users_user"
+    timestamptz decided_at "not null"
+  }
+  hmis_outreacheventlogin {
+    bigint id PK
+    bigint event_id FK "-> hmis_outreachevent"
+    varchar_254 email "not null"
+    bigint user_id FK "-> users_user"
+  }
+  hmis_outreacheventstaff {
+    bigint id PK
+    bigint event_id FK "-> hmis_outreachevent"
+    varchar_10 role "not null"
+    bigint user_id FK "-> users_user"
+    varchar_80 name "not null"
+    varchar_80 department "not null"
+    integer order "not null"
+  }
+  hmis_outreacheventtest {
+    bigint id PK
+    bigint event_id FK "-> hmis_outreachevent"
+    uuid external_id UK "not null"
+    varchar_120 name "not null"
+    bigint lab_test_id FK "-> emr_activitydefinition"
+    varchar_10 location "not null"
+    varchar_4 fee_type "not null"
+    numeric_10__2 rate
+    numeric_10__2 cost_to_poh
+    integer quantity_offered
+    integer order "not null"
+  }
+  hmis_outreachformfield {
+    bigint id PK
+    bigint event_id FK "-> hmis_outreachevent"
+    varchar_40 key "not null"
+    varchar_80 section "not null"
+    varchar_200 label "not null"
+    varchar_300 help_text "not null"
+    varchar_20 field_type "not null"
+    boolean required "not null"
+    jsonb options "not null"
+    jsonb validation "not null"
+    integer order "not null"
+  }
+  hmis_outreachformtemplate {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint facility_id FK "-> facility_facility"
+    varchar_80 name "not null"
+    jsonb fields "not null"
+  }
+  hmis_patientaccount {
+    bigint id PK
+    bigint patient_id FK, UK "-> emr_patient"
+    varchar_128 password "not null"
+    timestamptz created_at "not null"
+  }
+  hmis_patientdocument {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint file_id FK, UK "-> emr_fileupload"
+    bigint patient_id FK "-> emr_patient"
+    varchar_30 category "not null"
+    varchar_10 side "not null"
+    varchar_20 capture_method "not null"
+    varchar_100 source "not null"
+    date document_date
+  }
+  hmis_patientmerge {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint source_id FK "-> emr_patient"
+    bigint target_id FK "-> emr_patient"
+    varchar_500 reason "not null"
+    jsonb choices "not null"
+    jsonb source_snapshot "not null"
+    jsonb moved "not null"
+    bigint consent_document_id FK "-> hmis_patientdocument"
+  }
+  hmis_patientnumbersequence {
+    bigint id PK
+    varchar_4 series "not null"
+    bigint facility_id FK "-> facility_facility"
+    varchar_8 period "not null"
+    integer last_value "not null"
+  }
+  hmis_patientsession {
+    bigint id PK
+    bigint account_id FK "-> hmis_patientaccount"
+    varchar_16 phone_number "not null"
+    varchar_64 refresh_jti "not null"
+    varchar_64 previous_refresh_jti "not null"
+    timestamptz rotated_at
+    varchar_512 fcm_token "not null"
+    timestamptz created_at "not null"
+    timestamptz last_used_at
+    timestamptz revoked_at
+  }
+  hmis_postoffice {
+    bigint id PK
+    varchar_6 pincode "not null"
+    varchar_100 name "not null"
+    varchar_10 office_type "not null"
+    boolean delivery "not null"
+    varchar_100 district "not null"
+    varchar_100 state "not null"
+    timestamptz loaded_at "not null"
+  }
+  hmis_registrationallergy {
+    bigint id PK
+    bigint patient_id FK "-> emr_patient"
+    varchar_100 substance "not null"
+    varchar_100 reaction "not null"
+    varchar_20 severity "not null"
+  }
+  hmis_statutoryflag {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    jsonb history "not null"
+    jsonb meta "not null"
+    bigint created_by_id FK "-> users_user"
+    bigint updated_by_id FK "-> users_user"
+    bigint patient_id FK "-> emr_patient"
+    bigint encounter_id FK "-> emr_encounter"
+    varchar_20 category "not null"
+  }
+  security_permissionmodel {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    varchar_1024 slug UK "not null"
+    varchar_1024 name "not null"
+    text description "not null"
+    varchar_1024 context "not null"
+    boolean temp_deleted "not null"
+  }
+  security_roleassociation {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    bigint user_id FK "-> users_user"
+    varchar_1024 context "not null"
+    bigint context_id "not null"
+    bigint role_id FK "-> security_rolemodel"
+    timestamptz expiry
+  }
+  security_rolemodel {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    varchar_1024 name "not null"
+    text description "not null"
+    boolean is_system "not null"
+    boolean temp_deleted "not null"
+    boolean is_archived "not null"
+    varchar_24__array contexts "not null"
+  }
+  security_rolepermission {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    bigint role_id FK "-> security_rolemodel"
+    bigint permission_id FK "-> security_permissionmodel"
+    boolean temp_deleted "not null"
+  }
+  users_plugconfig {
+    bigint id PK
+    varchar_255 slug UK "not null"
+    jsonb meta "not null"
+  }
+  users_skill {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    varchar_255 name UK "not null"
+    text description
+  }
+  users_user {
+    bigint id PK
+    varchar_128 password "not null"
+    timestamptz last_login
+    boolean is_superuser "not null"
+    varchar_150 first_name "not null"
+    varchar_150 last_name "not null"
+    varchar_254 email "not null"
+    boolean is_staff "not null"
+    boolean is_active "not null"
+    timestamptz date_joined "not null"
+    uuid external_id UK "not null"
+    varchar_150 username UK "not null"
+    varchar_100 user_type
+    bigint created_by_id FK "-> users_user"
+    bigint geo_organization_id FK "-> emr_organization"
+    varchar_14 phone_number "not null"
+    varchar_14 alt_phone_number
+    varchar_200 video_connect_link
+    integer old_gender
+    varchar_100 gender
+    date date_of_birth
+    varchar_500 profile_picture_url
+    bigint home_facility_id FK "-> facility_facility"
+    integer weekly_working_hours
+    text qualification
+    date doctor_experience_commenced_on
+    varchar_255 doctor_medical_council_registration
+    varchar_10 prefix
+    varchar_50 suffix
+    boolean is_service_account "not null"
+    boolean verified "not null"
+    boolean deleted "not null"
+    text pf_endpoint
+    text pf_p256dh
+    text pf_auth
+    text totp_secret
+    jsonb mfa_settings "not null"
+    jsonb preferences "not null"
+    jsonb cached_role_orgs
+  }
+  users_user_groups {
+    bigint id PK
+    bigint user_id FK "-> users_user"
+    integer group_id FK "-> auth_group"
+  }
+  users_user_user_permissions {
+    bigint id PK
+    bigint user_id FK "-> users_user"
+    integer permission_id FK "-> auth_permission"
+  }
+  users_userflag {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    varchar_1024 flag "not null"
+    bigint user_id FK "-> users_user"
+  }
+  users_userskill {
+    bigint id PK
+    uuid external_id UK "not null"
+    timestamptz created_date
+    timestamptz modified_date
+    boolean deleted "not null"
+    bigint user_id FK "-> users_user"
+    bigint skill_id FK "-> users_skill"
+  }
+  auth_group_permissions }o--|| auth_group : "group_id"
+  auth_group_permissions }o--|| auth_permission : "permission_id"
+  auth_permission }o--|| django_content_type : "content_type_id"
+  authtoken_token ||--|| users_user : "user_id"
+  django_admin_log }o--|| users_user : "user_id"
+  django_admin_log }o--o| django_content_type : "content_type_id"
+  emr_account }o--|| facility_facility : "facility_id"
+  emr_account }o--|| emr_patient : "patient_id"
+  emr_account }o--o| emr_encounter : "primary_encounter_id"
+  emr_activitydefinition }o--|| facility_facility : "facility_id"
+  emr_activitydefinition }o--o| emr_healthcareservice : "healthcare_service_id"
+  emr_activitydefinition }o--o| emr_resourcecategory : "category_id"
+  emr_allergyintolerance }o--|| emr_patient : "patient_id"
+  emr_allergyintolerance }o--|| emr_encounter : "encounter_id"
+  emr_availability }o--|| emr_schedule : "schedule_id"
+  emr_availabilityexception }o--|| emr_schedulableresource : "resource_id"
+  emr_chargeitem }o--|| facility_facility : "facility_id"
+  emr_chargeitem }o--|| emr_patient : "patient_id"
+  emr_chargeitem }o--o| emr_encounter : "encounter_id"
+  emr_chargeitem }o--o| emr_chargeitemdefinition : "charge_item_definition_id"
+  emr_chargeitem }o--|| emr_account : "account_id"
+  emr_chargeitem }o--o| emr_invoice : "paid_invoice_id"
+  emr_chargeitem }o--o| users_user : "performer_actor_id"
+  emr_chargeitemdefinition }o--|| facility_facility : "facility_id"
+  emr_chargeitemdefinition }o--o| emr_resourcecategory : "category_id"
+  emr_condition }o--|| emr_patient : "patient_id"
+  emr_condition }o--o| emr_encounter : "encounter_id"
+  emr_consent }o--|| emr_encounter : "encounter_id"
+  emr_deliveryorder }o--o| emr_organization : "supplier_id"
+  emr_deliveryorder }o--o| emr_facilitylocation : "origin_id"
+  emr_deliveryorder }o--|| emr_facilitylocation : "destination_id"
+  emr_deliveryorder }o--o| emr_patient : "patient_id"
+  emr_deliveryorder }o--o| emr_invoice : "patient_invoice_id"
+  emr_device }o--|| facility_facility : "facility_id"
+  emr_device }o--o| emr_facilityorganization : "managing_organization_id"
+  emr_device }o--o| emr_facilitylocation : "current_location_id"
+  emr_device }o--o| emr_encounter : "current_encounter_id"
+  emr_deviceencounterhistory }o--|| emr_device : "device_id"
+  emr_deviceencounterhistory }o--|| emr_encounter : "encounter_id"
+  emr_devicelocationhistory }o--|| emr_device : "device_id"
+  emr_devicelocationhistory }o--|| emr_facilitylocation : "location_id"
+  emr_deviceservicehistory }o--|| emr_device : "device_id"
+  emr_diagnosticreport }o--o| facility_facility : "facility_id"
+  emr_diagnosticreport }o--|| emr_patient : "patient_id"
+  emr_diagnosticreport }o--|| emr_encounter : "encounter_id"
+  emr_diagnosticreport }o--|| emr_servicerequest : "service_request_id"
+  emr_dispenseorder }o--|| emr_facilitylocation : "location_id"
+  emr_dispenseorder }o--|| emr_patient : "patient_id"
+  emr_dispenseorder }o--|| facility_facility : "facility_id"
+  emr_encounter }o--|| emr_patient : "patient_id"
+  emr_encounter }o--|| facility_facility : "facility_id"
+  emr_encounter }o--o| emr_tokenbooking : "appointment_id"
+  emr_encounter }o--o| emr_facilitylocation : "current_location_id"
+  emr_encounter }o--o| users_user : "converted_by_id"
+  emr_encounterorganization }o--|| emr_encounter : "encounter_id"
+  emr_encounterorganization }o--|| emr_facilityorganization : "organization_id"
+  emr_facilitylocation }o--|| facility_facility : "facility_id"
+  emr_facilitylocation }o--o| emr_facilitylocation : "parent_id"
+  emr_facilitylocation }o--o| emr_facilitylocation : "root_location_id"
+  emr_facilitylocation }o--o| emr_encounter : "current_encounter_id"
+  emr_facilitylocationencounter }o--|| emr_facilitylocation : "location_id"
+  emr_facilitylocationencounter }o--|| emr_encounter : "encounter_id"
+  emr_facilitylocationorganization }o--|| emr_facilitylocation : "location_id"
+  emr_facilitylocationorganization }o--|| emr_facilityorganization : "organization_id"
+  emr_facilitymonetoryconfig ||--|| facility_facility : "facility_id"
+  emr_facilityorganization }o--o| emr_facilityorganization : "root_org_id"
+  emr_facilityorganization }o--o| emr_facilityorganization : "parent_id"
+  emr_facilityorganization }o--|| facility_facility : "facility_id"
+  emr_facilityorganizationuser }o--|| emr_facilityorganization : "organization_id"
+  emr_facilityorganizationuser }o--|| users_user : "user_id"
+  emr_facilityorganizationuser }o--|| security_rolemodel : "role_id"
+  emr_fileupload }o--o| users_user : "archived_by_id"
+  emr_formsubmission }o--|| emr_questionnaire : "questionnaire_id"
+  emr_formsubmission }o--|| emr_patient : "patient_id"
+  emr_formsubmission }o--o| emr_encounter : "encounter_id"
+  emr_healthcareservice }o--o| facility_facility : "facility_id"
+  emr_healthcareservice }o--o| emr_facilityorganization : "managing_organization_id"
+  emr_inventoryitem }o--|| emr_facilitylocation : "location_id"
+  emr_inventoryitem }o--|| emr_product : "product_id"
+  emr_invoice }o--|| facility_facility : "facility_id"
+  emr_invoice }o--|| emr_patient : "patient_id"
+  emr_invoice }o--|| emr_account : "account_id"
+  emr_medicationdispense }o--|| emr_encounter : "encounter_id"
+  emr_medicationdispense }o--|| emr_patient : "patient_id"
+  emr_medicationdispense }o--|| emr_facilitylocation : "location_id"
+  emr_medicationdispense }o--o| emr_medicationrequest : "authorizing_request_id"
+  emr_medicationdispense }o--|| emr_inventoryitem : "item_id"
+  emr_medicationdispense }o--o| emr_chargeitem : "charge_item_id"
+  emr_medicationdispense }o--o| emr_dispenseorder : "order_id"
+  emr_medicationrequest }o--|| emr_patient : "patient_id"
+  emr_medicationrequest }o--|| emr_encounter : "encounter_id"
+  emr_medicationrequest }o--o| users_user : "requester_id"
+  emr_medicationrequest }o--o| emr_productknowledge : "requested_product_id"
+  emr_medicationrequest }o--o| emr_medicationrequestprescription : "prescription_id"
+  emr_medicationrequestprescription }o--|| emr_encounter : "encounter_id"
+  emr_medicationrequestprescription }o--|| emr_patient : "patient_id"
+  emr_medicationrequestprescription }o--o| users_user : "prescribed_by_id"
+  emr_observation }o--|| emr_patient : "patient_id"
+  emr_observation }o--|| emr_encounter : "encounter_id"
+  emr_observation }o--o| users_user : "data_entered_by_id"
+  emr_observation }o--o| emr_questionnaireresponse : "questionnaire_response_id"
+  emr_observation }o--o| emr_diagnosticreport : "diagnostic_report_id"
+  emr_observation }o--o| emr_observationdefinition : "observation_definition_id"
+  emr_observationdefinition }o--o| facility_facility : "facility_id"
+  emr_organization }o--o| emr_organization : "root_org_id"
+  emr_organization }o--o| emr_organization : "parent_id"
+  emr_organizationuser }o--|| emr_organization : "organization_id"
+  emr_organizationuser }o--|| users_user : "user_id"
+  emr_organizationuser }o--|| security_rolemodel : "role_id"
+  emr_patient }o--o| emr_organization : "geo_organization_id"
+  emr_patient }o--o| facility_facility : "registration_facility_id"
+  emr_patient }o--o| users_user : "registered_by_id"
+  emr_patient }o--o| users_user : "vip_flagged_by_id"
+  emr_patient }o--o| users_user : "quick_registered_by_id"
+  emr_patient }o--o| facility_facility : "quick_facility_id"
+  emr_patient }o--o| emr_facilityorganization : "quick_department_id"
+  emr_patient }o--o| users_user : "quick_doctor_id"
+  emr_patient }o--o| emr_patient : "birth_mother_id"
+  emr_patient }o--o| facility_facility : "birth_facility_id"
+  emr_patientidentifier }o--o| facility_facility : "facility_id"
+  emr_patientidentifier }o--|| emr_patient : "patient_id"
+  emr_patientidentifier }o--|| emr_patientidentifierconfig : "config_id"
+  emr_patientidentifierconfig }o--o| facility_facility : "facility_id"
+  emr_patientorganization }o--|| emr_patient : "patient_id"
+  emr_patientorganization }o--|| emr_organization : "organization_id"
+  emr_patientuser }o--|| users_user : "user_id"
+  emr_patientuser }o--|| emr_patient : "patient_id"
+  emr_patientuser }o--|| security_rolemodel : "role_id"
+  emr_paymentreconciliation }o--|| facility_facility : "facility_id"
+  emr_paymentreconciliation }o--o| emr_invoice : "target_invoice_id"
+  emr_paymentreconciliation }o--|| emr_account : "account_id"
+  emr_paymentreconciliation }o--o| emr_facilitylocation : "location_id"
+  emr_product }o--|| facility_facility : "facility_id"
+  emr_product }o--|| emr_productknowledge : "product_knowledge_id"
+  emr_product }o--o| emr_chargeitemdefinition : "charge_item_definition_id"
+  emr_productknowledge }o--o| facility_facility : "facility_id"
+  emr_productknowledge }o--o| emr_resourcecategory : "category_id"
+  emr_questionnairefacilityorganization }o--|| emr_questionnaire : "questionnaire_id"
+  emr_questionnairefacilityorganization }o--|| emr_facilityorganization : "organization_id"
+  emr_questionnaireorganization }o--|| emr_questionnaire : "questionnaire_id"
+  emr_questionnaireorganization }o--|| emr_organization : "organization_id"
+  emr_questionnaireresponse }o--o| emr_questionnaire : "questionnaire_id"
+  emr_questionnaireresponse }o--|| emr_patient : "patient_id"
+  emr_questionnaireresponse }o--o| emr_encounter : "encounter_id"
+  emr_questionnaireresponse }o--o| emr_formsubmission : "form_submission_id"
+  emr_questionnaireresponsetemplate }o--o| facility_facility : "facility_id"
+  emr_questionnaireresponsetemplate }o--o| emr_questionnaire : "questionnaire_id"
+  emr_requestorder }o--o| emr_organization : "supplier_id"
+  emr_requestorder }o--o| emr_facilitylocation : "origin_id"
+  emr_requestorder }o--|| emr_facilitylocation : "destination_id"
+  emr_resourcecategory }o--|| facility_facility : "facility_id"
+  emr_resourcecategory }o--o| emr_resourcecategory : "parent_id"
+  emr_resourcecategory }o--o| emr_resourcecategory : "root_org_id"
+  emr_schedulableresource }o--|| facility_facility : "facility_id"
+  emr_schedulableresource }o--o| users_user : "user_id"
+  emr_schedulableresource }o--o| emr_facilitylocation : "location_id"
+  emr_schedulableresource }o--o| emr_healthcareservice : "healthcare_service_id"
+  emr_schedule }o--|| emr_schedulableresource : "resource_id"
+  emr_schedule }o--o| emr_chargeitemdefinition : "charge_item_definition_id"
+  emr_schedule }o--o| emr_chargeitemdefinition : "revisit_charge_item_definition_id"
+  emr_servicerequest }o--|| facility_facility : "facility_id"
+  emr_servicerequest }o--|| emr_patient : "patient_id"
+  emr_servicerequest }o--o| emr_encounter : "encounter_id"
+  emr_servicerequest }o--o| emr_healthcareservice : "healthcare_service_id"
+  emr_servicerequest }o--o| emr_activitydefinition : "activity_definition_id"
+  emr_servicerequest }o--o| users_user : "requester_id"
+  emr_specimen }o--o| facility_facility : "facility_id"
+  emr_specimen }o--|| emr_patient : "patient_id"
+  emr_specimen }o--o| emr_encounter : "encounter_id"
+  emr_specimen }o--o| emr_servicerequest : "service_request_id"
+  emr_specimen }o--o| emr_specimendefinition : "specimen_definition_id"
+  emr_specimendefinition }o--o| facility_facility : "facility_id"
+  emr_supplydelivery }o--o| emr_product : "supplied_item_id"
+  emr_supplydelivery }o--o| emr_inventoryitem : "supplied_inventory_item_id"
+  emr_supplydelivery }o--o| emr_supplyrequest : "supply_request_id"
+  emr_supplydelivery }o--o| emr_deliveryorder : "order_id"
+  emr_supplyrequest }o--|| emr_productknowledge : "item_id"
+  emr_supplyrequest }o--o| emr_requestorder : "order_id"
+  emr_tagconfig }o--o| facility_facility : "facility_id"
+  emr_tagconfig }o--o| emr_facilityorganization : "facility_organization_id"
+  emr_tagconfig }o--o| emr_organization : "organization_id"
+  emr_tagconfig }o--o| emr_tagconfig : "parent_id"
+  emr_tagconfig }o--o| emr_tagconfig : "root_tag_config_id"
+  emr_token }o--|| facility_facility : "facility_id"
+  emr_token }o--o| emr_patient : "patient_id"
+  emr_token }o--|| emr_tokenqueue : "queue_id"
+  emr_token }o--|| emr_tokencategory : "category_id"
+  emr_token }o--o| emr_tokensubqueue : "sub_queue_id"
+  emr_token }o--o| emr_tokenbooking : "booking_id"
+  emr_tokenbooking }o--|| emr_tokenslot : "token_slot_id"
+  emr_tokenbooking }o--|| emr_patient : "patient_id"
+  emr_tokenbooking }o--o| users_user : "booked_by_id"
+  emr_tokenbooking }o--o| emr_encounter : "associated_encounter_id"
+  emr_tokenbooking }o--o| emr_token : "token_id"
+  emr_tokenbooking }o--o| emr_chargeitem : "charge_item_id"
+  emr_tokenbooking }o--o| users_user : "reviewed_by_id"
+  emr_tokencategory }o--|| facility_facility : "facility_id"
+  emr_tokenqueue }o--|| facility_facility : "facility_id"
+  emr_tokenqueue }o--|| emr_schedulableresource : "resource_id"
+  emr_tokenslot }o--|| emr_schedulableresource : "resource_id"
+  emr_tokenslot }o--o| emr_availability : "availability_id"
+  emr_tokensubqueue }o--|| facility_facility : "facility_id"
+  emr_tokensubqueue }o--|| emr_schedulableresource : "resource_id"
+  emr_tokensubqueue }o--o| emr_token : "current_token_id"
+  emr_uservaluesetpreference }o--|| users_user : "user_id"
+  emr_uservaluesetpreference }o--|| emr_valueset : "valueset_id"
+  facility_facility }o--o| emr_organization : "geo_organization_id"
+  facility_facility }o--o| emr_facilityorganization : "default_internal_organization_id"
+  facility_facilityflag }o--|| facility_facility : "facility_id"
+  hmis_apikey }o--|| users_user : "user_id"
+  hmis_apppatientlink }o--|| emr_patient : "patient_id"
+  hmis_artcouple ||--|| emr_patient : "woman_id"
+  hmis_artcouple |o--|| emr_patient : "partner_id"
+  hmis_artcouple }o--o| facility_facility : "facility_id"
+  hmis_breakglassaccess }o--|| emr_patient : "patient_id"
+  hmis_breakglassaccess }o--|| users_user : "user_id"
+  hmis_campparticipant }o--|| hmis_outreachevent : "event_id"
+  hmis_campparticipant }o--o| hmis_campsession : "session_id"
+  hmis_campparticipant }o--o| emr_patient : "patient_id"
+  hmis_campparticipant }o--o| emr_fileupload : "photo_id"
+  hmis_campparticipant }o--o| emr_fileupload : "consent_file_id"
+  hmis_campparticipant }o--|| users_user : "captured_by_id"
+  hmis_campparticipanttest }o--|| hmis_campparticipant : "participant_id"
+  hmis_campparticipanttest }o--o| hmis_outreacheventtest : "event_test_id"
+  hmis_campparticipanttest }o--o| emr_activitydefinition : "lab_test_id"
+  hmis_campsession }o--|| users_user : "user_id"
+  hmis_campsession }o--|| hmis_outreachevent : "event_id"
+  hmis_labtestrule ||--|| emr_activitydefinition : "activity_definition_id"
+  hmis_mlcsequence }o--|| facility_facility : "facility_id"
+  hmis_mobileappointmentsubmission }o--|| hmis_patientaccount : "account_id"
+  hmis_mobileappointmentsubmission ||--|| emr_tokenbooking : "booking_id"
+  hmis_outreachevent }o--|| facility_facility : "facility_id"
+  hmis_outreachevent }o--o| users_user : "submitted_by_id"
+  hmis_outreachevent }o--o| users_user : "decided_by_id"
+  hmis_outreacheventcostline }o--|| hmis_outreachevent : "event_id"
+  hmis_outreacheventdecision }o--|| hmis_outreachevent : "event_id"
+  hmis_outreacheventdecision }o--|| users_user : "decided_by_id"
+  hmis_outreacheventlogin }o--|| hmis_outreachevent : "event_id"
+  hmis_outreacheventlogin }o--o| users_user : "user_id"
+  hmis_outreacheventstaff }o--|| hmis_outreachevent : "event_id"
+  hmis_outreacheventstaff }o--o| users_user : "user_id"
+  hmis_outreacheventtest }o--|| hmis_outreachevent : "event_id"
+  hmis_outreacheventtest }o--o| emr_activitydefinition : "lab_test_id"
+  hmis_outreachformfield }o--|| hmis_outreachevent : "event_id"
+  hmis_outreachformtemplate }o--|| facility_facility : "facility_id"
+  hmis_patientaccount ||--|| emr_patient : "patient_id"
+  hmis_patientdocument ||--|| emr_fileupload : "file_id"
+  hmis_patientdocument }o--o| emr_patient : "patient_id"
+  hmis_patientmerge }o--|| emr_patient : "source_id"
+  hmis_patientmerge }o--|| emr_patient : "target_id"
+  hmis_patientmerge }o--o| hmis_patientdocument : "consent_document_id"
+  hmis_patientnumbersequence }o--|| facility_facility : "facility_id"
+  hmis_patientsession }o--|| hmis_patientaccount : "account_id"
+  hmis_registrationallergy }o--|| emr_patient : "patient_id"
+  hmis_statutoryflag }o--|| emr_patient : "patient_id"
+  hmis_statutoryflag }o--|| emr_encounter : "encounter_id"
+  security_roleassociation }o--|| users_user : "user_id"
+  security_roleassociation }o--|| security_rolemodel : "role_id"
+  security_rolepermission }o--|| security_rolemodel : "role_id"
+  security_rolepermission }o--|| security_permissionmodel : "permission_id"
+  users_user }o--o| emr_organization : "geo_organization_id"
+  users_user }o--o| facility_facility : "home_facility_id"
+  users_user_groups }o--|| users_user : "user_id"
+  users_user_groups }o--|| auth_group : "group_id"
+  users_user_user_permissions }o--|| users_user : "user_id"
+  users_user_user_permissions }o--|| auth_permission : "permission_id"
+  users_userflag }o--|| users_user : "user_id"
+  users_userskill }o--o| users_user : "user_id"
+  users_userskill }o--o| users_skill : "skill_id"
