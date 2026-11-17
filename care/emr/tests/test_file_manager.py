@@ -1,8 +1,10 @@
+from types import SimpleNamespace
+from unittest.mock import patch
 from urllib.parse import unquote
 
 from django.test import SimpleTestCase
 
-from care.emr.utils.file_manager import content_disposition
+from care.emr.utils.file_manager import S3FilesManager, content_disposition
 
 
 class ContentDispositionTest(SimpleTestCase):
@@ -28,3 +30,36 @@ class ContentDispositionTest(SimpleTestCase):
     def test_quotes_cannot_break_out_of_the_fallback(self):
         header = content_disposition("inline", 'a"b;c — d.pdf')
         self.assertIn('filename="a-b-c - d.pdf"', header)
+
+
+class ReadSignedUrlTest(SimpleTestCase):
+    def signed_params(self, mime_type):
+        file_obj = SimpleNamespace(
+            meta={"mime_type": mime_type},
+            file_type="patient",
+            internal_name="abc",
+            name="Patient photo",
+            get_extension=lambda: ".jpg",
+        )
+        with (
+            patch(
+                "care.emr.utils.file_manager.get_client_config",
+                return_value=({}, "bucket"),
+            ),
+            patch("care.emr.utils.file_manager.boto3") as boto3,
+        ):
+            S3FilesManager("patient").read_signed_url(file_obj)
+        return boto3.client.return_value.generate_presigned_url.call_args.kwargs[
+            "Params"
+        ]
+
+    def test_viewable_file_is_sent_with_its_type(self):
+        # Objects stored without a ContentType would otherwise download.
+        params = self.signed_params("image/jpeg")
+        self.assertEqual(params["ResponseContentType"], "image/jpeg")
+        self.assertTrue(params["ResponseContentDisposition"].startswith("inline"))
+
+    def test_other_files_download_without_a_type_override(self):
+        params = self.signed_params("application/zip")
+        self.assertNotIn("ResponseContentType", params)
+        self.assertTrue(params["ResponseContentDisposition"].startswith("attachment"))

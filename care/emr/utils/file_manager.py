@@ -84,17 +84,23 @@ class S3FilesManager(FileManager):
         s3 = boto3.client("s3", **config)
 
         mime_type = file_obj.meta.get("mime_type")
-        disposition = "inline" if mime_type in SAFE_INLINE_FORMATS else "attachment"
+        inline = mime_type in SAFE_INLINE_FORMATS
+        params = {
+            "Bucket": bucket_name,
+            "Key": f"{file_obj.file_type}/{file_obj.internal_name}",
+            "ResponseContentDisposition": content_disposition(
+                "inline" if inline else "attachment",
+                f"{file_obj.name}{file_obj.get_extension()}",
+            ),
+        }
+        # Objects put without a ContentType are stored as binary/octet-stream,
+        # which a browser downloads even when told inline, so the type is sent too.
+        if inline:
+            params["ResponseContentType"] = mime_type
 
         return s3.generate_presigned_url(
             "get_object",
-            Params={
-                "Bucket": bucket_name,
-                "Key": f"{file_obj.file_type}/{file_obj.internal_name}",
-                "ResponseContentDisposition": content_disposition(
-                    disposition, f"{file_obj.name}{file_obj.get_extension()}"
-                ),
-            },
+            Params=params,
             ExpiresIn=duration,  # seconds
         )
 
