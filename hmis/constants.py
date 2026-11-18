@@ -164,6 +164,9 @@ REGISTRATION_PAYER_TYPES = {
 # A PM-JAY (Ayushman Bharat) card has no validity date.
 PMJAY = "Ayushman Bharat — PM-JAY"
 
+# The government schemes a patient can register under (payer type "Govt scheme").
+GOVT_SCHEMES = ["CGHS", "ECHS", "ESIC", "DGEHS", PMJAY]
+
 RELIGIONS = [
     "Hindu",
     "Muslim",

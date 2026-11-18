@@ -23,6 +23,7 @@ from hmis.constants import (
     DELIVERY_TYPES,
     DESK_ARRIVAL_SOURCES,
     FRRO_C_FORM,
+    GOVT_SCHEMES,
     GUARDIAN_RELATIONSHIPS,
     IDENTITY_CARD_TYPES,
     INTERNATIONAL_TYPES,
@@ -555,6 +556,8 @@ class RegistrationSpec(BaseModel):
             raise ValueError(err)
         if self.payer_type == "Staff":
             one_of(STAFF_PAYERS, blank=False)(self.payer_name)
+        if self.payer_type == "Govt scheme":
+            one_of(GOVT_SCHEMES, blank=False)(self.payer_name)
         needs_id = self.payer_type in ("Corporate", "Staff")
         needs_policy = self.payer_type in ("Insurance/TPA", "Govt scheme")
         if self.payer_type not in ("Self", "International") and not self.payer_name:

@@ -547,6 +547,14 @@ class DeskRegistrationTests(CareAPITestBase):
             self.body(**{**scheme, "payer_name": "Ayushman Bharat — PM-JAY"}),
             "the payer card",
         )
+        # Only the listed government schemes are accepted.
+        self.assert_rejected(
+            self.body(
+                **{**scheme, "payer_name": "Delhi Arogya Kosh"},
+                policy_valid_till="2099-12-31",
+            ),
+            "is not one of",
+        )
 
     def test_whatsapp_owner_staff_category_and_permanent_address(self):
         staff = {
