@@ -2,6 +2,8 @@
 billing.md §2, §5, §8, §9; Scope R35, R36, R48, VAL-15, VAL-16, D57, D58, INV,
 RCT, L16). They run as pre_save checks on Care's charge items, invoices and
 payments, so a broken rule is refused with a 400 from Care's own endpoints.
+The one-time registration fee is added to a patient's first invoice by a
+post_save on Invoice (add_registration_fee).
 
 They apply only in facilities with a unit code, and the charge item rules only
 to lines from the POH catalogue (setup_billing): pharmacy and other Care
@@ -9,13 +11,24 @@ charge items are left alone."""
 
 from decimal import Decimal
 
+from django.db import transaction
+
 from care.emr.extensions.base import ExtensionResource, PlugExtension
 from care.emr.api.viewsets.scheduling.desk_details import default_visit_purpose
 from care.emr.models import Encounter, TokenBooking
 from care.emr.models.charge_item import ChargeItem
+from care.emr.models.charge_item_definition import ChargeItemDefinition
 from care.emr.models.invoice import Invoice
+from care.emr.models.patient import Patient
 from care.emr.models.payment_reconciliation import PaymentReconciliation
-from care.emr.resources.charge_item.spec import CHARGE_ITEM_CANCELLED_STATUS
+from care.emr.resources.charge_item.apply_charge_item_definition import (
+    apply_charge_item_definition,
+)
+from care.emr.resources.charge_item.spec import (
+    CHARGE_ITEM_CANCELLED_STATUS,
+    ChargeItemStatusOptions,
+)
+from care.emr.resources.invoice.sync_items import sync_invoice_items
 from care.emr.resources.scheduling.slot.appointment import VisitPurposes
 from care.emr.resources.charge_item.sync_charge_item_costs import (
     sync_charge_item_costs,
@@ -141,18 +154,69 @@ def grant_entitlement(item, code):
     sync_charge_item_costs(item)
 
 
-def registration_already_charged(item):
+def registration_items(patient_id):
+    """The patient's live registration fee lines, at any POH facility.
+    Cancelled lines (entered in error, not billable, aborted) don't count."""
+    return ChargeItem.objects.filter(
+        patient_id=patient_id,
+        charge_item_definition__purpose=REGISTRATION,
+        charge_item_definition__slug__endswith=slug_for(REGISTRATION),
+    ).exclude(status__in=CHARGE_ITEM_CANCELLED_STATUS)
+
+
+def registration_definition(facility):
+    return ChargeItemDefinition.objects.filter(
+        facility=facility,
+        slug=ChargeItemDefinition.calculate_slug_from_facility(
+            facility.external_id, slug_for(REGISTRATION)
+        ),
+        status="active",
+    ).first()
+
+
+def add_registration_fee(invoice):
     """R35: the registration fee is charged once in a lifetime, at any POH
-    facility."""
-    return (
-        ChargeItem.objects.filter(
-            patient_id=item.patient_id,
-            charge_item_definition__purpose=REGISTRATION,
-            charge_item_definition__slug__endswith=slug_for(REGISTRATION),
-        )
-        .exclude(status__in=CHARGE_ITEM_CANCELLED_STATUS)
-        .exists()
-    )
+    facility, and only by the system: it goes on the patient's first invoice.
+
+    If the patient already has a live REG line that was never billed (its
+    invoice was cancelled), that line moves onto this invoice instead, if it is
+    on the same account. A patient who has been charged before gets nothing:
+    a structural zero, with no ₹0 line and no waiver to approve. Refund
+    invoices and facilities without a unit code are left alone."""
+    if invoice.is_refund or not has_unit_code(invoice.facility_id):
+        return
+    patient_id = invoice.account.patient_id
+    with transaction.atomic():
+        # Two first bills at once (two counters, two units) must not both
+        # charge it.
+        Patient.objects.select_for_update().filter(id=patient_id).first()
+        existing = registration_items(patient_id)
+        if existing.exclude(status=ChargeItemStatusOptions.billable.value).exists():
+            return
+        item = existing.filter(account=invoice.account).first()
+        if item is None:
+            if existing.exists():
+                return
+            definition = registration_definition(invoice.facility)
+            if definition is None:
+                return
+            item = apply_charge_item_definition(
+                definition,
+                invoice.account.patient,
+                invoice.facility,
+                account=invoice.account,
+                quantity=1,
+            )
+            item.created_by = invoice.created_by
+            item.updated_by = invoice.created_by
+            item._system_registration_fee = True
+        item.status = ChargeItemStatusOptions.billed.value
+        item.paid_invoice = invoice
+        item.save()
+        if item.id not in invoice.charge_items:
+            invoice.charge_items = [*invoice.charge_items, item.id]
+        sync_invoice_items(invoice)
+        invoice.save()
 
 
 def follow_up_inside_window(item):
@@ -208,9 +272,15 @@ def check_charge_item(item):
         if previous != item.quantity:
             check_quantity(item, head)
         return
-    if code == REGISTRATION and registration_already_charged(item):
-        grant_entitlement(item, "entitlement_registration")
-    elif code in CONSULTATIONS and follow_up_inside_window(item):
+    if code == REGISTRATION and not getattr(item, "_system_registration_fee", False):
+        # R35: only add_registration_fee adds it, on the first invoice.
+        raise ValidationError(
+            {
+                "charge_item_definition": "The registration fee is added "
+                "automatically to the patient's first bill and can't be added by hand"
+            }
+        )
+    if code in CONSULTATIONS and follow_up_inside_window(item):
         grant_entitlement(item, "entitlement_follow_up")
     # L16: the SAC of the line's head, copied onto the invoice line.
     if not item.code and head:

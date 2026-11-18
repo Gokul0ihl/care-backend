@@ -9,6 +9,7 @@ from django.dispatch import receiver
 from hmis.constants import PatientNumberSeries
 from hmis.app_server import grant_new_facility
 from hmis.billing_rules import (
+    add_registration_fee,
     check_charge_item,
     check_payment,
     number_invoice,
@@ -52,7 +53,7 @@ def issue_uhid_on_arrival(sender, instance, created, **kwargs):
 
 @receiver(pre_save, sender=ChargeItem, dispatch_uid="hmis_charge_rules")
 def apply_charge_rules(sender, instance, **kwargs):
-    """Quantity, once-in-a-lifetime registration, free follow-up and SAC on
+    """Quantity, no hand-added registration fee, free follow-up and SAC on
     POH catalogue lines (billing_rules)."""
     check_charge_item(instance)
 
@@ -60,6 +61,13 @@ def apply_charge_rules(sender, instance, **kwargs):
 @receiver(pre_save, sender=Invoice, dispatch_uid="hmis_invoice_number")
 def apply_invoice_number(sender, instance, **kwargs):
     number_invoice(instance)
+
+
+@receiver(post_save, sender=Invoice, dispatch_uid="hmis_registration_fee")
+def charge_registration_fee(sender, instance, created, **kwargs):
+    """The one-time registration fee goes on the patient's first invoice."""
+    if created:
+        add_registration_fee(instance)
 
 
 @receiver(

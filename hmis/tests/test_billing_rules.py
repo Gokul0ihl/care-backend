@@ -115,51 +115,87 @@ class BillingRuleTests(CareAPITestBase):
         self.assertEqual(item.quantity, 20)
 
     # R35
-    def test_registration_fee_once_in_a_lifetime(self):
-        self.charge("REG")
-        first = self.last_item("REG")
-        self.assertEqual(first.total_price, Decimal(200))
-        self.charge("REG")
-        second = self.last_item("REG")
-        self.assertEqual(second.total_price, 0)
-        self.assertEqual(
-            second.total_price_components[-1]["code"]["code"],
-            "entitlement_registration",
+    def registration_lines(self):
+        return ChargeItem.objects.filter(
+            patient=self.patient, charge_item_definition__purpose="REG"
         )
-        # A concession never stacks on an entitlement.
-        self.assertEqual(
-            [c["monetary_component_type"] for c in second.total_price_components],
-            ["base", "discount"],
+
+    def test_registration_fee_cannot_be_added_by_hand(self):
+        response = self.charge("REG")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("added automatically", str(response.data))
+        self.assertFalse(self.registration_lines().exists())
+
+    def test_first_invoice_gets_the_registration_fee_once(self):
+        self.charge("CBC")
+        response = self.invoice(self.last_item("CBC"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        invoice = Invoice.objects.get(external_id=response.data["id"])
+        registration = self.registration_lines().get()
+        self.assertEqual(registration.total_price, Decimal(200))
+        self.assertEqual(registration.status, "billed")
+        self.assertEqual(registration.paid_invoice, invoice)
+        self.assertIn(registration.id, invoice.charge_items)
+        cbc = self.last_item("CBC").total_price
+        self.assertEqual(invoice.total_gross, cbc + 200)
+        self.assertEqual(Decimal(response.data["total_gross"]), cbc + 200)
+        # The next bill has no registration line at all: not even a ₹0 one.
+        self.charge("LFT")
+        second = Invoice.objects.get(
+            external_id=self.invoice(self.last_item("LFT")).data["id"]
         )
+        self.assertEqual(self.registration_lines().count(), 1)
+        self.assertNotIn(registration.id, second.charge_items)
         # Another POH facility counts too.
         other = self.create_facility(user=self.user)
         other.unit_code = "KB"
         other.save(update_fields=["unit_code"])
         setup_billing(other)
+        other_account = get_default_account(self.patient, other)
         self.client.post(
-            f"/api/v1/facility/{other.external_id}/charge_item/apply_charge_item_defs/",
+            f"/api/v1/facility/{other.external_id}/invoice/",
             {
-                "requests": [
-                    {
-                        "charge_item_definition": ChargeItemDefinition.calculate_slug_from_facility(
-                            other.external_id, slug_for("REG")
-                        ),
-                        "quantity": 1,
-                        "patient": str(self.patient.external_id),
-                    }
-                ]
+                "account": str(other_account.external_id),
+                "status": "draft",
+                "charge_items": [],
             },
             format="json",
         )
-        self.assertEqual(self.last_item("REG").total_price, 0)
+        self.assertEqual(self.registration_lines().count(), 1)
+
+    def test_cancelled_first_invoice_moves_the_fee_to_the_next(self):
+        self.charge("CBC")
+        first = self.invoice(self.last_item("CBC")).data["id"]
+        cancel = self.client.post(
+            f"{self.base}/invoice/{first}/cancel_invoice/",
+            {"reason": "cancelled"},
+            format="json",
+        )
+        self.assertEqual(cancel.status_code, status.HTTP_200_OK, cancel.data)
+        registration = self.registration_lines().get()
+        self.assertEqual(registration.status, "billable")
+        response = self.invoice(self.last_item("CBC"))
+        invoice = Invoice.objects.get(external_id=response.data["id"])
+        registration.refresh_from_db()
+        self.assertEqual(self.registration_lines().count(), 1)
+        self.assertEqual(registration.paid_invoice, invoice)
+        self.assertIn(registration.id, invoice.charge_items)
 
     def test_cancelled_registration_fee_is_charged_again(self):
-        self.charge("REG")
-        ChargeItem.objects.filter(id=self.last_item("REG").id).update(
-            status="entered_in_error"
-        )
-        self.charge("REG")
-        self.assertEqual(self.last_item("REG").total_price, Decimal(200))
+        self.charge("CBC")
+        self.invoice(self.last_item("CBC"))
+        self.registration_lines().update(status="entered_in_error")
+        self.charge("LFT")
+        self.invoice(self.last_item("LFT"))
+        live = self.registration_lines().exclude(status="entered_in_error")
+        self.assertEqual(live.get().total_price, Decimal(200))
+
+    def test_no_registration_fee_outside_poh_facilities(self):
+        self.facility.unit_code = None
+        self.facility.save(update_fields=["unit_code"])
+        self.charge("CBC")
+        self.invoice(self.last_item("CBC"))
+        self.assertFalse(self.registration_lines().exists())
 
     # R36
     def test_follow_up_inside_the_window_is_free(self):
