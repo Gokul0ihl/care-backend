@@ -10,6 +10,7 @@ from hmis.appointment_approvals import can_review, review_booking
 from hmis.restricted import can_see_identity, is_restricted
 from hmis.services import display_numbers
 from hmis.views.base import EmergencyAPIView, can, get_facility
+from hmis.vip import vip_mapping
 
 
 class ReviewSpec(BaseModel):
@@ -40,7 +41,11 @@ def serialize_request(booking, user, numbers=None):
         "approval_reason": "Restricted"
         if masked and booking.approval_reason
         else booking.approval_reason,
-        "patient": {"id": str(booking.patient.external_id), "name": patient_name},
+        "patient": vip_mapping(
+            {"id": str(booking.patient.external_id), "name": patient_name},
+            booking.patient,
+            user,
+        ),
         "patient_number": None
         if masked
         else (numbers or {}).get(booking.patient_id, {}).get("value"),

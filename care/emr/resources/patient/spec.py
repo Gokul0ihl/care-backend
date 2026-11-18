@@ -535,6 +535,9 @@ class PatientListSpec(ExtensionListRenderer, PatientBaseSpec):
     year_of_birth: datetime.date | None = None
     # Read from Patient.meta; set by set_date_of_birth, never by the client.
     date_of_birth_approximate: bool = False
+    # True when the name is a VIP code (hmis.vip.mask_vip): staff reveal the
+    # name on purpose.
+    vip: bool = False
 
     created_date: datetime.datetime
     modified_date: datetime.datetime

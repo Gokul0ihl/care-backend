@@ -23,6 +23,7 @@ from care.security.authorization import AuthorizationController
 from hmis.contact import is_desk_phone
 from hmis.restricted import can_see_identity, is_restricted
 from hmis.services import display_numbers
+from hmis.vip import vip_mapping
 
 PER_RULE = 20
 MAX_RESULTS = 10
@@ -115,23 +116,28 @@ def find_matches(user, spec):
     visible = visible[:MAX_RESULTS]
     numbers = display_numbers([patient.id for patient in visible])
     return [
-        serialize_match(patient, reasons[patient.id], numbers) for patient in visible
+        serialize_match(patient, reasons[patient.id], numbers, user)
+        for patient in visible
     ]
 
 
-def serialize_match(patient, reasons, numbers):
-    return {
-        "id": str(patient.external_id),
-        "name": patient.name,
-        "gender": patient.gender,
-        "date_of_birth": patient.date_of_birth,
-        "date_of_birth_approximate": bool(
-            (patient.meta or {}).get("date_of_birth_approximate")
-        ),
-        "year_of_birth": patient.year_of_birth,
-        "phone_number": patient.phone_number,
-        "identity_card_type": patient.identity_card_type,
-        "identity_number_last4": patient.identity_number_last4,
-        "patient_number": numbers.get(patient.id),
-        "reasons": reasons,
-    }
+def serialize_match(patient, reasons, numbers, user=None):
+    return vip_mapping(
+        {
+            "id": str(patient.external_id),
+            "name": patient.name,
+            "gender": patient.gender,
+            "date_of_birth": patient.date_of_birth,
+            "date_of_birth_approximate": bool(
+                (patient.meta or {}).get("date_of_birth_approximate")
+            ),
+            "year_of_birth": patient.year_of_birth,
+            "phone_number": patient.phone_number,
+            "identity_card_type": patient.identity_card_type,
+            "identity_number_last4": patient.identity_number_last4,
+            "patient_number": numbers.get(patient.id),
+            "reasons": reasons,
+        },
+        patient,
+        user,
+    )

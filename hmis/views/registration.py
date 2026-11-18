@@ -48,6 +48,7 @@ from hmis.views.base import (
     care_view,
     get_facility,
 )
+from hmis.vip import is_masked_vip, log_reveal, vip_code
 
 
 def registration_columns(registration):
@@ -233,7 +234,15 @@ class PatientRegistrationView(EmergencyAPIView):
             raise Http404("This patient has no desk registration")
         if is_restricted(patient) and not can_see_identity(request.user, patient):
             return Response(serialize_restricted_registration(patient))
-        return Response(serialize_registration(patient))
+        data = serialize_registration(patient)
+        if is_masked_vip(patient):
+            # The edit form needs the name parts, so opening it is a logged
+            # reveal; every other view gets the VIP code (hmis.vip).
+            if request.query_params.get("reveal") == "edit":
+                log_reveal(patient, request.user, "edit")
+            else:
+                data = mask_vip_registration(data, patient)
+        return Response(data)
 
     def put(self, request, patient_id):
         """Edits a registered patient with the registration form: Care's own
@@ -290,6 +299,33 @@ class PatientRegistrationView(EmergencyAPIView):
             registration = serialize_registration(desk_patient(patient.external_id))
 
         return Response({"patient": patient_data, "registration": registration})
+
+
+def mask_vip_registration(data, patient):
+    """A VIP's desk record without their name: the VIP code is the first name."""
+    return {
+        **data,
+        "first_name": vip_code(patient),
+        "middle_name": "",
+        "last_name": "",
+        "vip_code": vip_code(patient),
+    }
+
+
+class VipRevealView(EmergencyAPIView):
+    """Shows a VIP's name to the staff member who asks, and logs that they did
+    (D29). Any staff member who can see the patient may reveal it."""
+
+    def post(self, request, patient_id):
+        patient = get_object_or_404(Patient, external_id=patient_id)
+        if not can("can_view_patient_obj", request.user, patient):
+            raise PermissionDenied("You do not have permission to view this patient")
+        if is_restricted(patient) and not can_see_identity(request.user, patient):
+            raise PermissionDenied("This patient's record is restricted")
+        if not patient.is_vip:
+            raise ValidationError("This patient isn't a VIP")
+        log_reveal(patient, request.user, "reveal")
+        return Response({"name": patient.name, "vip_code": vip_code(patient)})
 
 
 class RegistrationMatchView(EmergencyAPIView):

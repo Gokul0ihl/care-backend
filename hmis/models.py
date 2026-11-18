@@ -158,6 +158,22 @@ class BreakGlassAccess(models.Model):
         return f"{self.user_id} → {self.patient_id} until {self.expires_at}"
 
 
+class VipReveal(models.Model):
+    """A staff member looked at a VIP's name (hmis.vip). Rows are never
+    edited or deleted. source is where: "reveal" (the Reveal name button)
+    or "edit" (the registration form)."""
+
+    patient = models.ForeignKey(
+        "emr.Patient", on_delete=models.PROTECT, related_name="+"
+    )
+    user = models.ForeignKey("users.User", on_delete=models.PROTECT, related_name="+")
+    source = models.CharField(max_length=20)
+    created_date = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    def __str__(self):
+        return f"{self.user_id} saw {self.patient_id} ({self.source})"
+
+
 class PostOffice(models.Model):
     """One row of India Post's PIN directory (D17, M01). The whole table is
     replaced on each load, so loaded_at is when the directory was refreshed."""

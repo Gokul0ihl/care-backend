@@ -1,7 +1,9 @@
 from django.utils import timezone
 
+from care.emr.resources.patient.hooks import current_user
 from hmis.models import ArtCouple, BreakGlassAccess
 from hmis.newborn import is_newborn, serialize_birth
+from hmis.vip import vip_mapping
 
 
 def serialize_desk(facility):
@@ -29,12 +31,16 @@ def serialize_emergency(encounter):
         "id": str(encounter.external_id),
         "encounter": str(encounter.external_id),
         "encounter_status": encounter.status,
-        "patient": {
-            "id": str(encounter.patient.external_id),
-            "name": encounter.patient.name,
-            "gender": encounter.patient.gender,
-            "year_of_birth": encounter.patient.year_of_birth,
-        },
+        "patient": vip_mapping(
+            {
+                "id": str(encounter.patient.external_id),
+                "name": encounter.patient.name,
+                "gender": encounter.patient.gender,
+                "year_of_birth": encounter.patient.year_of_birth,
+            },
+            encounter.patient,
+            current_user(),
+        ),
         "facility": str(encounter.facility.external_id),
         "triage": encounter.triage,
         "is_medico_legal": encounter.is_medico_legal,
@@ -116,6 +122,7 @@ REGISTRATION_FIELDS = [
     "is_vip",
     "vip_note",
     "vip_authorised_by",
+    "vip_protocol_consent",
     "handle_with_care",
     "payer_type",
     "payer_name",

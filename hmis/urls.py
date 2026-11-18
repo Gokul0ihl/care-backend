@@ -43,6 +43,7 @@ from hmis.views import (
     QuickRegistrationView,
     RegisterView,
     RegistrationMatchView,
+    VipRevealView,
     RegistrationView,
     RestrictionView,
     StagedDocumentView,
@@ -272,6 +273,11 @@ urlpatterns = [
         "patients/<uuid:patient_id>/restriction/flags/",
         StatutoryFlagView.as_view(),
         name="patient-statutory-flags",
+    ),
+    path(
+        "patients/<uuid:patient_id>/vip/reveal/",
+        VipRevealView.as_view(),
+        name="patient-vip-reveal",
     ),
     path(
         "patients/<uuid:patient_id>/restriction/break-glass/",

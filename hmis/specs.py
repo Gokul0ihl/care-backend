@@ -41,8 +41,10 @@ from hmis.constants import (
     NEWBORN_WEIGHT_GRAMS,
     PAYER_TYPES,
     PHONE_OWNERS,
+    PMJAY,
     PREGNANCY_STATUSES,
     PROMOTION_PURPOSES,
+    REGISTRATION_PAYER_TYPES,
     REGISTRATION_TYPES,
     RELIGIONS,
     STAFF_CATEGORIES,
@@ -327,6 +329,7 @@ class RegistrationSpec(BaseModel):
     is_vip: bool = False
     vip_note: str = Field(default="", max_length=200)
     vip_authorised_by: str = Field(default="", max_length=100)
+    vip_protocol_consent: bool = False
     handle_with_care: bool = False
 
     payer_type: str
@@ -519,6 +522,12 @@ class RegistrationSpec(BaseModel):
             )
         if self.is_vip and not (self.vip_note and self.vip_authorised_by):
             raise ValueError("A VIP flag needs a note and who authorised it")
+        if not self.is_vip:
+            self.vip_protocol_consent = False
+        elif not self.vip_protocol_consent:
+            raise ValueError(
+                "Explain the VIP protocol to the patient and record the consent"
+            )
         if self.consent_method == "Thumb impression" and not self.consent_witness:
             raise ValueError("Enter the witness for a thumb-impression consent")
         if not (
@@ -540,6 +549,10 @@ class RegistrationSpec(BaseModel):
 
     @model_validator(mode="after")
     def validate_payer(self):
+        allowed = REGISTRATION_PAYER_TYPES.get(self.registration_type, PAYER_TYPES)
+        if self.payer_type not in allowed:
+            err = f"Payer type must be one of: {', '.join(allowed)}"
+            raise ValueError(err)
         if self.payer_type == "Staff":
             one_of(STAFF_PAYERS, blank=False)(self.payer_name)
         needs_id = self.payer_type in ("Corporate", "Staff")
@@ -552,6 +565,10 @@ class RegistrationSpec(BaseModel):
             raise ValueError("Enter the policy or card number")
         if self.payer_type == "Govt scheme" and not self.occupation:
             raise ValueError("Government schemes need the occupation")
+        # Insurance and schemes need the card's validity (today or later, checked
+        # with the other expiry dates); PM-JAY cards don't expire.
+        if needs_policy and self.payer_name != PMJAY and not self.policy_valid_till:
+            raise ValueError("Enter the policy or card's valid-till date")
         # An explicit list (including []) takes precedence over the legacy scalar.
         values = (
             self.concessions

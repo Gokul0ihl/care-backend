@@ -147,6 +147,9 @@ class Patient(EMRBaseModel):
     vip_note = models.CharField(max_length=200, blank=True, default="")
     vip_authorised_by = models.CharField(max_length=100, blank=True, default="")
     handle_with_care = models.BooleanField(default=False)
+    # The patient (or their representative) was told about the VIP protocol:
+    # the name is shown as a VIP code, they are called silently and escorted.
+    vip_protocol_consent = models.BooleanField(default=False)
     vip_flagged_by = models.ForeignKey(
         "users.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
@@ -281,8 +284,8 @@ class Patient(EMRBaseModel):
     apgar_5_min = models.PositiveSmallIntegerField(null=True, blank=True)
 
     # Fold columns the patient serialization hooks read for every patient
-    # (hmis contact.hide_no_phone, restricted.mask_patient).
-    LIST_LOADED_FIELDS = ("mobile_owner", "restricted_alias")
+    # (hmis contact.hide_no_phone, restricted.mask_patient, vip.mask_vip).
+    LIST_LOADED_FIELDS = ("mobile_owner", "restricted_alias", "is_vip")
 
     @classmethod
     def list_deferred_fields(cls):

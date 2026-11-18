@@ -8,18 +8,18 @@ class PohConfig(AppConfig):
 
     def ready(self):
         from care.emr.registries.extensions.registry import ExtensionRegistry
-
         from hmis import signals, tasks  # noqa: F401
         from hmis.billing_rules import BillingExtension
-        from hmis.restricted import mask_patient
         from hmis.contact import hide_no_phone, patient_phone_allowed
+        from hmis.restricted import mask_patient
+        from hmis.vip import mask_vip
 
         ExtensionRegistry.register(BillingExtension())
 
         # Masks restricted patients (D30) wherever Care shows a patient.
         from care.emr.resources.patient.hooks import (
-            patient_serialization_hooks,
             patient_phone_hooks,
+            patient_serialization_hooks,
         )
 
         if hide_no_phone not in patient_serialization_hooks:
@@ -28,3 +28,6 @@ class PohConfig(AppConfig):
             patient_phone_hooks.append(patient_phone_allowed)
         if mask_patient not in patient_serialization_hooks:
             patient_serialization_hooks.append(mask_patient)
+        # Shows a VIP as their VIP code (D29); a restricted alias wins.
+        if mask_vip not in patient_serialization_hooks:
+            patient_serialization_hooks.append(mask_vip)

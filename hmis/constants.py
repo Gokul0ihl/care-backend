@@ -144,6 +144,26 @@ PAYER_TYPES = [
     "Staff",
     "International",
 ]
+# The payer types each registration type allows. A payer-named type (TPA, CORP,
+# STAFF, GOVT) has only its own payer. International and NRI patients have no
+# Indian government scheme or staff payer; a domestic patient has no
+# international sponsor.
+DOMESTIC_PAYER_TYPES = ["Self", "Corporate", "Insurance/TPA", "Govt scheme", "Staff"]
+INTERNATIONAL_PAYER_TYPES = ["Self", "Corporate", "Insurance/TPA", "International"]
+REGISTRATION_PAYER_TYPES = {
+    "DOM": DOMESTIC_PAYER_TYPES,
+    "CPL": DOMESTIC_PAYER_TYPES,
+    "TPA": ["Insurance/TPA"],
+    "CORP": ["Corporate"],
+    "STAFF": ["Staff"],
+    "GOVT": ["Govt scheme"],
+    "INT": INTERNATIONAL_PAYER_TYPES,
+    "NRI": INTERNATIONAL_PAYER_TYPES,
+}
+
+# A PM-JAY (Ayushman Bharat) card has no validity date.
+PMJAY = "Ayushman Bharat — PM-JAY"
+
 RELIGIONS = [
     "Hindu",
     "Muslim",

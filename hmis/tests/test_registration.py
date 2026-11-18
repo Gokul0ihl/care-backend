@@ -242,6 +242,7 @@ class DeskRegistrationTests(CareAPITestBase):
                 is_vip=True,
                 vip_note="Embassy guest",
                 vip_authorised_by="Vikram Shah — Centre Manager",
+                vip_protocol_consent=True,
                 handle_with_care=True,
                 **INTERNATIONAL,
             )
@@ -366,6 +367,19 @@ class DeskRegistrationTests(CareAPITestBase):
                     "passport_number": "",
                 },
                 "UNHCR card or the passport",
+            ),
+            # No Indian government scheme or staff payer for an international patient.
+            (
+                {
+                    "payer_type": "Govt scheme",
+                    "payer_name": "CGHS",
+                    "policy_number": "CG1",
+                },
+                "Payer type must be one of",
+            ),
+            (
+                {"payer_type": "Staff", "payer_name": "POH staff — self"},
+                "Payer type must be one of",
             ),
         ]
         for registration, message in cases:
@@ -497,6 +511,41 @@ class DeskRegistrationTests(CareAPITestBase):
             )
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+
+    def test_insurance_and_schemes_need_a_valid_till_date(self):
+        insurance = {
+            "registration_type": "TPA",
+            "payer_type": "Insurance/TPA",
+            "payer_name": "Star Health",
+            "policy_number": "SH-1",
+            "policy_holder_relationship": "Self",
+        }
+        scheme = {
+            "registration_type": "GOVT",
+            "payer_type": "Govt scheme",
+            "payer_name": "CGHS",
+            "policy_number": "CG1",
+            "policy_holder_relationship": "Self",
+            "occupation": "Business",
+        }
+        for body in (insurance, scheme):
+            with self.subTest(payer=body["payer_type"]):
+                self.assert_rejected(self.body(**body), "valid-till date")
+                self.assert_rejected(
+                    self.body(policy_valid_till="2000-01-01", **body), "has expired"
+                )
+                # Today's date is accepted: the next rule is the card upload.
+                self.assert_rejected(
+                    self.body(
+                        policy_valid_till=timezone.localdate().isoformat(), **body
+                    ),
+                    "the payer card",
+                )
+        # A PM-JAY card has no validity date.
+        self.assert_rejected(
+            self.body(**{**scheme, "payer_name": "Ayushman Bharat — PM-JAY"}),
+            "the payer card",
+        )
 
     def test_whatsapp_owner_staff_category_and_permanent_address(self):
         staff = {
@@ -698,6 +747,8 @@ class DeskRegistrationTests(CareAPITestBase):
             ({"first_name": "N"}, "first name"),
             ({"registration_type": "INT"}, "does not match"),
             ({"payer_type": "Corporate"}, "Choose the payer"),
+            ({"payer_type": ""}, "is not one of"),
+            ({"registration_type": "CORP"}, "Payer type must be one of: Corporate"),
             (
                 {
                     "payer_type": "Govt scheme",
@@ -707,6 +758,10 @@ class DeskRegistrationTests(CareAPITestBase):
                 "occupation",
             ),
             ({"is_vip": True}, "VIP flag needs"),
+            (
+                {"is_vip": True, "vip_note": "Minister", "vip_authorised_by": "MD"},
+                "VIP protocol",
+            ),
             ({"concession": "EWS / charity"}, "approved the concession"),
             ({"consent_method": "Thumb impression"}, "witness"),
             ({"policy_valid_till": "2000-01-01"}, "has expired"),
@@ -1005,7 +1060,10 @@ class DeskRegistrationTests(CareAPITestBase):
     def test_update_edits_patient_and_registration_and_keeps_uhid(self):
         self.register(
             self.body(
-                is_vip=True, vip_note="Minister", vip_authorised_by="Medical Director"
+                is_vip=True,
+                vip_note="Minister",
+                vip_authorised_by="Medical Director",
+                vip_protocol_consent=True,
             )
         )
         patient = Patient.objects.get()
@@ -1022,6 +1080,7 @@ class DeskRegistrationTests(CareAPITestBase):
             is_vip=True,
             vip_note="Minister",
             vip_authorised_by="Medical Director",
+            vip_protocol_consent=True,
         )
         editor = self.create_super_user(username="editor")
         self.client.force_authenticate(user=editor)

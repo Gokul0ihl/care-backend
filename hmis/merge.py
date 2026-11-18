@@ -345,6 +345,7 @@ FIELDS = [
             D("handle_with_care", "Handle with care"),
             D("vip_note", "Note"),
             D("vip_authorised_by", "Authorised by"),
+            D("vip_protocol_consent", "VIP protocol explained"),
             D("vip_flagged_by_id", "Flagged by user"),
         ),
     ),

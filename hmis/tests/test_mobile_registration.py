@@ -13,6 +13,7 @@ from django.utils import timezone
 from model_bakery import baker
 from rest_framework.test import APIClient, APITransactionTestCase
 
+from care.emr.locks.billing import PatientCreateLock
 from care.emr.models import Patient
 from care.facility.models import Facility
 from care.users.models import User
@@ -31,6 +32,8 @@ PASSWORD = "FakeTesting#123"
 @override_settings(USE_SMS=False, IS_PRODUCTION=False)
 class MobileRegistrationTests(APITransactionTestCase):
     def setUp(self):
+        # An earlier test can leave Care's create-patient lock held.
+        PatientCreateLock().release()
         self.staff = baker.make(User)
         self.facility = baker.make(
             Facility,
