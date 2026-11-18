@@ -22,6 +22,8 @@ from hmis.constants import (
     PatientNumberSeries,
 )
 from hmis.contact import is_desk_phone
+from hmis.models import PatientEventActions, PatientEventChannels
+from hmis.patient_events import record_patient_event
 from hmis.pincodes import env_setting
 from hmis.serializers import (
     serialize_quick_registration,
@@ -152,6 +154,14 @@ class QuickRegistrationView(EmergencyAPIView):
             for name, value in columns.items():
                 setattr(patient, name, value)
             patient.save(update_fields=[*columns, "modified_date"])
+            record_patient_event(
+                patient,
+                PatientEventActions.registered,
+                PatientEventChannels.quick,
+                request.user,
+                facility,
+                details={"form_link_sent": spec.send_form_link},
+            )
             if spec.send_form_link:
                 transaction.on_commit(lambda: send_quick_form_link(patient.id))
             patient_data = PatientRetrieveSpec.serialize(patient).to_json()
@@ -283,6 +293,14 @@ class QuickFormView(EmergencyAPIView):
             patient.quick_form_submitted_at = timezone.now()
             patient.save(
                 update_fields=["quick_form_details", "quick_form_submitted_at"]
+            )
+            record_patient_event(
+                patient,
+                PatientEventActions.form_submitted,
+                PatientEventChannels.patient_form,
+                None,
+                patient.quick_facility,
+                details={"fields": sorted(k for k, v in details.items() if v)},
             )
         return Response({"status": "submitted"})
 

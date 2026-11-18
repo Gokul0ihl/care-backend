@@ -21,8 +21,11 @@ from hmis.models import (
     ArtCouple,
     CampParticipant,
     PatientDocument,
+    PatientEventActions,
+    PatientEventChannels,
     RegistrationAllergy,
 )
+from hmis.patient_events import changed_fields, field_snapshot, record_patient_event
 from hmis.restricted import can_see_identity, is_restricted
 from hmis.serializers import (
     serialize_registration,
@@ -34,6 +37,7 @@ from hmis.services import (
     emergency_encounters,
     issue_patient_number,
     missing_documents,
+    patient_number,
     staged_documents,
     unit_code,
 )
@@ -166,6 +170,14 @@ class RegistrationView(EmergencyAPIView):
                 self.register_couple(
                     request, spec, patient, facility, series, partner_documents
                 )
+            record_patient_event(
+                patient,
+                PatientEventActions.registered,
+                PatientEventChannels.desk,
+                request.user,
+                facility,
+                details={"pre_registration": spec.pre_registration},
+            )
             patient_data = PatientRetrieveSpec.serialize(patient).to_json()
             registration = serialize_registration(desk_patient(patient.external_id))
 
@@ -198,6 +210,14 @@ class RegistrationView(EmergencyAPIView):
             if facility:
                 issue_patient_number(partner_patient, facility, series)
             attach_documents(documents, partner_patient)
+            record_patient_event(
+                partner_patient,
+                PatientEventActions.registered,
+                PatientEventChannels.ivf_partner,
+                request.user,
+                facility,
+                details={"pre_registration": spec.pre_registration},
+            )
         ArtCouple.objects.create(
             woman=woman,
             partner=partner_patient,
@@ -269,6 +289,8 @@ class PatientRegistrationView(EmergencyAPIView):
             raise ValidationError("Select No phone instead of entering the desk number")
 
         with transaction.atomic():
+            before = field_snapshot(patient)
+            first_registration = patient.registered_at is None
             documents = staged_documents(request.user, spec.documents)
             existing = list(PatientDocument.objects.filter(patient=patient))
             missing = missing_documents(spec.registration, existing + documents)
@@ -288,6 +310,7 @@ class PatientRegistrationView(EmergencyAPIView):
                 replace_allergies=True,
             )
             attach_documents(documents, patient)
+            had_uhid = patient_number(patient, PatientNumberSeries.uhid) is not None
             if spec.convert_to_uhid:
                 issue_patient_number(patient, facility)
                 # A camp capture counts as registered once they have a UHID.
@@ -295,6 +318,21 @@ class PatientRegistrationView(EmergencyAPIView):
                     status="registered"
                 )
             patient.refresh_from_db()
+            details = {"fields": changed_fields(before, field_snapshot(patient))}
+            if documents:
+                details["documents_added"] = len(documents)
+            if spec.convert_to_uhid and not had_uhid:
+                details["uhid_issued"] = True
+            record_patient_event(
+                patient,
+                PatientEventActions.registered
+                if first_registration
+                else PatientEventActions.registration_updated,
+                PatientEventChannels.desk,
+                request.user,
+                facility or patient.registration_facility,
+                details=details,
+            )
             patient_data = PatientRetrieveSpec.serialize(patient).to_json()
             registration = serialize_registration(desk_patient(patient.external_id))
 

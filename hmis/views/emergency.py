@@ -18,6 +18,12 @@ from hmis.constants import (
     TRIAGE_PRIORITY,
     PatientNumberSeries,
 )
+from hmis.models import PatientEventActions, PatientEventChannels
+from hmis.patient_events import (
+    changed_fields,
+    field_snapshot,
+    record_patient_event,
+)
 from hmis.serializers import (
     serialize_emergency,
 )
@@ -118,6 +124,17 @@ class RegisterView(EmergencyAPIView):
                 setattr(encounter, field, value)
             encounter.save(update_fields=list(columns))
             patient.refresh_from_db()
+            record_patient_event(
+                patient,
+                PatientEventActions.registered,
+                PatientEventChannels.emergency,
+                request.user,
+                facility,
+                details={
+                    "unidentified": spec.is_unidentified,
+                    "medico_legal": spec.is_medico_legal,
+                },
+            )
             patient_data = PatientRetrieveSpec.serialize(patient).to_json()
 
         return Response(
@@ -247,6 +264,7 @@ class ConvertView(EmergencyAPIView):
             raise ValidationError("Enter the patient's own phone number")
 
         with transaction.atomic():
+            before = field_snapshot(patient)
             view = care_view(
                 PatientViewSet, request, "update", external_id=str(patient_id)
             )
@@ -267,6 +285,14 @@ class ConvertView(EmergencyAPIView):
             # The UNK number stays on the record alongside the new UHID.
             issue_patient_number(patient, facility)
             patient.refresh_from_db()
+            record_patient_event(
+                patient,
+                PatientEventActions.registration_completed,
+                PatientEventChannels.emergency,
+                request.user,
+                facility,
+                details={"fields": changed_fields(before, field_snapshot(patient))},
+            )
             patient_data = PatientRetrieveSpec.serialize(patient).to_json()
         return Response(
             {

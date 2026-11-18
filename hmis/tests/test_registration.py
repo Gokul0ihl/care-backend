@@ -11,6 +11,7 @@ from care.utils.tests.base import CareAPITestBase
 from hmis.models import (
     ArtCouple,
     PatientDocument,
+    PatientEvent,
     PostOffice,
 )
 from hmis.services import emergency_encounters
@@ -818,6 +819,7 @@ class DeskRegistrationTests(CareAPITestBase):
             ({"first_name": "Anne-Marie"}, "first name"),
         ]:
             with self.subTest(registration=registration):
+                PatientEvent.objects.all().delete()  # the audit rows protect the patient
                 Patient.objects.all().delete()
                 self.assert_rejected(self.body(**registration), message)
 
@@ -924,6 +926,7 @@ class DeskRegistrationTests(CareAPITestBase):
         self.assertEqual(
             response.data["registration"]["capture_id_method"], "number_typed"
         )
+        PatientEvent.objects.all().delete()  # the audit rows protect the patient
         Patient.objects.all().delete()
         PatientCreateLock().release()
 

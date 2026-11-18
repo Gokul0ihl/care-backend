@@ -15,7 +15,9 @@ from hmis.merge import (
     merge_patients,
     merge_preview,
 )
-from hmis.services import attach_documents, staged_documents
+from hmis.models import PatientEventActions, PatientEventChannels
+from hmis.patient_events import record_patient_event
+from hmis.services import attach_documents, display_numbers, staged_documents
 from hmis.specs import (
     PatientMergeSpec,
 )
@@ -69,6 +71,19 @@ class PatientMergeView(EmergencyAPIView):
                 attach_documents([consent], target)
                 merge.consent_document = consent
                 merge.save(update_fields=["consent_document"])
+                source_number = display_numbers([source.id]).get(source.id) or {}
+                record_patient_event(
+                    target,
+                    PatientEventActions.merged,
+                    PatientEventChannels.merge,
+                    request.user,
+                    target.registration_facility,
+                    details={
+                        "source": str(source.external_id),
+                        "source_number": source_number.get("value") or "",
+                        "moved": merge.moved,
+                    },
+                )
                 transaction.on_commit(lock.release)
         except BaseException:
             lock.release()

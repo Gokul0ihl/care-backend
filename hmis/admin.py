@@ -6,6 +6,7 @@ from hmis.models import (
     BreakGlassAccess,
     MlcSequence,
     PatientDocument,
+    PatientEvent,
     PatientNumberSequence,
     RegistrationAllergy,
     StatutoryFlag,
@@ -77,4 +78,23 @@ class ApiKeyAdmin(admin.ModelAdmin):
     readonly_fields = ("prefix", "key_hash", "last_used_at")
 
     def has_add_permission(self, request):
+        return False
+
+
+@admin.register(PatientEvent)
+class PatientEventAdmin(admin.ModelAdmin):
+    """The registration audit trail: read-only."""
+
+    list_display = ("created_date", "action", "channel", "username", "patient_number", "facility_name")
+    list_filter = ("action", "channel")
+    search_fields = ("username", "patient_number")
+    raw_id_fields = ("patient", "user", "facility")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
         return False

@@ -174,6 +174,81 @@ class VipReveal(models.Model):
         return f"{self.user_id} saw {self.patient_id} ({self.source})"
 
 
+class PatientEventActions(models.TextChoices):
+    registered = "registered", "Registered"
+    registration_updated = "registration_updated", "Registration updated"
+    registration_completed = "registration_completed", "Registration completed"
+    form_submitted = "form_submitted", "Registration form submitted"
+    merged = "merged", "Duplicate record merged in"
+
+
+class PatientEventChannels(models.TextChoices):
+    desk = "desk", "Front desk"
+    ivf_partner = "ivf_partner", "Front desk (IVF partner)"
+    quick = "quick", "Quick registration"
+    newborn = "newborn", "Newborn"
+    emergency = "emergency", "Emergency"
+    camp = "camp", "Health camp"
+    mobile_app = "mobile_app", "Patient mobile app"
+    app_server = "app_server", "Patient app server"
+    patient_form = "patient_form", "Texted registration form"
+    merge = "merge", "Patient merge"
+
+
+class PatientEvent(models.Model):
+    """One entry in a patient's registration timeline and the registration
+    audit trail (hmis.patient_events): who did it, in which role, at which
+    facility and when. Names are copied in, so a row still reads correctly
+    after the user, role or facility changes. Append-only: rows are never
+    edited or deleted. details holds field names and numbers, never values."""
+
+    patient = models.ForeignKey(
+        "emr.Patient", on_delete=models.PROTECT, related_name="+"
+    )
+    action = models.CharField(max_length=32, choices=PatientEventActions.choices)
+    channel = models.CharField(max_length=20, choices=PatientEventChannels.choices)
+    # Null for the patient acting on their own record (mobile app, texted form).
+    user = models.ForeignKey(
+        "users.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    username = models.CharField(max_length=255, blank=True, default="")
+    user_full_name = models.CharField(max_length=255, blank=True, default="")
+    # The user's roles at the facility when it happened, e.g. ["Front desk"].
+    roles = models.JSONField(default=list)
+    facility = models.ForeignKey(
+        "facility.Facility",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    facility_name = models.CharField(max_length=1024, blank=True, default="")
+    # The patient's number after the event (UHID, PRE-, UNK-), for the trail.
+    patient_number = models.CharField(max_length=40, blank=True, default="")
+    details = models.JSONField(default=dict, blank=True)
+    created_date = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_date", "-id"]
+        indexes = [
+            models.Index(fields=["patient", "created_date"]),
+            models.Index(fields=["facility", "created_date"]),
+        ]
+
+    def __str__(self):
+        return f"{self.action} {self.patient_id} by {self.username or 'patient'}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            msg = "Patient events are append-only"
+            raise ValueError(msg)
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        msg = "Patient events are append-only"
+        raise ValueError(msg)
+
+
 class PostOffice(models.Model):
     """One row of India Post's PIN directory (D17, M01). The whole table is
     replaced on each load, so loaded_at is when the directory was refreshed."""

@@ -48,9 +48,12 @@ from hmis.models import (
     OutreachEventTest,
     OutreachFormField,
     OutreachFormTemplate,
+    PatientEventActions,
+    PatientEventChannels,
     PatientNumberSequence,
     RegistrationAllergy,
 )
+from hmis.patient_events import record_patient_event
 from hmis.services import display_numbers, issue_patient_number, unit_code
 from hmis.specs import LAST_NAME, NAME_PART
 
@@ -2337,6 +2340,14 @@ def create_camp_patient(event, spec, user, number, answers=None):
     )
     evaluate_patient_instance_default_values(patient)
     issue_patient_number(patient, facility, PatientNumberSeries.pre_registration)
+    record_patient_event(
+        patient,
+        PatientEventActions.registered,
+        PatientEventChannels.camp,
+        user,
+        facility,
+        details={"camp": event.name, "camp_patient_id": number},
+    )
     if has_allergy and spec.allergen.strip():
         severity = spec.allergy_severity.lower().replace(" ", "_").replace("-", "_")
         RegistrationAllergy.objects.create(

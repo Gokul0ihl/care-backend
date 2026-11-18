@@ -13,12 +13,14 @@ from care.utils.shortcuts import get_object_or_404
 from hmis.merge import (
     is_unconverted_emergency,
 )
+from hmis.models import PatientEventActions, PatientEventChannels
 from hmis.newborn import (
     baby_name,
     baby_registration,
     save_birth,
     serialize_birth,
 )
+from hmis.patient_events import record_patient_event
 from hmis.restricted import can_see_identity, is_restricted
 from hmis.services import (
     issue_patient_number,
@@ -115,6 +117,14 @@ class NewbornRegistrationView(EmergencyAPIView):
                         "apgar_5_min": baby.apgar_5_min,
                     },
                     request.user,
+                )
+                record_patient_event(
+                    patient,
+                    PatientEventActions.registered,
+                    PatientEventChannels.newborn,
+                    request.user,
+                    facility,
+                    details={"birth_order": order, "number_of_babies": number_of_babies},
                 )
                 patient = Patient.objects.select_related(
                     "birth_mother", "birth_facility"

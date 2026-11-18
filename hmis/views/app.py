@@ -20,6 +20,13 @@ from hmis.constants import (
 from hmis.contact import is_desk_phone
 from hmis.models import (
     AppPatientLink,
+    PatientEventActions,
+    PatientEventChannels,
+)
+from hmis.patient_events import (
+    changed_fields,
+    field_snapshot,
+    record_patient_event,
 )
 from hmis.services import (
     issue_patient_number,
@@ -118,6 +125,7 @@ class AppPatientView(EmergencyAPIView):
             if not link.matched:
                 with transaction.atomic():
                     patient = link.patient
+                    before = field_snapshot(patient)
                     care_view(
                         PatientViewSet,
                         request,
@@ -129,6 +137,17 @@ class AppPatientView(EmergencyAPIView):
                             spec, (patient.meta or {}).get("registration") or {}
                         ),
                     )
+                    patient.refresh_from_db()
+                    fields = changed_fields(before, field_snapshot(patient))
+                    if fields:
+                        record_patient_event(
+                            patient,
+                            PatientEventActions.registration_updated,
+                            PatientEventChannels.app_server,
+                            request.user,
+                            facility,
+                            details={"fields": fields},
+                        )
                 link.patient.refresh_from_db()
             return Response(serialize_app_patient(link))
 
@@ -144,6 +163,13 @@ class AppPatientView(EmergencyAPIView):
                     patient = Patient.objects.get(external_id=data["id"])
                     issue_patient_number(
                         patient, facility, PatientNumberSeries.pre_registration
+                    )
+                    record_patient_event(
+                        patient,
+                        PatientEventActions.registered,
+                        PatientEventChannels.app_server,
+                        request.user,
+                        facility,
                     )
                 link = AppPatientLink.objects.create(
                     app_user_id=spec.app_user_id,

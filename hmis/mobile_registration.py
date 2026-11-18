@@ -26,7 +26,14 @@ from care.facility.models import Facility
 from care.utils.models.validators import mobile_validator
 from hmis.constants import PatientNumberSeries
 from hmis.mobile_auth import session_usable, start_session
-from hmis.models import MobileRegistration, PatientAccount, PatientSession
+from hmis.models import (
+    MobileRegistration,
+    PatientAccount,
+    PatientEventActions,
+    PatientEventChannels,
+    PatientSession,
+)
+from hmis.patient_events import record_patient_event
 from hmis.profile_photo import set_photo
 from hmis.services import issue_patient_number
 from hmis.specs import LAST_NAME, NAME_PART, allowed_titles, years_old
@@ -265,6 +272,14 @@ def complete_registration(data, phone):
             evaluate_patient_instance_default_values(patient)
             issue_patient_number(
                 patient, facility, PatientNumberSeries.pre_registration
+            )
+            # The patient registered themselves: no staff user, role "Patient".
+            record_patient_event(
+                patient,
+                PatientEventActions.registered,
+                PatientEventChannels.mobile_app,
+                None,
+                facility,
             )
             account = PatientAccount.objects.create(patient=patient, password=password)
             session, tokens = start_session(patient, phone)

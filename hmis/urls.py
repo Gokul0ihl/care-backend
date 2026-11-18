@@ -43,12 +43,12 @@ from hmis.views import (
     QuickRegistrationView,
     RegisterView,
     RegistrationMatchView,
-    VipRevealView,
     RegistrationView,
     RestrictionView,
     StagedDocumentView,
     StatutoryFlagView,
     UnitView,
+    VipRevealView,
 )
 from hmis.views.appointment_approvals import (
     AppointmentRequestListView,
@@ -60,6 +60,10 @@ from hmis.views.branding import (
     AdminBrandingPublishView,
     AdminBrandingView,
     PublicBrandingView,
+)
+from hmis.views.patient_events import (
+    PatientTimelineView,
+    RegistrationAuditView,
 )
 from hmis.views.platform_admin import (
     AdminOverviewView,
@@ -217,6 +221,16 @@ urlpatterns = [
         name="emergency-convert",
     ),
     path("registration/", RegistrationView.as_view(), name="desk-registration"),
+    path(
+        "registration/audit/",
+        RegistrationAuditView.as_view(),
+        name="registration-audit",
+    ),
+    path(
+        "patients/<uuid:patient_id>/timeline/",
+        PatientTimelineView.as_view(),
+        name="patient-timeline",
+    ),
     path(
         "registration/matches/",
         RegistrationMatchView.as_view(),
