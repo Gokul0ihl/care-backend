@@ -3,9 +3,12 @@ slip. Every Care response that carries the patient shows their VIP code
 (VIP-K7M3QA) instead, through Care's patient serialization hook; phone,
 date of birth and the UHID stay, so the desk can still find and check them.
 
-Any staff member can see the name by revealing it on purpose
-(VipRevealView), and each reveal is logged (VipReveal). The registration
-form's edit view reveals too, since it needs the name parts.
+Only a user whose role has the can_reveal_vip_name permission can see the
+name, by revealing it on purpose (VipRevealView); each reveal is logged
+(VipReveal). No system role has the permission and superusers don't bypass
+it: it is granted through a custom role. The registration form's edit view
+reveals too, since it needs the name parts, so editing a VIP's record needs
+the permission as well.
 
 A restricted patient (hmis.restricted) is already shown as their alias, which
 wins: the VIP code would add nothing.
@@ -53,6 +56,30 @@ def vip_mapping(mapping, patient, user):
     mapping (OPD queue, approvals, duplicates, emergency)."""
     mask_vip(mapping, patient, user)
     return mapping
+
+
+VIP_REVEAL_PERMISSION = "can_reveal_vip_name"
+VIP_REVEAL_DENIED = "Only a user with VIP access can see a VIP's name"
+
+
+def can_reveal_vip(user):
+    """Whether any role the user holds (in a facility organization or an
+    organization) has can_reveal_vip_name. Deliberately no superuser bypass."""
+    from care.emr.models.organization import (
+        FacilityOrganizationUser,
+        OrganizationUser,
+    )
+    from care.security.models import RolePermission
+
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+    roles = RolePermission.objects.filter(
+        permission__slug=VIP_REVEAL_PERMISSION
+    ).values("role_id")
+    return (
+        FacilityOrganizationUser.objects.filter(user=user, role_id__in=roles).exists()
+        or OrganizationUser.objects.filter(user=user, role_id__in=roles).exists()
+    )
 
 
 def log_reveal(patient, user, source):

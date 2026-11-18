@@ -1094,6 +1094,12 @@ class DeskRegistrationTests(CareAPITestBase):
             vip_protocol_consent=True,
         )
         editor = self.create_super_user(username="editor")
+        # Editing a VIP's record needs VIP access; being a superuser isn't enough.
+        self.attach_role_facility_organization_user(
+            self.create_facility_organization(facility=self.facility),
+            editor,
+            self.create_role_with_permissions(["can_reveal_vip_name"]),
+        )
         self.client.force_authenticate(user=editor)
         response = self.update(patient, body)
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)

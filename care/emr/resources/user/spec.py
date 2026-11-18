@@ -181,6 +181,9 @@ class CurrentUserRetrieveSpec(UserRetrieveSpec):
     preferences: dict
     # Security policy says this user must set up two-factor sign-in.
     mfa_setup_required: bool = False
+    # POH: a role grants can_reveal_vip_name (hmis.vip), so the UI offers
+    # Reveal name and editing a VIP's record.
+    can_reveal_vip: bool = False
 
     @classmethod
     def perform_extra_serialization(cls, mapping, obj: User) -> None:
@@ -213,6 +216,10 @@ class CurrentUserRetrieveSpec(UserRetrieveSpec):
         from care.security.policy import mfa_setup_required
 
         mapping["mfa_setup_required"] = mfa_setup_required(obj)
+
+        from hmis.vip import can_reveal_vip
+
+        mapping["can_reveal_vip"] = can_reveal_vip(obj)
         mapping["permissions"] = list(
             RolePermission.objects.filter(
                 role_id__in=OrganizationUser.objects.filter(user=obj).values_list(
