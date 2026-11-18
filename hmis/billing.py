@@ -12,8 +12,9 @@ setup_billing() loads them into Care's own billing models for one facility:
 - the INV/{unit}/{yy}/NNNNN invoice number.
 
 sync_billing_tags() keeps a patient's payer and concession tags in step with
-their desk registration. The registration and follow-up entitlements are
-applied by billing_rules. Payer shares (insurance 90/10, credit to the payer),
+their desk registration, and re-prices the lines of the current visit that
+aren't billed yet (repricing.py); past bills keep their prices. The
+registration and follow-up entitlements are applied by billing_rules. Payer shares (insurance 90/10, credit to the payer),
 coupon caps and validity and discount approvals are not expressible in Care's
 pricing and stay outside this module."""
 
@@ -584,3 +585,8 @@ def sync_billing_tags(patient):
     facility_tags[str(facility.id)] = updated
     patient.facility_tags = facility_tags
     patient.save(update_fields=["facility_tags"])
+    # The new payer applies from this visit onwards; past bills keep their
+    # prices (repricing.py). Imported here: repricing imports this module.
+    from hmis.repricing import reprice_open_lines
+
+    reprice_open_lines(patient, facility)

@@ -1,14 +1,18 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from io import StringIO
 
 from django.core.management import call_command
 
+from care.emr.models.charge_item import ChargeItem
 from care.emr.models.charge_item_definition import ChargeItemDefinition
 from care.emr.models.facility_config import FacilityMonetoryConfig
 from care.emr.models.tag_config import TagConfig
 from care.emr.resources.charge_item.apply_charge_item_definition import (
     apply_charge_item_definition,
+)
+from care.emr.resources.charge_item.sync_charge_item_costs import (
+    sync_charge_item_costs,
 )
 from care.emr.resources.invoice.default_expression_evaluator import (
     evaluate_invoice_identifier_default_expression,
@@ -191,3 +195,82 @@ class BillingSetupTests(CareAPITestBase):
         )
         self.assertEqual(displays, {"VIP", PAYER_TAGS["scheme"]})
         self.assertEqual(self.price("CON2", patient), Decimal(540))
+
+
+class PayerChangeRepricingTests(BillingSetupTests):
+    """A payer change applies from this visit onwards; past bills keep their
+    prices (hmis/repricing.py)."""
+
+    def raise_line(self, patient, code="CON2", **fields):
+        item = apply_charge_item_definition(
+            self.definition(code), patient, self.facility
+        )
+        for name, value in fields.items():
+            setattr(item, name, value)
+        item.save()
+        return item
+
+    def change_payer(self, patient, payer_type, payer_name):
+        patient.payer_type = payer_type
+        patient.payer_name = payer_name
+        patient.save(update_fields=["payer_type", "payer_name"])
+        sync_billing_tags(patient)
+
+    def test_billed_lines_keep_their_price_and_open_lines_follow_the_new_payer(self):
+        patient = self.register()
+        billed = self.raise_line(patient, status="billed")
+        paid = self.raise_line(patient, status="paid")
+        open_line = self.raise_line(patient)
+        self.assertEqual(open_line.total_price, Decimal(900))
+
+        self.change_payer(patient, "Corporate", "Infosys")
+
+        for item in (billed, paid, open_line):
+            item.refresh_from_db()
+        self.assertEqual(billed.total_price, Decimal(900))
+        self.assertEqual(paid.total_price, Decimal(900))
+        self.assertEqual(open_line.total_price, Decimal(765))
+        # And everything raised from now on.
+        self.assertEqual(self.price("CON2", patient), Decimal(765))
+
+    def test_lines_from_an_earlier_visit_are_not_repriced(self):
+        patient = self.register("Corporate", "Infosys")
+        yesterday = self.raise_line(patient)
+        ChargeItem.objects.filter(id=yesterday.id).update(
+            created_date=care_now() - timedelta(days=1)
+        )
+        overridden = self.raise_line(patient, override_reason={"text": "Approved"})
+
+        self.change_payer(patient, "Self", "Self-pay")
+
+        yesterday.refresh_from_db()
+        overridden.refresh_from_db()
+        self.assertEqual(yesterday.total_price, Decimal(765))
+        self.assertEqual(overridden.total_price, Decimal(765))
+
+    def test_line_picked_discounts_are_kept(self):
+        patient = self.register()
+        coupon = {
+            "monetary_component_type": "discount",
+            "code": {
+                "system": "http://ohc.network/codes/monetary/discount",
+                "code": "coupon_app100",
+                "display": "Coupon APP100 — ₹100 off consultation",
+            },
+            "amount": "100",
+        }
+        item = apply_charge_item_definition(
+            self.definition("CON2"), patient, self.facility
+        )
+        item.unit_price_components = [*item.unit_price_components, coupon]
+        sync_charge_item_costs(item)
+        item.save()
+        self.assertEqual(item.total_price, Decimal(800))
+
+        self.change_payer(patient, "Govt scheme", "CGHS")
+
+        item.refresh_from_db()
+        codes = [(c.get("code") or {}).get("code") for c in item.unit_price_components]
+        self.assertIn("coupon_app100", codes)
+        self.assertIn("tariff_scheme", codes)
+        self.assertEqual(item.total_price, Decimal(440))
