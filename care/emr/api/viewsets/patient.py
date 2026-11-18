@@ -51,6 +51,8 @@ from care.utils.shortcuts import get_object_or_404
 class PatientFilters(FilterSet):
     name = CharFilter(field_name="name", lookup_expr="icontains")
     phone_number = CharFilter(field_name="phone_number", lookup_expr="iexact")
+    # Partial mobile search for the header search box: matches any run of digits in the stored number.
+    phone_contains = CharFilter(field_name="phone_number", lookup_expr="icontains")
 
 
 class PatientViewSet(EMRModelViewSet):

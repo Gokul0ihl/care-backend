@@ -523,6 +523,20 @@ class TestPatientViewSet(CareAPITestBase):
         partial_ids = [r["partial_id"] for r in results]
         self.assertIn(str(patient_data["id"])[:5], partial_ids)
 
+    def test_list_filter_by_phone_contains(self):
+        phone = generate_random_valid_phone_number()
+        patient_data, _, _ = self._create_patient_with_phone(phone)
+        digits = phone.lstrip("+")
+        middle = digits[3:7]  # a run of digits from inside the stored number
+        response = self.client.get(self.base_url, {"phone_contains": middle})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [str(r["id"]) for r in response.data["results"]]
+        self.assertIn(str(patient_data["id"]), ids)
+
+        response = self.client.get(self.base_url, {"phone_contains": "0000000000000"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn(str(patient_data["id"]), [str(r["id"]) for r in response.data["results"]])
+
     def test_search_without_phone_or_config(self):
         user = self.create_user()
         self.client.force_authenticate(user=user)
