@@ -47,7 +47,9 @@ from hmis.views.base import (
     can,
     care_view,
     get_facility,
+    visible_patients,
 )
+from hmis.vip import exclude_hidden_vips
 
 
 class RegisterView(EmergencyAPIView):
@@ -168,10 +170,12 @@ class EmergencyEncounterViewSet(MedicoLegalMixin, GenericViewSet):
         return emr_exception_handler
 
     def get_queryset(self):
-        qs = (
+        qs = exclude_hidden_vips(
             emergency_encounters()
             .select_related("patient", "facility", "created_by")
-            .order_by("-created_date")
+            .order_by("-created_date"),
+            self.request.user,
+            "patient__",
         )
         if self.action == "list":
             facility = get_facility(self.request.query_params.get("facility"))
@@ -252,7 +256,9 @@ class ConvertView(EmergencyAPIView):
     patient through Care's own update path and replaces the desk number."""
 
     def post(self, request, patient_id):
-        patient = get_object_or_404(Patient, external_id=patient_id)
+        patient = get_object_or_404(
+            visible_patients(request.user), external_id=patient_id
+        )
         records = emergency_encounters().filter(
             patient=patient, converted_at__isnull=True
         )

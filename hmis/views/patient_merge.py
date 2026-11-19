@@ -24,6 +24,7 @@ from hmis.specs import (
 from hmis.views.base import (
     EmergencyAPIView,
 )
+from hmis.vip import exclude_hidden_vips
 
 
 class PatientMergeView(EmergencyAPIView):
@@ -34,7 +35,7 @@ class PatientMergeView(EmergencyAPIView):
         for value in (source_id, target_id):
             if not value:
                 raise ValidationError("source and target are required")
-        patients = Patient.objects.all()
+        patients = exclude_hidden_vips(Patient.objects.all(), self.request.user)
         if lock:
             # A stable order, so two merges of the same pair can't deadlock.
             patients = patients.select_for_update().order_by("id")

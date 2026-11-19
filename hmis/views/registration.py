@@ -51,6 +51,7 @@ from hmis.views.base import (
     can,
     care_view,
     get_facility,
+    visible_patients,
 )
 from hmis.vip import (
     VIP_REVEAL_DENIED,
@@ -246,9 +247,9 @@ class RegistrationView(EmergencyAPIView):
 class PatientRegistrationView(EmergencyAPIView):
     def get(self, request, patient_id):
         patient = get_object_or_404(
-            Patient.objects.select_related(*DESK_PATIENT_RELATED).prefetch_related(
-                "desk_allergies"
-            ),
+            visible_patients(request.user)
+            .select_related(*DESK_PATIENT_RELATED)
+            .prefetch_related("desk_allergies"),
             external_id=patient_id,
         )
         if not can("can_view_patient_obj", request.user, patient):
@@ -277,7 +278,9 @@ class PatientRegistrationView(EmergencyAPIView):
         """Edits a registered patient with the registration form: Care's own
         patient update, then the desk columns (registering a patient the desk
         hasn't, e.g. one registered elsewhere first). The UHID is kept."""
-        patient = get_object_or_404(Patient, external_id=patient_id)
+        patient = get_object_or_404(
+            visible_patients(request.user), external_id=patient_id
+        )
         if not can("can_write_patient_obj", request.user, patient):
             raise PermissionDenied("You do not have permission to edit this patient")
         if is_restricted(patient) and not can_see_identity(request.user, patient):
@@ -368,7 +371,9 @@ class VipRevealView(EmergencyAPIView):
     superusers don't bypass it."""
 
     def post(self, request, patient_id):
-        patient = get_object_or_404(Patient, external_id=patient_id)
+        patient = get_object_or_404(
+            visible_patients(request.user), external_id=patient_id
+        )
         if not can("can_view_patient_obj", request.user, patient):
             raise PermissionDenied("You do not have permission to view this patient")
         if is_restricted(patient) and not can_see_identity(request.user, patient):

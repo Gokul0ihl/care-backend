@@ -1,6 +1,7 @@
-"""VIP protocol (D29, R31): a VIP is shown as their VIP code on every staff
-list, screen and slip; staff reveal the name on purpose and each reveal is
-logged. All patients here are fake."""
+"""VIP protocol (D29, R31): staff without VIP access don't see a VIP at all.
+Staff with VIP access see the VIP code on every list, screen and slip, and
+reveal the name on purpose; each reveal is logged. All patients here are
+fake."""
 
 import re
 
@@ -37,7 +38,16 @@ class VipMaskingTests(CareAPITestBase):
         )
         self.patient.refresh_from_db()
         self.code = vip_code(self.patient)
+        # A superuser alone doesn't see VIPs; VIP access comes from a role.
+        self._grant_vip_access(self.user)
         self.client.force_authenticate(user=self.user)
+
+    def _grant_vip_access(self, user):
+        self.attach_role_facility_organization_user(
+            self.create_facility_organization(facility=self.facility),
+            user,
+            self.create_role_with_permissions(["can_reveal_vip_name"]),
+        )
 
     def test_code_is_stable_and_not_the_name(self):
         self.assertRegex(self.code, CODE)
@@ -112,7 +122,10 @@ class VipMaskingTests(CareAPITestBase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_reveal_needs_access_to_the_patient(self):
-        self.client.force_authenticate(user=self.create_user())
+        # VIP access alone isn't access to the patient.
+        user = self.create_user()
+        self._grant_vip_access(user)
+        self.client.force_authenticate(user=user)
         response = self.client.post(
             reverse("patient-vip-reveal", args=[self.patient.external_id])
         )
@@ -130,32 +143,25 @@ class VipMaskingTests(CareAPITestBase):
         return user
 
     def _vip_access(self):
-        """Logs in as a user whose facility role grants VIP access."""
+        """Logs in as a desk user whose facility role grants VIP access."""
         user = self._staff()
-        self.attach_role_facility_organization_user(
-            self.create_facility_organization(facility=self.facility),
-            user,
-            self.create_role_with_permissions(["can_reveal_vip_name"]),
-        )
+        self._grant_vip_access(user)
         self.user = user
         return user
 
-    def test_a_superuser_without_vip_access_cannot_reveal(self):
-        # setUp's user is a superuser; that alone isn't VIP access.
+    def test_a_superuser_without_vip_access_does_not_see_vips(self):
+        admin = self.create_super_user(username="testadmin")
+        self.client.force_authenticate(user=admin)
         me = self.client.get("/api/v1/users/getcurrentuser/").data
         self.assertFalse(me["can_reveal_vip"])
+        listed = self.client.get("/api/v1/patient/").data["results"]
+        self.assertEqual(listed, [])
+        detail = self.client.get(f"/api/v1/patient/{self.patient.external_id}/")
+        self.assertEqual(detail.status_code, status.HTTP_404_NOT_FOUND)
         response = self.client.post(
             reverse("patient-vip-reveal", args=[self.patient.external_id])
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.data["detail"], "Only a user with VIP access can see a VIP's name"
-        )
-        url = reverse("desk-registration-detail", args=[self.patient.external_id])
-        self.assertEqual(
-            self.client.get(url, {"reveal": "edit"}).status_code,
-            status.HTTP_403_FORBIDDEN,
-        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(VipReveal.objects.exists())
 
     def test_vip_access_comes_from_a_role(self):
@@ -173,16 +179,76 @@ class VipMaskingTests(CareAPITestBase):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertEqual(VipReveal.objects.get().user, self.user)
 
-    def test_staff_without_vip_access_cannot_open_a_vip_to_edit(self):
-        self._staff()
+    def test_staff_without_vip_access_do_not_see_a_vip(self):
+        plain = self.create_patient(name="Plain Example")
+        user = self._staff()
+        PatientUser.objects.create(
+            patient=plain,
+            user=user,
+            role=self.create_role_with_permissions(["can_list_patients"]),
+        )
+        # Lists and searches leave the VIP out, and keep everyone else.
+        names = [
+            row["name"] for row in self.client.get("/api/v1/patient/").data["results"]
+        ]
+        self.assertEqual(names, ["Plain Example"])
+        search = self.client.post(
+            "/api/v1/patient/search/",
+            {"phone_number": "+919800000042"},
+            format="json",
+        )
+        self.assertEqual(search.status_code, status.HTTP_200_OK, search.data)
+        self.assertEqual(search.data["results"], [])
+        # Opening the VIP, by any route, is not found.
+        for url in (
+            f"/api/v1/patient/{self.patient.external_id}/",
+            reverse("desk-registration-detail", args=[self.patient.external_id]),
+            reverse("patient-timeline", args=[self.patient.external_id]),
+        ):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, url)
         url = reverse("desk-registration-detail", args=[self.patient.external_id])
-        # The masked view still works for staff.
-        masked = self.client.get(url)
-        self.assertEqual(masked.status_code, status.HTTP_200_OK, masked.data)
-        self.assertEqual(masked.data["first_name"], self.code)
-        response = self.client.get(url, {"reveal": "edit"})
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         response = self.client.put(url, {}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        response = self.client.post(
+            reverse("patient-vip-reveal", args=[self.patient.external_id])
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(VipReveal.objects.exists())
-        self.assertEqual(Patient.objects.get().name, "Testvip Example")
+        self.assertEqual(
+            Patient.objects.get(id=self.patient.id).name, "Testvip Example"
+        )
+        # Care's own permission checks say no too.
+        from care.security.authorization import AuthorizationController
+
+        self.assertFalse(
+            AuthorizationController.call("can_view_patient_obj", user, self.patient)
+        )
+        self.assertTrue(
+            AuthorizationController.call("can_view_patient_obj", user, plain)
+        )
+
+    def test_appointment_requests_hide_a_vip_without_vip_access(self):
+        booking = request_booking(make_slot(self.user, self.facility), self.patient)
+        base = f"/api/hmis/facility/{self.facility.external_id}/appointment-requests/"
+        self.assertEqual(self.client.get(base).data["count"], 1)
+        admin = self.create_super_user(username="testadmin")
+        self.client.force_authenticate(user=admin)
+        listed = self.client.get(base).data
+        self.assertEqual((listed["count"], listed["results"]), (0, []))
+        response = self.client.get(
+            f"/api/v1/facility/{self.facility.external_id}/appointments/{booking.external_id}/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        response = self.client.post(f"{base}{booking.external_id}/approve/", {})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_the_duplicate_check_hides_a_vip_match(self):
+        url = reverse("registration-matches")
+        body = {"phone_number": "+919800000042"}
+        found = self.client.post(url, body, format="json")
+        self.assertEqual(found.status_code, status.HTTP_200_OK, found.data)
+        self.assertEqual(len(found.data["results"]), 1)
+        admin = self.create_super_user(username="testadmin")
+        self.client.force_authenticate(user=admin)
+        self.assertEqual(self.client.post(url, body, format="json").data["results"], [])

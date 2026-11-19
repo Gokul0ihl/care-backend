@@ -17,11 +17,12 @@ from rest_framework import status
 PHONE = "+919800000001"
 
 # Queries per request, whatever the number of patients. See the doc
-# (hmis_fe docs/patient-registration.md, "Patient width").
-LIST_QUERIES = 7
-PHONE_SEARCH_QUERIES = 3
-IDENTIFIER_SEARCH_QUERIES = 4
-SUMMARY_QUERIES = 7
+# (hmis_fe docs/patient-registration.md, "Patient width"). Each includes the
+# one VIP access check (hmis.vip.can_reveal_vip).
+LIST_QUERIES = 8
+PHONE_SEARCH_QUERIES = 4
+IDENTIFIER_SEARCH_QUERIES = 5
+SUMMARY_QUERIES = 8
 
 
 class PatientQueryCountTests(CareAPITestBase):

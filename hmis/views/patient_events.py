@@ -7,7 +7,6 @@ import uuid
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
-from care.emr.models import Patient
 from care.utils.pagination.care_pagination import CareLimitOffsetPagination
 from care.utils.shortcuts import get_object_or_404
 from hmis.models import PatientEvent, PatientEventActions, PatientEventChannels
@@ -16,7 +15,8 @@ from hmis.patient_events import (
     serialize_patient_event,
     timeline_patients,
 )
-from hmis.views.base import EmergencyAPIView, can
+from hmis.views.base import EmergencyAPIView, can, visible_patients
+from hmis.vip import exclude_hidden_vips
 
 
 class PatientTimelineView(EmergencyAPIView):
@@ -24,7 +24,9 @@ class PatientTimelineView(EmergencyAPIView):
     duplicates merged into this record. Anyone who can view the patient."""
 
     def get(self, request, patient_id):
-        patient = get_object_or_404(Patient, external_id=patient_id)
+        patient = get_object_or_404(
+            visible_patients(request.user), external_id=patient_id
+        )
         if not can("can_view_patient_obj", request.user, patient):
             raise PermissionDenied("You do not have permission to view this patient")
         events = PatientEvent.objects.filter(
@@ -52,7 +54,11 @@ class RegistrationAuditView(EmergencyAPIView):
         if not request.user.is_superuser:
             raise PermissionDenied("Only super admins can read the audit trail")
         params = request.query_params
-        events = PatientEvent.objects.select_related("patient", "user", "facility")
+        events = exclude_hidden_vips(
+            PatientEvent.objects.select_related("patient", "user", "facility"),
+            request.user,
+            "patient__",
+        )
         if params.get("facility"):
             try:
                 facility_id = uuid.UUID(params["facility"])

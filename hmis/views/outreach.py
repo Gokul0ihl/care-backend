@@ -8,7 +8,6 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.response import Response
 
-from care.emr.models import Patient
 from care.emr.models.organization import FacilityOrganization
 from care.utils.shortcuts import get_object_or_404
 from hmis import outreach
@@ -19,7 +18,8 @@ from hmis.models import (
     OutreachFormTemplate,
 )
 from hmis.restricted import can_see_identity, is_restricted
-from hmis.views.base import EmergencyAPIView, can, get_facility
+from hmis.views.base import EmergencyAPIView, can, get_facility, visible_patients
+from hmis.vip import exclude_hidden_vips
 
 MANAGE = "can_manage_outreach_event"
 APPROVE = "can_approve_outreach_event"
@@ -150,7 +150,11 @@ class OutreachEventParticipantsView(EmergencyAPIView):
     def get(self, request, event_id):
         event = get_event(event_id, request.user)
         participants = (
-            CampParticipant.objects.filter(event=event, deleted=False)
+            exclude_hidden_vips(
+                CampParticipant.objects.filter(event=event, deleted=False),
+                request.user,
+                "patient__",
+            )
             .select_related("patient", "captured_by")
             .prefetch_related("tests")
             .order_by("-captured_at")
@@ -254,7 +258,9 @@ class PatientCampVisitsView(EmergencyAPIView):
     the patient page. Anyone who can view the patient can see them."""
 
     def get(self, request, patient_id):
-        patient = get_object_or_404(Patient, external_id=patient_id, deleted=False)
+        patient = get_object_or_404(
+            visible_patients(request.user), external_id=patient_id, deleted=False
+        )
         if not can("can_view_patient_obj", request.user, patient):
             raise PermissionDenied("You do not have permission to view this patient")
         if is_restricted(patient) and not can_see_identity(request.user, patient):
@@ -353,7 +359,11 @@ class CampParticipantView(EmergencyAPIView):
         """People captured at the session's event, newest first."""
         session = get_session(session_id, request.user)
         participants = (
-            CampParticipant.objects.filter(event=session.event, deleted=False)
+            exclude_hidden_vips(
+                CampParticipant.objects.filter(event=session.event, deleted=False),
+                request.user,
+                "patient__",
+            )
             .select_related("patient", "captured_by")
             .prefetch_related("tests")
             .order_by("-captured_at")[:200]
@@ -391,7 +401,9 @@ class CampPatientLookupView(EmergencyAPIView):
         return Response(
             {
                 "results": outreach.lookup_patients(
-                    request.query_params.get("q"), session.event.facility
+                    request.query_params.get("q"),
+                    session.event.facility,
+                    request.user,
                 )
             }
         )

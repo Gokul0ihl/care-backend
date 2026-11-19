@@ -10,7 +10,7 @@ from hmis.appointment_approvals import can_review, review_booking
 from hmis.restricted import can_see_identity, is_restricted
 from hmis.services import display_numbers
 from hmis.views.base import EmergencyAPIView, can, get_facility
-from hmis.vip import vip_mapping
+from hmis.vip import exclude_hidden_vips, vip_mapping
 
 
 class ReviewSpec(BaseModel):
@@ -91,7 +91,7 @@ class AppointmentRequestListView(EmergencyAPIView):
         except (TypeError, ValueError) as exc:
             raise ValidationError("Invalid pagination") from exc
         query = (
-            request_queryset()
+            exclude_hidden_vips(request_queryset(), request.user, "patient__")
             .filter(token_slot__resource__facility=facility, approval_status=state)
             .order_by("token_slot__start_datetime", "booked_on", "id")
         )

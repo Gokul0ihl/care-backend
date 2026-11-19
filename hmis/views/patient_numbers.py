@@ -26,7 +26,9 @@ from hmis.views.base import (
     EmergencyAPIView,
     can,
     get_facility,
+    visible_patients,
 )
+from hmis.vip import exclude_hidden_vips
 
 
 class PatientNumberView(EmergencyAPIView):
@@ -35,7 +37,9 @@ class PatientNumberView(EmergencyAPIView):
 
     def post(self, request, patient_id):
         spec = PatientNumberIssueSpec.model_validate(request.data)
-        patient = get_object_or_404(Patient, external_id=patient_id)
+        patient = get_object_or_404(
+            visible_patients(request.user), external_id=patient_id
+        )
         if not can("can_write_patient_obj", request.user, patient):
             raise PermissionDenied("You do not have permission to update this patient")
         facility = get_facility(spec.facility)
@@ -85,7 +89,8 @@ class PatientSummaryView(EmergencyAPIView):
         # Narrow rows (Patient.list_deferred_fields), keeping the desk
         # facility that the desk access check below reads.
         patients = (
-            Patient.objects.filter(external_id__in=spec.patients)
+            exclude_hidden_vips(Patient.objects.all(), request.user)
+            .filter(external_id__in=spec.patients)
             .defer(
                 *[
                     x

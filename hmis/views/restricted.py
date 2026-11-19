@@ -28,6 +28,7 @@ from hmis.specs import (
 from hmis.views.base import (
     EmergencyAPIView,
     can,
+    visible_patients,
 )
 
 
@@ -37,7 +38,9 @@ class RestrictionView(EmergencyAPIView):
     those who can see the identity."""
 
     def get(self, request, patient_id):
-        patient = get_object_or_404(Patient, external_id=patient_id)
+        patient = get_object_or_404(
+            visible_patients(request.user), external_id=patient_id
+        )
         if not can("can_view_patient_obj", request.user, patient):
             raise PermissionDenied("You do not have permission to view this patient")
         visible = is_restricted(patient) and can_see_identity(request.user, patient)
@@ -49,7 +52,9 @@ class StatutoryFlagView(EmergencyAPIView):
     access to it (doctors and nurses), which the front desk doesn't have."""
 
     def get(self, request, patient_id):
-        patient = get_object_or_404(Patient, external_id=patient_id)
+        patient = get_object_or_404(
+            visible_patients(request.user), external_id=patient_id
+        )
         if not can("can_view_patient_obj", request.user, patient):
             raise PermissionDenied("You do not have permission to view this patient")
         encounters = (
@@ -75,7 +80,9 @@ class StatutoryFlagView(EmergencyAPIView):
 
     def post(self, request, patient_id):
         spec = StatutoryFlagSpec.model_validate(request.data)
-        patient = get_object_or_404(Patient, external_id=patient_id)
+        patient = get_object_or_404(
+            visible_patients(request.user), external_id=patient_id
+        )
         encounter = get_object_or_404(
             Encounter, external_id=spec.encounter, patient=patient
         )
@@ -107,7 +114,9 @@ class BreakGlassView(EmergencyAPIView):
 
     def post(self, request, patient_id):
         spec = BreakGlassSpec.model_validate(request.data)
-        patient = get_object_or_404(Patient, external_id=patient_id)
+        patient = get_object_or_404(
+            visible_patients(request.user), external_id=patient_id
+        )
         if not can("can_view_patient_obj", request.user, patient):
             raise PermissionDenied("You do not have permission to view this patient")
         if not is_restricted(patient):

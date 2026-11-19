@@ -93,8 +93,9 @@ class PatientPermissions(enum.Enum):
     # POH VIP protocol (D29, hmis.vip). No role has it by default, and a
     # superuser doesn't get it either: grant it through a custom role.
     can_reveal_vip_name = Permission(
-        "Can reveal a VIP's name",
-        "See and edit the real name of a patient flagged VIP. Every reveal is logged.",
+        "Can see VIP patients",
+        "See patients flagged VIP (shown by their VIP code) and reveal or edit their "
+        "real name. Without it VIPs are hidden. Every reveal is logged.",
         PermissionContext.PATIENT,
         [],
     )

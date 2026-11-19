@@ -1961,7 +1961,7 @@ def take_patient_identity(spec, patient):
     return born is not None
 
 
-def check_participant(spec, event, errors):
+def check_participant(spec, event, errors, user=None):
     today = timezone.localdate()
     patient = None
     if spec.kind == "existing":
@@ -1970,6 +1970,10 @@ def check_participant(spec, event, errors):
             if spec.patient
             else None
         )
+        from hmis.vip import is_hidden_vip
+
+        if is_hidden_vip(user, patient):
+            patient = None
         errors.check(patient, "patient", "Find the patient by name, mobile or UHID")
         if patient is not None:
             errors.check(
@@ -2366,7 +2370,7 @@ def capture_participant(session, user, spec, files=None):
     files = files or {}
     event = session.event
     errors = Errors()
-    patient, offered = check_participant(spec, event, errors)
+    patient, offered = check_participant(spec, event, errors, user)
     check_files(spec, files, errors)
     fields = capture_fields(event)
     answers = check_answers(fields, spec.extra_answers, errors, participant=spec)
@@ -2675,7 +2679,7 @@ def participant_row(participant):
 NAME_SEARCH_RE = re.compile(r"^[A-Za-z][A-Za-z .]{2,}$")
 
 
-def lookup_patients(query, facility=None):
+def lookup_patients(query, facility=None, user=None):
     """Existing patients for camp capture, by exact UHID, exact mobile or
     (3 letters or more) name. A name search covers only patients registered
     at the camp's facility. Returns only what the capture form needs."""
@@ -2700,7 +2704,9 @@ def lookup_patients(query, facility=None):
             patients = Patient.objects.filter(
                 name__icontains=name, registration_facility=facility, deleted=False
             ).order_by("name")[:10]
-    patients = list(patients)
+    from hmis.vip import is_hidden_vip
+
+    patients = [p for p in patients if not is_hidden_vip(user, p)]
     numbers = display_numbers([p.id for p in patients])
     rows = []
     for p in patients:

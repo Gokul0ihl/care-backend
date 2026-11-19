@@ -23,6 +23,15 @@ def get_facility(external_id):
     return get_object_or_404(Facility, external_id=external_id)
 
 
+def visible_patients(user):
+    """Patients this user may look up: a VIP is not found (404) for staff
+    without VIP access (hmis.vip)."""
+    from care.emr.models import Patient
+    from hmis.vip import exclude_hidden_vips
+
+    return exclude_hidden_vips(Patient.objects.all(), user)
+
+
 def can(permission, user, obj):
     return AuthorizationController.call(permission, user, obj)
 

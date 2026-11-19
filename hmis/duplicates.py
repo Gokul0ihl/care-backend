@@ -23,7 +23,7 @@ from care.security.authorization import AuthorizationController
 from hmis.contact import is_desk_phone
 from hmis.restricted import can_see_identity, is_restricted
 from hmis.services import display_numbers
-from hmis.vip import vip_mapping
+from hmis.vip import exclude_hidden_vips, vip_mapping
 
 PER_RULE = 20
 MAX_RESULTS = 10
@@ -99,9 +99,8 @@ def find_matches(user, spec):
     reasons = {}
     patients = {}
     for reason, query in rules(spec):
-        for patient in Patient.objects.filter(query).order_by("-modified_date")[
-            :PER_RULE
-        ]:
+        candidates = exclude_hidden_vips(Patient.objects.filter(query), user)
+        for patient in candidates.order_by("-modified_date")[:PER_RULE]:
             patients[patient.id] = patient
             reasons.setdefault(patient.id, []).append(reason)
     visible = [

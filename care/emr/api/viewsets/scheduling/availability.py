@@ -501,6 +501,11 @@ class SlotViewSet(EMRRetrieveMixin, EMRBaseViewSet):
         if pending_approval and request_data.booking_channel != BookingChannels.online:
             raise ValidationError("Only online bookings require app approval")
         patient = Patient.objects.filter(external_id=request_data.patient).first()
+        from hmis.vip import is_hidden_vip
+
+        if is_hidden_vip(user, patient):
+            # Staff without VIP access must not be able to find or book a VIP.
+            patient = None
         with transaction.atomic():
             if (
                 TokenBooking.objects.filter(

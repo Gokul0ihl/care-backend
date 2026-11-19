@@ -41,6 +41,7 @@ from hmis.views.base import (
     can,
     care_view,
     get_facility,
+    visible_patients,
 )
 from hmis.views.pincodes import pincode_response
 
@@ -181,7 +182,9 @@ class QuickRegistrationView(EmergencyAPIView):
 class PatientQuickRegistrationView(EmergencyAPIView):
     def get_record(self, request, patient_id):
         """The quick-registered patient; 404 for any other patient."""
-        patient = get_object_or_404(Patient, external_id=patient_id)
+        patient = get_object_or_404(
+            visible_patients(request.user), external_id=patient_id
+        )
         if not can("can_view_patient_obj", request.user, patient):
             raise PermissionDenied("You do not have permission to view this patient")
         return get_object_or_404(

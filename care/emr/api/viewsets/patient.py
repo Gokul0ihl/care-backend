@@ -308,7 +308,8 @@ class PatientViewSet(EMRModelViewSet):
                 partial = True
 
         queryset = (
-            queryset.select_related("geo_organization")
+            self.hide_vips(queryset)
+            .select_related("geo_organization")
             .defer(*Patient.list_deferred_fields())
             .order_by("-created_date")[:page_size]
         )
@@ -331,7 +332,7 @@ class PatientViewSet(EMRModelViewSet):
         request_data = self.SearchRetrieveRequestSpec(**request.data)
         queryset = Patient.objects.filter(phone_number=request_data.phone_number)
         queryset = queryset.filter(year_of_birth=request_data.year_of_birth)
-        for patient in queryset:
+        for patient in self.hide_vips(queryset):
             if str(patient.external_id)[:5] == request_data.partial_id:
                 context = self.get_serializer_retrieve_context()
                 return Response(

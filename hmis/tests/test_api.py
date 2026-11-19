@@ -11,7 +11,7 @@ from hmis.services import emergency_encounters, is_emergency_desk_phone
 
 DESK_NUMBER = "+919876543210"
 # Queries for the emergency list, whatever the number of records (fold run 5a).
-LIST_QUERIES = 3
+LIST_QUERIES = 4  # includes the VIP access check (hmis.vip)
 REAL_NUMBER = "+919812345678"
 COMPANION_NUMBER = "+919898989898"
 

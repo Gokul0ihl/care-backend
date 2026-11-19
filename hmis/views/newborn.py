@@ -34,6 +34,7 @@ from hmis.views.base import (
     can,
     care_view,
     get_facility,
+    visible_patients,
 )
 from hmis.views.registration import save_desk_registration
 
@@ -49,7 +50,7 @@ class NewbornRegistrationView(EmergencyAPIView):
         facility = get_facility(spec.facility)
         if not can("can_register_patient_at_facility_obj", request.user, facility):
             raise PermissionDenied("You do not have access to this facility")
-        mother = get_object_or_404(Patient, external_id=spec.mother)
+        mother = get_object_or_404(visible_patients(request.user), external_id=spec.mother)
         if not can("can_view_patient_obj", request.user, mother):
             raise PermissionDenied("You do not have permission to view the mother")
         if is_restricted(mother) and not can_see_identity(request.user, mother):

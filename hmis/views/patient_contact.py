@@ -23,6 +23,7 @@ from hmis.views.base import (
     EmergencyAPIView,
     can,
     care_view,
+    visible_patients,
 )
 
 
@@ -31,7 +32,9 @@ class PatientContactView(EmergencyAPIView):
 
     def patch(self, request, patient_id):
         spec = DeskContactSpec.model_validate(request.data)
-        patient = get_object_or_404(Patient, external_id=patient_id)
+        patient = get_object_or_404(
+            visible_patients(request.user), external_id=patient_id
+        )
         if not can("can_write_patient_obj", request.user, patient):
             raise PermissionDenied("Cannot update this patient")
         if is_restricted(patient) and not can_see_identity(request.user, patient):
@@ -40,7 +43,7 @@ class PatientContactView(EmergencyAPIView):
             raise ValidationError("Enter a real contact number, not the desk number")
         with transaction.atomic():
             record = get_object_or_404(
-                Patient.objects.select_for_update(),
+                visible_patients(request.user).select_for_update(),
                 id=patient.id,
                 registered_at__isnull=False,
             )

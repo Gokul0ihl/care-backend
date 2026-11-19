@@ -9,6 +9,7 @@ from care.emr.api.viewsets.scheduling.booking import TokenBookingViewSet
 from care.emr.models import TokenBooking, TokenSlot
 from care.security.authorization import AuthorizationController
 from care.utils.shortcuts import get_object_or_404
+from hmis.vip import exclude_hidden_vips
 
 
 class ReviewConflict(APIException):
@@ -40,6 +41,8 @@ def review_booking(booking_id, decision, reason="", user=None, facility=None):
     )
     if facility is not None:
         query = query.filter(token_slot__resource__facility=facility)
+    # Staff without VIP access can't find a VIP's request (hmis.vip).
+    query = exclude_hidden_vips(query, user, "patient__")
     original = get_object_or_404(query)
     with transaction.atomic():
         slot = (

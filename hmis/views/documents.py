@@ -6,7 +6,6 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 
 from care.emr.api.viewsets.file_upload import file_authorizer
-from care.emr.models import Patient
 from care.security.authorization import AuthorizationController
 from care.utils.shortcuts import get_object_or_404
 from hmis.constants import (
@@ -27,6 +26,7 @@ from hmis.specs import (
 )
 from hmis.views.base import (
     EmergencyAPIView,
+    visible_patients,
 )
 
 
@@ -40,7 +40,8 @@ class DocumentView(EmergencyAPIView):
 
     def get(self, request):
         patient = get_object_or_404(
-            Patient, external_id=request.query_params.get("patient")
+            visible_patients(request.user),
+            external_id=request.query_params.get("patient"),
         )
         file_authorizer(request.user, "patient", str(patient.external_id), "read")
         if is_restricted(patient) and not can_see_identity(request.user, patient):
@@ -71,7 +72,9 @@ class DocumentView(EmergencyAPIView):
             raise ValidationError("Upload a JPEG, PNG, WebP or PDF")
         patient = None
         if spec.patient:
-            patient = get_object_or_404(Patient, external_id=spec.patient)
+            patient = get_object_or_404(
+                visible_patients(request.user), external_id=spec.patient
+            )
             file_authorizer(request.user, "patient", str(spec.patient), "write")
         elif not AuthorizationController.call("can_create_patient", request.user):
             raise PermissionDenied("You do not have permission to register patients")

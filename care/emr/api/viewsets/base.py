@@ -334,8 +334,21 @@ class EMRBaseViewSet(GenericViewSet):
             return self.pydantic_update_model
         return self.pydantic_model
 
+    def hide_vips(self, queryset):
+        """POH VIP protocol (hmis.vip): staff without VIP access don't see VIP
+        patients, or anything of theirs, in any list or lookup."""
+        from hmis.vip import exclude_hidden_vips, vip_path
+
+        path = vip_path(queryset.model)
+        if path is None:
+            return queryset
+        return exclude_hidden_vips(queryset, self.request.user, path)
+
+    def filter_queryset(self, queryset):
+        return self.hide_vips(super().filter_queryset(queryset))
+
     def get_object(self):
-        queryset = self.get_queryset()
+        queryset = self.hide_vips(self.get_queryset())
         return get_object_or_404(
             queryset, **{self.lookup_field: self.kwargs[self.lookup_field]}
         )

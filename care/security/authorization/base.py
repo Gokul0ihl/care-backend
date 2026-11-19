@@ -99,6 +99,12 @@ class AuthorizationController:
             cls.build_cache()
         if item.startswith("can_"):
             if item in cls.cache["actions"]:
+                # POH VIP protocol: nothing about a VIP patient is allowed to
+                # staff without VIP access (hmis.vip).
+                from hmis.vip import concerns_hidden_vip
+
+                if args and concerns_hidden_vip(args[0], args[1:]):
+                    return False
                 return getattr(cls.cache["actions"][item](), item)(*args, **kwargs)
             raise ValueError("Invalid Action")
         if item.startswith("get_"):
