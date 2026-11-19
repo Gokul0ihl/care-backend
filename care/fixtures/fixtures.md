@@ -17,7 +17,9 @@ care/fixtures/
 ├── poh.py               # POH (hmis/ app) data: unit codes, desk patients, ED arrivals
 ├── scripts/
 │   ├── __init__.py
-│   └── default_fixtures.py   # Default seed file (loaded by manage.py)
+│   ├── default_fixtures.py   # Default seed file (loaded by manage.py)
+│   └── uat_fixtures.py       # UAT seed: Lajpat Nagar, Karol Bagh, Dwarka (fresh DB only;
+│                             #   see docs/uat-data.md in the frontend repo)
 └── fixtures.md          # This file
 ```
 

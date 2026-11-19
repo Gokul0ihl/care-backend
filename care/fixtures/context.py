@@ -32,7 +32,15 @@ class _NoOpLock:
 
 
 @contextmanager
-def care_fixture_context(base_cls: type[CareFixtureBase] = CareFixtureBase):
+def care_fixture_context(
+    base_cls: type[CareFixtureBase] = CareFixtureBase,
+    superuser_username: str = "admin",
+    superuser_password: str | None = "admin",  # noqa: S107 - dev-only default
+):
+    """Runs a fixture script atomically as a superuser. The default seed
+    (re)sets admin / admin; a script for a shared database can name its own
+    superuser with superuser_password=None, which leaves an existing
+    password alone and gives a new user an unusable one."""
     if not settings.DEBUG:
         msg = "This command should not be run in production. Exiting..."
         raise RuntimeError(msg)
@@ -64,17 +72,20 @@ def care_fixture_context(base_cls: type[CareFixtureBase] = CareFixtureBase):
             )
 
             user_model = get_user_model()
-            superuser, _ = user_model.objects.get_or_create(
-                username="admin",
+            superuser, created = user_model.objects.get_or_create(
+                username=superuser_username,
                 defaults={
                     "first_name": "Admin",
                     "last_name": "User",
-                    "email": "admin@care.test",
+                    "email": f"{superuser_username}@care.test",
                     "is_superuser": True,
                     "is_staff": True,
                 },
             )
-            superuser.set_password("admin")
+            if superuser_password is not None:
+                superuser.set_password(superuser_password)
+            elif created:
+                superuser.set_unusable_password()
             superuser.is_superuser = True
             superuser.is_staff = True
             superuser.save()
