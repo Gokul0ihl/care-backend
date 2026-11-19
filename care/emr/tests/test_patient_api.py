@@ -525,7 +525,15 @@ class TestPatientViewSet(CareAPITestBase):
 
     def test_list_filter_by_phone_contains(self):
         phone = generate_random_valid_phone_number()
-        patient_data, _, _ = self._create_patient_with_phone(phone)
+        patient_data, user, geo_organization = self._create_patient_with_phone(phone)
+        # Listing needs can_list_patients; creating alone doesn't grant it.
+        self.attach_role_organization_user(
+            geo_organization,
+            user,
+            self.create_role_with_permissions(
+                permissions=[PatientPermissions.can_list_patients.name]
+            ),
+        )
         digits = phone.lstrip("+")
         middle = digits[3:7]  # a run of digits from inside the stored number
         response = self.client.get(self.base_url, {"phone_contains": middle})
