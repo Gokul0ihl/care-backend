@@ -1,4 +1,5 @@
-"""Mobile API v1: self-only in-person appointments with staff approval."""
+"""Mobile API v1: self-only in-person appointments with staff approval, and
+patient self-service cancel/reschedule within the app's limits."""
 
 from django.db.models import F, Max, Q
 from django.db.models.functions import Coalesce
@@ -14,9 +15,12 @@ from hmis.mobile_appointments import (
     available_slots,
     booking_data,
     booking_queryset,
+    cancel_booking,
     public_schedules,
+    reschedule_booking,
     submit_booking,
 )
+from hmis.models import MobileAppointmentChange
 from hmis.views.mobile import MobileView, ok
 
 
@@ -73,6 +77,17 @@ class SubmitSpec(StrictSerializer):
         default=list,
     )
     patient_notes = serializers.CharField(max_length=500, allow_blank=True, default="")
+
+
+class ChangeSpec(StrictSerializer):
+    reason = serializers.ChoiceField(choices=MobileAppointmentChange.REASONS)
+    note = serializers.CharField(max_length=500, allow_blank=True, default="")
+
+
+class RescheduleSpec(ChangeSpec):
+    # The new first slot, from the same doctor's slots endpoint. A longer
+    # appointment takes the slots that follow it.
+    slot_id = serializers.UUIDField()
 
 
 def validated(spec, data):
@@ -251,4 +266,27 @@ class MobileAppointmentDetailView(MobileView):
                     booking_queryset(request.user.patient), external_id=booking_id
                 )
             )
+        )
+
+
+class MobileAppointmentCancelView(MobileView):
+    def post(self, request, booking_id):
+        params = validated(ChangeSpec, request.data)
+        expire_own_pending(request.user.patient)
+        booking, cancelled = cancel_booking(request.user.account, booking_id, **params)
+        return ok(
+            booking_data(booking),
+            "Appointment cancelled" if cancelled else "Appointment already cancelled",
+        )
+
+
+class MobileAppointmentRescheduleView(MobileView):
+    def post(self, request, booking_id):
+        params = validated(RescheduleSpec, request.data)
+        expire_own_pending(request.user.patient)
+        booking, moved = reschedule_booking(request.user.account, booking_id, **params)
+        return ok(
+            booking_data(booking),
+            "Appointment rescheduled" if moved else "Appointment already rescheduled",
+            code=201 if moved else 200,
         )

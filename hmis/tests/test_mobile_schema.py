@@ -35,7 +35,7 @@ class MobileSchemaTests(SimpleTestCase):
                 view = resolve(concrete).func.view_class
                 self.assertTrue(hasattr(view, method), full_path)
                 count += 1
-        self.assertEqual(count, 16)
+        self.assertEqual(count, 18)
 
     def test_patient_auth_and_public_login(self):
         paths = self.schema["paths"]

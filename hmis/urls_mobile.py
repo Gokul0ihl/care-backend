@@ -15,10 +15,12 @@ from hmis.views.mobile import (
     VerifyOtpView,
 )
 from hmis.views.mobile_appointments import (
+    MobileAppointmentCancelView,
     MobileAppointmentDetailView,
     MobileAppointmentDoctorsView,
     MobileAppointmentFacilitiesView,
     MobileAppointmentListCreateView,
+    MobileAppointmentRescheduleView,
     MobileAppointmentSlotsView,
 )
 from hmis.views.mobile_registration import (
@@ -52,6 +54,16 @@ urlpatterns = [
         r"appointments/(?P<booking_id>[0-9a-f-]{36})",
         MobileAppointmentDetailView,
         "mobile-appointment-detail",
+    ),
+    route(
+        r"appointments/(?P<booking_id>[0-9a-f-]{36})/cancel",
+        MobileAppointmentCancelView,
+        "mobile-appointment-cancel",
+    ),
+    route(
+        r"appointments/(?P<booking_id>[0-9a-f-]{36})/reschedule",
+        MobileAppointmentRescheduleView,
+        "mobile-appointment-reschedule",
     ),
     route(
         "auth/registration/facilities",

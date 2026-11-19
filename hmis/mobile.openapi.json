@@ -3,7 +3,7 @@
   "info": {
     "title": "POH patient mobile API",
     "version": "1.0.0",
-    "description": "Mobile team contract: OTP sign-in, direct OTP-proven registration, self-profile read/update with a profile photo (presigned upload to the private patient bucket), refreshing patient sessions and self-only in-person appointments with hospital approval. Passwords collected at registration are hashed for future use; password sign-in is not exposed. Use patient access tokens, never staff credentials or service-account API keys. See docs/mobile-app-login.md and docs/mobile-appointments.md."
+    "description": "Mobile team contract: OTP sign-in, direct OTP-proven registration, self-profile read/update with a profile photo (presigned upload to the private patient bucket), refreshing patient sessions and self-only in-person appointments with hospital approval, which the patient can cancel or reschedule within the hospital's limits. Passwords collected at registration are hashed for future use; password sign-in is not exposed. Use patient access tokens, never staff credentials or service-account API keys. See docs/mobile-app-login.md and docs/mobile-appointments.md."
   },
   "servers": [
     {
@@ -410,7 +410,7 @@
           "Mobile appointments"
         ],
         "summary": "Submit own in-person appointment for staff approval",
-        "description": "Only request_id, slot_id, optional extra_slot_ids (a longer appointment) and optional patient_notes are accepted. Patient is determined by access token. New submission holds one seat in each slot and returns 201 pending. An identical request_id+normalized payload replay returns 200 with the same booking\u2019s latest status; changed payload returns 409. The receipt and booking commit atomically. No family, cancellation/reschedule request or online payment is provided.",
+        "description": "Only request_id, slot_id, optional extra_slot_ids (a longer appointment) and optional patient_notes are accepted. Patient is determined by access token. New submission holds one seat in each slot and returns 201 pending. An identical request_id+normalized payload replay returns 200 with the same booking\u2019s latest status; changed payload returns 409. The receipt and booking commit atomically. No family booking or online payment is provided; cancel and reschedule have their own operations.",
         "parameters": [],
         "responses": {
           "200": {
@@ -504,7 +504,7 @@
           "Mobile appointments"
         ],
         "summary": "Read own appointment",
-        "description": "Another profile\u2019s appointment returns 404. Pending requests expire at slot start. Approval audit is retained after later clinical changes; use status for UI state.",
+        "description": "Another profile\u2019s appointment returns 404. Pending requests expire at slot start. Approval audit is retained after later clinical changes; use status for UI state and can_cancel/can_reschedule for the buttons.",
         "parameters": [
           {
             "name": "booking_id",
@@ -550,6 +550,203 @@
           },
           "422": {
             "description": "Invalid or unsupported field/query. See errors[].field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "MobilePatientAccess": []
+          }
+        ]
+      }
+    },
+    "/appointments/{booking_id}/cancel": {
+      "post": {
+        "operationId": "mobileAppointmentCancel",
+        "tags": [
+          "Mobile appointments"
+        ],
+        "summary": "Cancel own appointment",
+        "description": "Cancels a pending request or a confirmed booking until slot start minus MOBILE_CANCEL_CUTOFF (0 hours by default). Frees every seat it held. A pending request becomes approval_status withdrawn and leaves the staff queue. Cancelling an already cancelled booking returns 200 with its current state. No refund is made: online payment isn't offered yet, so consultation_fee stays null.",
+        "parameters": [
+          {
+            "name": "booking_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": ""
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MobileCancelAppointment"
+              },
+              "example": {
+                "reason": "unwell",
+                "note": ""
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cancelled, or already cancelled. data is the cancelled appointment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileAppointmentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Patient access token required; refresh or sign in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown, unavailable/private or another profile\u2019s resource.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The app may no longer cancel it (arrived, started, past the cut-off) or it was rescheduled; cancel the new booking or contact the hospital.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid or unsupported field/query. See errors[].field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "MobilePatientAccess": []
+          }
+        ]
+      }
+    },
+    "/appointments/{booking_id}/reschedule": {
+      "post": {
+        "operationId": "mobileAppointmentReschedule",
+        "tags": [
+          "Mobile appointments"
+        ],
+        "summary": "Reschedule own appointment",
+        "description": "Moves the appointment to another public slot of the same doctor, until slot start minus MOBILE_RESCHEDULE_CUTOFF (4 hours by default) and at most MOBILE_RESCHEDULE_LIMIT times (2 by default) per APT number. The old booking becomes status rescheduled with rescheduled_to set; a new booking keeps the APT number, length (extra slots) and patient notes. A confirmed booking stays confirmed; a pending request stays pending for staff, and the old one is withdrawn. To change doctor, cancel and book again. Repeating the same move returns 200 with the new booking.",
+        "parameters": [
+          {
+            "name": "booking_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": ""
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MobileRescheduleAppointment"
+              },
+              "example": {
+                "slot_id": "66666666-6666-4666-8666-666666666666",
+                "reason": "schedule_clash",
+                "note": ""
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Moved. data is the new booking.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileAppointmentResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Repeat of a move already made. data is the new booking.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileAppointmentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Patient access token required; refresh or sign in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown booking or slot, or a slot of another doctor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "New time full, closed or without enough back-to-back slots, a time clash, past the cut-off or limit, or already moved elsewhere.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid field, unknown field, or slot_id is the current slot.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1352,7 +1549,14 @@
           "updated_at",
           "consultation_type",
           "consultation_fee",
-          "payment_option"
+          "payment_option",
+          "rescheduled_to",
+          "patient_change",
+          "can_cancel",
+          "cancel_deadline",
+          "can_reschedule",
+          "reschedule_deadline",
+          "reschedules_remaining"
         ],
         "properties": {
           "id": {
@@ -1384,9 +1588,11 @@
               "approved",
               "rejected",
               "expired",
+              "withdrawn",
               null
             ],
-            "nullable": true
+            "nullable": true,
+            "description": "App-request review. withdrawn: the patient cancelled or moved a pending request before staff decided. null for desk bookings and for the new booking a reschedule makes from a confirmed one."
           },
           "rejection_reason": {
             "type": "string",
@@ -1486,6 +1692,68 @@
             "enum": [
               "pay_at_hospital"
             ]
+          },
+          "rescheduled_to": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "On a rescheduled booking, the booking that replaced it (moved in the app or at the desk)."
+          },
+          "patient_change": {
+            "type": "object",
+            "nullable": true,
+            "description": "Set when the patient cancelled or moved this booking in the app; null if the hospital did.",
+            "required": [
+              "action",
+              "reason",
+              "note",
+              "created_at"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "cancel",
+                  "reschedule"
+                ]
+              },
+              "reason": {
+                "$ref": "#/components/schemas/MobileAppointmentChangeReason"
+              },
+              "note": {
+                "type": "string",
+                "nullable": true
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "can_cancel": {
+            "type": "boolean",
+            "description": "Show Cancel. False once the booking has started, the patient has arrived, or the cancel cut-off has passed."
+          },
+          "cancel_deadline": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Last moment the app may cancel (slot start minus the cancel cut-off, 0 hours by default). null when the booking can no longer change."
+          },
+          "can_reschedule": {
+            "type": "boolean",
+            "description": "Show Reschedule. False inside the reschedule cut-off, after the reschedule limit, or once the booking can no longer change."
+          },
+          "reschedule_deadline": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Last moment the app may reschedule (slot start minus 4 hours by default). null when the booking can no longer change."
+          },
+          "reschedules_remaining": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "App reschedules left for this appointment (2 by default). Desk reschedules of the same APT number count too."
           }
         }
       },
@@ -2483,6 +2751,57 @@
           },
           "data": {
             "$ref": "#/components/schemas/MobileProfilePhotoUploadTicket"
+          }
+        }
+      },
+      "MobileAppointmentChangeReason": {
+        "type": "string",
+        "enum": [
+          "unwell",
+          "cost",
+          "wrong_doctor",
+          "schedule_clash",
+          "other"
+        ]
+      },
+      "MobileCancelAppointment": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/MobileAppointmentChangeReason"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "default": "",
+            "description": "Optional free text from the patient."
+          }
+        }
+      },
+      "MobileRescheduleAppointment": {
+        "type": "object",
+        "required": [
+          "slot_id",
+          "reason"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "slot_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The new first slot, from the same doctor's slots endpoint. A longer appointment also takes the slots straight after it in that session."
+          },
+          "reason": {
+            "$ref": "#/components/schemas/MobileAppointmentChangeReason"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "default": ""
           }
         }
       }

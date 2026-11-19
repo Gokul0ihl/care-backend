@@ -479,6 +479,37 @@ class MobileAppointmentSubmission(models.Model):
         return f"Mobile appointment submission {self.request_id}"
 
 
+class MobileAppointmentChange(models.Model):
+    """A patient cancelling or rescheduling in the app. Care's audit fields
+    take a staff User, so this is the record of who changed the booking."""
+
+    CANCEL = "cancel"
+    RESCHEDULE = "reschedule"
+    REASONS = ["unwell", "cost", "wrong_doctor", "schedule_clash", "other"]
+
+    account = models.ForeignKey(PatientAccount, on_delete=models.PROTECT)
+    action = models.CharField(
+        max_length=12, choices=[(CANCEL, "Cancel"), (RESCHEDULE, "Reschedule")]
+    )
+    booking = models.OneToOneField(
+        "emr.TokenBooking", on_delete=models.PROTECT, related_name="mobile_change"
+    )
+    # The new booking a reschedule made.
+    replacement = models.OneToOneField(
+        "emr.TokenBooking",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="mobile_rescheduled_from",
+    )
+    reason = models.CharField(max_length=20)
+    note = models.CharField(max_length=500, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Mobile appointment {self.action} {self.booking_id}"
+
+
 # --- Outreach events and camp capture (docs/outreach-camps.md) ---
 
 

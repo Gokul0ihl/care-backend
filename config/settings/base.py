@@ -521,6 +521,16 @@ PATIENT_REFRESH_TOKEN_LIFETIME = timedelta(
     days=env.int("PATIENT_REFRESH_TOKEN_LIFETIME_DAYS", default=60)
 )
 
+# What a patient may change in the app (hmis/mobile_appointments.py, Intake
+# Suite "My appointments"). Closer to the slot, or past the count, the desk does it.
+MOBILE_RESCHEDULE_CUTOFF = timedelta(
+    hours=env.float("MOBILE_RESCHEDULE_CUTOFF_HOURS", default=4)
+)
+MOBILE_RESCHEDULE_LIMIT = env.int("MOBILE_RESCHEDULE_LIMIT", default=2)
+MOBILE_CANCEL_CUTOFF = timedelta(
+    hours=env.float("MOBILE_CANCEL_CUTOFF_HOURS", default=0)
+)
+
 # The time window (in minutes) for tracking OTP request limits
 OTP_SEND_WINDOW_MINUTES = env.int("OTP_SEND_WINDOW_MINUTES", default=60)
 
