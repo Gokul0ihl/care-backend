@@ -8,6 +8,7 @@ from rest_framework import serializers
 
 from care.emr.api.viewsets.scheduling.desk_details import MAX_SLOTS_PER_BOOKING
 from care.emr.models import SchedulableResource
+from care.emr.models.organization import FacilityOrganizationUser
 from care.facility.models import Facility
 from care.utils.shortcuts import get_object_or_404
 from hmis.appointment_approvals import ReviewConflict, review_booking
@@ -108,10 +109,25 @@ def page_data(query, params, serialize):
 
 
 def doctor_data(resource):
+    # Care has no specialty field: a consultant's specialties are the departments
+    # they belong to in this facility.
+    specializations = (
+        FacilityOrganizationUser.objects.filter(
+            user=resource.user,
+            organization__facility_id=resource.facility_id,
+            organization__org_type="dept",
+            organization__active=True,
+            organization__deleted=False,
+        )
+        .values_list("organization__name", flat=True)
+        .distinct()
+    )
     return {
         "id": str(resource.external_id),
         "name": resource.user.get_full_name(),
         "qualification": resource.user.qualification,
+        "specializations": sorted(specializations),
+        "photo_url": resource.user.read_profile_picture_url(),
         "consultation_fee": None,
     }
 

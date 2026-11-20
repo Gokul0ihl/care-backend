@@ -1415,6 +1415,8 @@
           "id",
           "name",
           "qualification",
+          "specializations",
+          "photo_url",
           "consultation_fee"
         ],
         "properties": {
@@ -1429,6 +1431,19 @@
           "qualification": {
             "type": "string",
             "nullable": true
+          },
+          "specializations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Names of the departments the doctor belongs to in this facility, sorted. Empty when none."
+          },
+          "photo_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "description": "Public image URL, which may be on another site (e.g. the POH website). Null when there is no photo; show initials then."
           },
           "consultation_fee": {
             "type": "number",

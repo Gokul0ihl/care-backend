@@ -92,6 +92,8 @@ class MobileAppointmentTests(CareAPITestBase):
         self.assertNotIn("phone_number", doctor)
         self.assertNotIn("email", doctor)
         self.assertIsNone(doctor["consultation_fee"])
+        self.assertEqual(doctor["specializations"], [])
+        self.assertIsNone(doctor["photo_url"])
         self.assertEqual(
             self.client.get(self.doctors_url, {"search": "absent"}).data["data"][
                 "total"
@@ -101,6 +103,25 @@ class MobileAppointmentTests(CareAPITestBase):
         self.assertEqual(
             self.client.get(self.doctors_url, {"page": 2}).data["data"]["items"], []
         )
+
+    def test_doctor_shows_department_specializations_and_external_photo(self):
+        role = self.create_role(name="Test Consultant")
+        for name in ("Cardiology", "ENT"):
+            dept = self.create_facility_organization(
+                self.facility, name=name, org_type="dept"
+            )
+            self.attach_role_facility_organization_user(dept, self.doctor, role)
+        retired = self.create_facility_organization(
+            self.facility, name="Retired", org_type="dept", active=False
+        )
+        self.attach_role_facility_organization_user(retired, self.doctor, role)
+        photo = "https://pacificonehealth.com/wp-content/uploads/2026/09/Aashima-1.png"
+        self.doctor.profile_picture_url = photo
+        self.doctor.save(update_fields=["profile_picture_url"])
+
+        doctor = self.client.get(self.doctors_url).data["data"]["items"][0]
+        self.assertEqual(doctor["specializations"], ["Cardiology", "ENT"])
+        self.assertEqual(doctor["photo_url"], photo)
 
     def test_private_or_deleted_schedules_and_inactive_doctors_are_excluded(self):
         schedule = self.slot.availability.schedule
