@@ -86,3 +86,14 @@ def grant_app_server(sender, instance, created, **kwargs):
     """The app server books at every facility, new ones included."""
     if created and instance.org_type == "root" and instance.system_generated:
         grant_new_facility(instance)
+
+
+@receiver(post_save, sender=Encounter, dispatch_uid="hmis_opd_visit")
+def open_opd_visit(sender, instance, created, **kwargs):
+    """Every new outpatient (amb) encounter joins the OPD queue at the vitals
+    stage (hmis/opd.py). Video and home visits (vr, hh) don't."""
+    if not created or instance.encounter_class != "amb":
+        return
+    from hmis.opd import open_visit
+
+    open_visit(instance, user=instance.created_by)
